@@ -59,13 +59,13 @@ class SupabaseService {
     );
   }
 
-  Future<List>> listarDestaquesHero() async {
+  Future<List<dynamic>> listarDestaquesHero() async {
     final res = await http.get(
       Uri.parse('$supabaseUrl/rest/v1/catalogo_midia?em_destaque=eq.true&order=ordem_destaque.asc'),
       headers: _headers,
     );
     if (res.statusCode == 200) {
-      return List>.from(jsonDecode(utf8.decode(res.bodyBytes)));
+      return List<dynamic>.from(jsonDecode(utf8.decode(res.bodyBytes)));
     }
     return [];
   }
@@ -81,13 +81,13 @@ class SupabaseService {
     );
   }
 
-  Future<List>> listarAbas() async {
+  Future<List<dynamic>> listarAbas() async {
     final res = await http.get(
       Uri.parse('$supabaseUrl/rest/v1/catalogo_abas?order=ordem.asc'),
       headers: _headers,
     );
     if (res.statusCode == 200) {
-      return List>.from(jsonDecode(utf8.decode(res.bodyBytes)));
+      return List<dynamic>.from(jsonDecode(utf8.decode(res.bodyBytes)));
     }
     return [];
   }
@@ -105,13 +105,13 @@ class SupabaseService {
     await http.delete(Uri.parse('$supabaseUrl/rest/v1/catalogo_abas?id=eq.$id'), headers: _headers);
   }
 
-  Future<List>> listarBlocos() async {
+  Future<List<dynamic>> listarBlocos() async {
     final res = await http.get(
       Uri.parse('$supabaseUrl/rest/v1/catalogo_blocos?order=ordem.asc'),
       headers: _headers,
     );
     if (res.statusCode == 200) {
-      return List>.from(jsonDecode(utf8.decode(res.bodyBytes)));
+      return List<dynamic>.from(jsonDecode(utf8.decode(res.bodyBytes)));
     }
     return [];
   }

@@ -11,9 +11,9 @@ class VitrineScreen extends StatefulWidget {
 }
 
 class _VitrineScreenState extends State<VitrineScreen> {
-  List> _abas = [];
-  List> _blocos = [];
-  List> _destaquesHero = [];
+  List<dynamic> _abas = [];
+  List<dynamic> _blocos = [];
+  List<dynamic> _destaquesHero = [];
   List<CatalogoItem> _itensAprovados = [];
   bool _carregando = true;
 

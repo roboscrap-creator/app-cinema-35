@@ -60,7 +60,6 @@ class _HomeAdminState extends State<HomeAdmin> {
     });
     if (_serviceKey.isNotEmpty) {
       _atualizarCatalogo();
-                } catch (e) { if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro: $e"), backgroundColor: Colors.red)); } }
     } else {
       setState(() => _abaAtual = 3);
     }
@@ -208,7 +207,6 @@ class _HomeAdminState extends State<HomeAdmin> {
               style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
               onPressed: () async {
                 if (tituloCtrl.text.trim().isEmpty || urlCtrl.text.trim().isEmpty) return;
-                try {
                 await _sb.inserirMidia({
                   'titulo': tituloCtrl.text.trim(),
                   'categoria': categoria,

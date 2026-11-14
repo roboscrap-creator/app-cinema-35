@@ -567,7 +567,7 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
                               Checkbox(
                                 value: marcado,
                                 activeColor: Colors.amber,
-                                onChanged: (v) async {
+                                onChanged: (v) {
                                   setState(() {
                                     if (v == true) {
                                       _selecionados.add(u);

@@ -89,6 +89,7 @@ class _HomeAdminState extends State<HomeAdmin> {
     String? audioSugerido,
   }) async {
     final tituloCtrl = TextEditingController(text: tituloSugerido ?? '');
+    final tmdbUrlCtrl = TextEditingController();
     final urlCtrl = TextEditingController(text: urlStream ?? '');
     final backupCtrl = TextEditingController();
     final capaCtrl = TextEditingController();
@@ -180,6 +181,55 @@ class _HomeAdminState extends State<HomeAdmin> {
                   ],
                 ),
                 const SizedBox(height: 10),
+                if (_tmdbKey.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: tmdbUrlCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Link ou ID do TMDB (Opcional)',
+                            hintText: 'themoviedb.org/movie/12345 ou /tv/678',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: 'Puxar filme/série exato pelo Link ou ID TMDB',
+                        icon: const Icon(Icons.link, color: Colors.tealAccent),
+                        onPressed: () async {
+                          final raw = tmdbUrlCtrl.text.trim();
+                          if (raw.isEmpty) return;
+                          final isTv = raw.contains('/tv/') || categoria == 'Série';
+                          final match = RegExp(r'(\d+)').firstMatch(raw);
+                          if (match == null) return;
+                          final id = match.group(1);
+                          final tipo = isTv ? 'tv' : 'movie';
+                          setDialog(() => buscandoTmdb = true);
+                          try {
+                            final r = await http.get(Uri.parse('https://api.themoviedb.org/3/$tipo/$id?api_key=$_tmdbKey&language=pt-BR'));
+                            if (r.statusCode == 200) {
+                              final m = jsonDecode(r.body);
+                              setDialog(() {
+                                tituloCtrl.text = m['title'] ?? m['name'] ?? tituloCtrl.text;
+                                sinopseCtrl.text = m['overview'] ?? '';
+                                if (m['poster_path'] != null) capaCtrl.text = 'https://image.tmdb.org/t/p/w500${m['poster_path']}';
+                                if (m['backdrop_path'] != null) bannerCtrl.text = 'https://image.tmdb.org/t/p/original${m['backdrop_path']}';
+                                final data = (m['release_date'] ?? m['first_air_date'] ?? '').toString();
+                                if (data.length >= 4) anoCtrl.text = data.substring(0, 4);
+                                categoria = isTv ? 'Série' : 'Filme';
+                              });
+                            }
+                          } catch (_) {}
+                          setDialog(() => buscandoTmdb = false);
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                ],
                 DropdownButtonFormField<String>(
                   value: categoria,
                   decoration: const InputDecoration(labelText: 'Categoria', border: OutlineInputBorder()),
@@ -317,12 +367,94 @@ class _HomeAdminState extends State<HomeAdmin> {
     );
   }
 
+  Future<void> _dialogCorrigirLink(CatalogoItem item) async {
+    final novoUrlCtrl = TextEditingController(text: item.urlStream);
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Corrigir Link: ${item.titulo}'),
+        content: TextField(
+          controller: novoUrlCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Novo Link Stream (.m3u8 / .mp4)',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent, foregroundColor: Colors.black),
+            onPressed: () async {
+              final urlNova = novoUrlCtrl.text.trim();
+              if (urlNova.isEmpty) return;
+              Navigator.pop(ctx);
+              await http.patch(
+                Uri.parse('$_sbUrl/rest/v1/catalogo_midia?id=eq.${item.id}'),
+                headers: {
+                  'apikey': _serviceKey,
+                  'Authorization': 'Bearer $_serviceKey',
+                  'Content-Type': 'application/json',
+                },
+                body: jsonEncode({'url_stream': urlNova, 'link_ativo': true}),
+              );
+              _atualizarCatalogo();
+            },
+            child: const Text('Salvar & Reativar', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _listaItens(List<CatalogoItem> lista, {required String vazio, bool isCuradoria = false}) {
+    final quebrados = !isCuradoria ? lista.where((e) => !e.linkAtivo).toList() : <CatalogoItem>[];
     if (lista.isEmpty) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(vazio, textAlign: TextAlign.center)));
-    return ListView.builder(
+    return ListView(
       padding: const EdgeInsets.all(12),
-      itemCount: lista.length,
-      itemBuilder: (context, i) {
+      children: [
+        if (quebrados.isNotEmpty) ...[
+          Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.redAccent),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Links Quebrados / Offline (${quebrados.length})',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 15),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text('Estes títulos pararam de funcionar e precisam de novo link:', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                const Divider(color: Colors.redAccent),
+                ...quebrados.map((q) => ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('${q.titulo} (${q.categoria})', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  subtitle: Text(q.urlStream, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white60, fontSize: 11.5)),
+                  trailing: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 10)),
+                    onPressed: () => _dialogCorrigirLink(q),
+                    child: const Text('Trocar Link', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                )),
+              ],
+            ),
+          ),
+        ],
+        ...List.generate(lista.length, (i) {
         final item = lista[i];
         return Card(
           child: ListTile(
@@ -353,7 +485,8 @@ class _HomeAdminState extends State<HomeAdmin> {
             ),
           ),
         );
-      },
+      }),
+      ],
     );
   }
 

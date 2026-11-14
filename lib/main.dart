@@ -389,7 +389,7 @@ class _HomeAdminState extends State<HomeAdmin> {
               if (urlNova.isEmpty) return;
               Navigator.pop(ctx);
               await http.patch(
-                Uri.parse('$_sbUrl/rest/v1/catalogo_midia?id=eq.${item.id}'),
+                Uri.parse('https://kuziampmbltqdqkqyrlb.supabase.co/rest/v1/catalogo_midia?id=eq.${item.id}'),
                 headers: {
                   'apikey': _serviceKey,
                   'Authorization': 'Bearer $_serviceKey',

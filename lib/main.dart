@@ -81,24 +81,57 @@ class _HomeAdminState extends State<HomeAdmin> {
     }
   }
 
-  Future<void> _dialogAdicionarMidia() async {
-    final tituloCtrl = TextEditingController();
-    final urlCtrl = TextEditingController();
+  Future<void> _dialogAdicionarMidia({
+    String? urlStream,
+    String? tituloSugerido,
+    String? categoriaSugerida,
+    String? qualidadeSugerida,
+    String? audioSugerido,
+  }) async {
+    final tituloCtrl = TextEditingController(text: tituloSugerido ?? '');
+    final urlCtrl = TextEditingController(text: urlStream ?? '');
     final backupCtrl = TextEditingController();
     final capaCtrl = TextEditingController();
     final bannerCtrl = TextEditingController();
     final sinopseCtrl = TextEditingController();
     final generoCtrl = TextEditingController(text: 'Ação, Aventura');
     final anoCtrl = TextEditingController(text: '2026');
-    String categoria = 'Filme';
-    String resolucao = '1080p';
-    String audio = 'Dublado';
+    String categoria = categoriaSugerida ?? 'Filme';
+    String resolucao = qualidadeSugerida ?? '1080p';
+    String audio = audioSugerido ?? 'Dublado';
     bool buscandoTmdb = false;
+    bool autoBuscaFeita = false;
 
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialog) => AlertDialog(
+        builder: (ctx, setDialog) {
+          if (!autoBuscaFeita && tituloCtrl.text.trim().isNotEmpty && _tmdbKey.isNotEmpty) {
+            autoBuscaFeita = true;
+            Future.microtask(() async {
+              setDialog(() => buscandoTmdb = true);
+              try {
+                final q = Uri.encodeComponent(tituloCtrl.text.trim());
+                final r = await http.get(Uri.parse('https://api.themoviedb.org/3/search/multi?api_key=$_tmdbKey&language=pt-BR&query=$q'));
+                if (r.statusCode == 200) {
+                  final results = (jsonDecode(r.body)['results'] as List?) ?? [];
+                  if (results.isNotEmpty) {
+                    final m = results.first;
+                    setDialog(() {
+                      tituloCtrl.text = m['title'] ?? m['name'] ?? tituloCtrl.text;
+                      sinopseCtrl.text = m['overview'] ?? '';
+                      if (m['poster_path'] != null) capaCtrl.text = 'https://image.tmdb.org/t/p/w500${m['poster_path']}';
+                      if (m['backdrop_path'] != null) bannerCtrl.text = 'https://image.tmdb.org/t/p/original${m['backdrop_path']}';
+                      final data = (m['release_date'] ?? m['first_air_date'] ?? '').toString();
+                      if (data.length >= 4) anoCtrl.text = data.substring(0, 4);
+                    });
+                  }
+                }
+              } catch (_) {}
+              setDialog(() => buscandoTmdb = false);
+            });
+          }
+          return AlertDialog(
           title: const Text('Publicar Filme / Série / Canal'),
           content: SingleChildScrollView(
             child: Column(
@@ -229,7 +262,8 @@ class _HomeAdminState extends State<HomeAdmin> {
               child: const Text('Publicar Agora'),
             ),
           ],
-        ),
+        );
+        },
       ),
     );
   }
@@ -263,7 +297,7 @@ class _HomeAdminState extends State<HomeAdmin> {
                 _listaItens(aprovados, vazio: 'Nenhum título publicado ainda. Toque em "+ Adicionar Mídia".'),
                 _listaItens(pendentes, vazio: 'Nenhum item pendente na fila de curadoria.', isCuradoria: true),
                 VitrineScreen(supabase: _sb),
-                RoboM3uScreen(onAtualizarCatalogo: _atualizarCatalogo),
+                RoboM3uScreen(onAtualizarCatalogo: _atualizarCatalogo, onPublicarLink: _dialogAdicionarMidia),
                 _telaConfig(),
               ],
             ),

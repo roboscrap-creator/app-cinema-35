@@ -6,7 +6,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class RoboM3uScreen extends StatefulWidget {
   final VoidCallback onAtualizarCatalogo;
-  const RoboM3uScreen({super.key, required this.onAtualizarCatalogo});
+  final void Function({
+    required String urlStream,
+    String? tituloSugerido,
+    String? categoriaSugerida,
+    String? qualidadeSugerida,
+    String? audioSugerido,
+  }) onPublicarLink;
+
+  const RoboM3uScreen({
+    super.key,
+    required this.onAtualizarCatalogo,
+    required this.onPublicarLink,
+  });
 
   @override
   State<RoboM3uScreen> createState() => _RoboM3uScreenState();
@@ -49,6 +61,58 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
   }
 
   String get _baseUrl => _backendCtrl.text.trim().replaceAll(RegExp(r'/$'), '');
+
+  void _abrirPublicacaoInteligente(String urlStream, {String? tituloBruto, String? qualBruta, String? audioBruto}) {
+    final lower = urlStream.toLowerCase();
+    final isSerie = RegExp(r'(s\d{1,2}e\d{1,2}|/\d{1,2}(leg|dub)/|temporada|season|episodio)').hasMatch(lower);
+    final categoria = isSerie ? 'Série' : 'Filme';
+
+    String qual = qualBruta ?? '1080p';
+    if (qual == 'HD' || qual.isEmpty) {
+      if (lower.contains('2160') || lower.contains('4k')) {
+        qual = '4K';
+      } else if (lower.contains('1080')) {
+        qual = '1080p';
+      } else if (lower.contains('720')) {
+        qual = '720p';
+      } else {
+        qual = '1080p';
+      }
+    }
+
+    String audio = audioBruto ?? 'Dublado';
+    if (audio.isEmpty) {
+      audio = (lower.contains('leg') && !lower.contains('dub')) ? 'Legendado' : 'Dublado';
+    }
+
+    String titulo = (tituloBruto ?? '').trim();
+    if (titulo.isEmpty) {
+      try {
+        final uri = Uri.parse(urlStream);
+        final segs = uri.pathSegments.where((s) => s.isNotEmpty).toList();
+        if (segs.isNotEmpty) {
+          String alvo = segs.last;
+          if (isSerie && segs.length >= 3) {
+            alvo = segs[segs.length - 3];
+          }
+          alvo = alvo.replaceAll(RegExp(r'\.(mp4|m3u8|mkv|avi)$', caseSensitive: false), '');
+          alvo = alvo.replaceAll(RegExp(r'[-_](dub|leg|dual|720p|1080p|4k|alto|baixo|hd|fhd).*$', caseSensitive: false), '');
+          alvo = alvo.replaceAll(RegExp(r'[-_.]'), ' ').trim();
+          if (alvo.isNotEmpty) {
+            titulo = alvo[0].toUpperCase() + alvo.substring(1);
+          }
+        }
+      } catch (_) {}
+    }
+
+    widget.onPublicarLink(
+      urlStream: urlStream,
+      tituloSugerido: titulo,
+      categoriaSugerida: categoria,
+      qualidadeSugerida: qual,
+      audioSugerido: audio,
+    );
+  }
 
   Future<void> _testarPing() async {
     await _salvarPrefs();
@@ -155,8 +219,8 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
         setState(() {
           _streamsExtraidosSite = lista;
           _logExecucao = lista.isEmpty
-              ? 'Nenhum stream direto (.m3u8/.mp4) encontrado em "${data['titulo_pagina'] ?? site}". O player pode estar protegido por JavaScript/Cloudflare.'
-              : 'Página: ${data['titulo_pagina'] ?? site}\n${lista.length} stream(s) encontrado(s):';
+              ? 'Nenhum stream direto (.m3u8/.mp4) encontrado em "${data['titulo_pagina'] ?? site}".'
+              : 'Página: ${data['titulo_pagina'] ?? site}\n${lista.length} stream(s) encontrado(s). Toque em "+ Publicar" ao lado do link desejada.';
         });
       } else {
         setState(() => _logExecucao = 'Erro (${res.statusCode}): ${data['detail'] ?? res.body}');
@@ -236,7 +300,7 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
   void _copiarTexto(String texto) {
     Clipboard.setData(ClipboardData(text: texto));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Link stream copiado! Cole no "+ Adicionar Mídia".'), backgroundColor: Colors.green),
+      const SnackBar(content: Text('Link stream copiado!'), backgroundColor: Colors.green),
     );
   }
 
@@ -285,7 +349,7 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
               children: [
                 const Text('1. Varrer Site Específico por URL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.amber)),
                 const SizedBox(height: 4),
-                const Text('Inspeciona o HTML e iframes do endereço em busca de .m3u8 ou .mp4.', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                const Text('Extrai .m3u8 ou .mp4 e preenche a publicação com 1 toque.', style: TextStyle(fontSize: 12, color: Colors.white70)),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _siteUrlCtrl,
@@ -307,17 +371,41 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
                   ),
                 ),
                 if (_streamsExtraidosSite.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  ..._streamsExtraidosSite.map((s) => ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text('${s['formato']} • ${s['qualidade']} (${s['origem']})', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.tealAccent)),
-                        subtitle: Text(s['url_stream'] ?? '', maxLines: 2, overflow: TextOverflow.ellipsis),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.copy, color: Colors.amber),
-                          onPressed: () => _copiarTexto(s['url_stream'] ?? ''),
-                        ),
-                      )),
+                  const SizedBox(height: 12),
+                  ..._streamsExtraidosSite.map((s) {
+                    final u = (s['url_stream'] ?? '').toString();
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white12)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('${s['formato']} • ${s['qualidade']} (${s['origem']})', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.tealAccent, fontSize: 13)),
+                          const SizedBox(height: 4),
+                          Text(u, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton.icon(
+                                onPressed: () => _copiarTexto(u),
+                                icon: const Icon(Icons.copy, size: 16),
+                                label: const Text('Copiar'),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                                onPressed: () => _abrirPublicacaoInteligente(u, qualBruta: (s['qualidade'] ?? '').toString()),
+                                icon: const Icon(Icons.add_circle, size: 18),
+                                label: const Text('+ Publicar', style: TextStyle(fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
                 ],
               ],
             ),
@@ -397,16 +485,25 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
                 ),
                 if (_resultadosBusca.isNotEmpty) ...[
                   const SizedBox(height: 10),
-                  ..._resultadosBusca.map((r) => ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(r['titulo'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text('${r['qualidade'] ?? ''} • ${r['audio'] ?? ''}\n${r['url_stream'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.copy, color: Colors.amber),
-                          onPressed: () => _copiarTexto(r['url_stream'] ?? ''),
+                  ..._resultadosBusca.map((r) {
+                    final u = (r['url_stream'] ?? '').toString();
+                    return ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(r['titulo'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('${r['qualidade'] ?? ''} • ${r['audio'] ?? ''}\n$u', maxLines: 2, overflow: TextOverflow.ellipsis),
+                      trailing: ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(horizontal: 10)),
+                        onPressed: () => _abrirPublicacaoInteligente(
+                          u,
+                          tituloBruto: (r['titulo'] ?? '').toString(),
+                          qualBruta: (r['qualidade'] ?? '').toString(),
+                          audioBruto: (r['audio'] ?? '').toString(),
                         ),
-                      )),
+                        child: const Text('+ Publicar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                    );
+                  }),
                 ],
               ],
             ),

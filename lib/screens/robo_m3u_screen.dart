@@ -35,7 +35,7 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
   String _statusServidor = 'Toque em Testar Conexão';
   Color _corStatus = Colors.grey;
   String _logExecucao = '';
-  List> _streamsExtraidosSite = [];
+  List<Map<String, dynamic>> _streamsExtraidosSite = [];
   List<dynamic> _resultadosBusca = [];
   Set<String> _selecionados = {};
   Set<String> _publicadosSessao = {};
@@ -50,7 +50,7 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
     final prefs = await SharedPreferences.getInstance();
     final salvosJson = prefs.getString('robo_streams_salvos') ?? '[]';
     final pubsJson = prefs.getString('robo_publicados_salvos') ?? '[]';
-    List> listaSalva = [];
+    List<Map<String, dynamic>> listaSalva = [];
     try {
       final decoded = jsonDecode(salvosJson) as List;
       listaSalva = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();

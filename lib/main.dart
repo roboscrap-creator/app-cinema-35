@@ -59,7 +59,7 @@ class _HomeAdminState extends State<HomeAdmin> {
       _tmdbKey = prefs.getString('admin_tmdb_key') ?? '';
     });
     if (_serviceKey.isNotEmpty) {
-      _atualizarCatalogo();
+      _atualizarCatalogo(); } catch (e) { if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro: $e"), backgroundColor: Colors.red)); } }
     } else {
       setState(() => _abaAtual = 3);
     }
@@ -207,7 +207,7 @@ class _HomeAdminState extends State<HomeAdmin> {
               style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
               onPressed: () async {
                 if (tituloCtrl.text.trim().isEmpty || urlCtrl.text.trim().isEmpty) return;
-                await _sb.inserirMidia({
+                try { await _sb.inserirMidia({
                   'titulo': tituloCtrl.text.trim(),
                   'categoria': categoria,
                   'url_stream': urlCtrl.text.trim(),
@@ -223,7 +223,7 @@ class _HomeAdminState extends State<HomeAdmin> {
                   'link_ativo': true,
                 });
                 if (ctx.mounted) Navigator.pop(ctx);
-                _atualizarCatalogo();
+                _atualizarCatalogo(); } catch (e) { if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro: $e"), backgroundColor: Colors.red)); } }
               },
               child: const Text('Publicar Agora'),
             ),
@@ -302,14 +302,14 @@ class _HomeAdminState extends State<HomeAdmin> {
                     icon: const Icon(Icons.check_circle, color: Colors.greenAccent),
                     onPressed: () async {
                       await _sb.atualizarStatus(item.id, aprovado: true, linkAtivo: true);
-                      _atualizarCatalogo();
+                      _atualizarCatalogo(); } catch (e) { if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro: $e"), backgroundColor: Colors.red)); } }
                     },
                   ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                   onPressed: () async {
                     await _sb.excluirMidia(item.id);
-                    _atualizarCatalogo();
+                    _atualizarCatalogo(); } catch (e) { if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erro: $e"), backgroundColor: Colors.red)); } }
                   },
                 ),
               ],

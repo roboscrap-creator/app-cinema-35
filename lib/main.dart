@@ -263,6 +263,7 @@ class _HomeAdminState extends State<HomeAdmin> {
                 _listaItens(aprovados, vazio: 'Nenhum título publicado ainda. Toque em "+ Adicionar Mídia".'),
                 _listaItens(pendentes, vazio: 'Nenhum item pendente na fila de curadoria.', isCuradoria: true),
                 VitrineScreen(supabase: _sb),
+                RoboM3uScreen(onAtualizarCatalogo: _atualizarCatalogo),
                 _telaConfig(),
               ],
             ),

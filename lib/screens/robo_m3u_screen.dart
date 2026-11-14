@@ -35,8 +35,10 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
   String _statusServidor = 'Toque em Testar Conexão';
   Color _corStatus = Colors.grey;
   String _logExecucao = '';
-  List<dynamic> _streamsExtraidosSite = [];
+  List> _streamsExtraidosSite = [];
   List<dynamic> _resultadosBusca = [];
+  Set<String> _selecionados = {};
+  Set<String> _publicadosSessao = {};
 
   @override
   void initState() {
@@ -46,10 +48,29 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
 
   Future<void> _carregarPrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    final salvosJson = prefs.getString('robo_streams_salvos') ?? '[]';
+    final pubsJson = prefs.getString('robo_publicados_salvos') ?? '[]';
+    List> listaSalva = [];
+    try {
+      final decoded = jsonDecode(salvosJson) as List;
+      listaSalva = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (_) {}
+
+    Set<String> pubsSalvos = {};
+    try {
+      pubsSalvos = (jsonDecode(pubsJson) as List).map((e) => e.toString()).toSet();
+    } catch (_) {}
+
     setState(() {
       _backendCtrl.text = prefs.getString('robo_backend_url') ?? 'https://roboscrap-backend-l9t8.onrender.com';
       _m3uUrlCtrl.text = prefs.getString('robo_ultima_m3u') ?? '';
       _siteUrlCtrl.text = prefs.getString('robo_ultimo_site') ?? '';
+      _streamsExtraidosSite = listaSalva;
+      _publicadosSessao = pubsSalvos;
+      _selecionados = listaSalva
+          .map((e) => (e['url_stream'] ?? '').toString())
+          .where((u) => u.isNotEmpty && !pubsSalvos.contains(u))
+          .toSet();
     });
   }
 
@@ -58,11 +79,23 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
     await prefs.setString('robo_backend_url', _backendCtrl.text.trim());
     await prefs.setString('robo_ultima_m3u', _m3uUrlCtrl.text.trim());
     await prefs.setString('robo_ultimo_site', _siteUrlCtrl.text.trim());
+    await prefs.setString('robo_streams_salvos', jsonEncode(_streamsExtraidosSite));
+    await prefs.setString('robo_publicados_salvos', jsonEncode(_publicadosSessao.toList()));
+  }
+
+  Future<void> _limparListaSalva() async {
+    setState(() {
+      _streamsExtraidosSite = [];
+      _selecionados.clear();
+      _publicadosSessao.clear();
+      _logExecucao = 'Lista limpa manualmente.';
+    });
+    await _salvarPrefs();
   }
 
   String get _baseUrl => _backendCtrl.text.trim().replaceAll(RegExp(r'/$'), '');
 
-  void _abrirPublicacaoInteligente(String urlStream, {String? tituloBruto, String? qualBruta, String? audioBruto}) {
+  Map<String, String> _analisarUrl(String urlStream, {String? tituloBruto, String? qualBruta, String? audioBruto}) {
     final lower = urlStream.toLowerCase();
     final isSerie = RegExp(r'(s\d{1,2}e\d{1,2}|/\d{1,2}(leg|dub)/|temporada|season|episodio)').hasMatch(lower);
     final categoria = isSerie ? 'Série' : 'Filme';
@@ -105,13 +138,127 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
       } catch (_) {}
     }
 
+    return {
+      'titulo': titulo.isEmpty ? 'Sem Título' : titulo,
+      'categoria': categoria,
+      'qualidade': qual,
+      'audio': audio,
+    };
+  }
+
+  Future<void> _abrirPublicacaoInteligente(String urlStream, {String? tituloBruto, String? qualBruta, String? audioBruto}) async {
+    final info = _analisarUrl(urlStream, tituloBruto: tituloBruto, qualBruta: qualBruta, audioBruto: audioBruto);
+    setState(() {
+      _publicadosSessao.add(urlStream);
+      _selecionados.remove(urlStream);
+    });
+    await _salvarPrefs();
+
     widget.onPublicarLink(
       urlStream: urlStream,
-      tituloSugerido: titulo,
-      categoriaSugerida: categoria,
-      qualidadeSugerida: qual,
-      audioSugerido: audio,
+      tituloSugerido: info['titulo'],
+      categoriaSugerida: info['categoria'],
+      qualidadeSugerida: info['qualidade'],
+      audioSugerido: info['audio'],
     );
+  }
+
+  Future<void> _enviarSelecionadosEmFila() async {
+    if (_selecionados.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Marque pelo menos 1 link na lista.'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final sbUrl = prefs.getString('admin_sb_url') ?? 'https://kuziampmbltqdqkqyrlb.supabase.co';
+    final sbKey = prefs.getString('admin_sb_key') ?? '';
+    final tmdbKey = prefs.getString('admin_tmdb_key') ?? '';
+
+    if (sbKey.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Configure a Supabase Key na aba Chaves primeiro.'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final urlsParaEnviar = _selecionados.toList();
+    setState(() {
+      _ocupado = true;
+      _logExecucao = 'Enviando ${urlsParaEnviar.length} itens em fila (buscando capas TMDB + gravando na Curadoria)...';
+    });
+
+    int enviados = 0;
+    for (final u in urlsParaEnviar) {
+      final info = _analisarUrl(u);
+      String tituloFinal = info['titulo']!;
+      String capaUrl = '';
+      String bannerUrl = '';
+      String sinopse = '';
+      String ano = '2026';
+
+      if (tmdbKey.isNotEmpty && tituloFinal != 'Sem Título') {
+        try {
+          final q = Uri.encodeComponent(tituloFinal);
+          final rTmdb = await http
+              .get(Uri.parse('https://api.themoviedb.org/3/search/multi?api_key=$tmdbKey&language=pt-BR&query=$q'))
+              .timeout(const Duration(seconds: 8));
+          if (rTmdb.statusCode == 200) {
+            final results = (jsonDecode(rTmdb.body)['results'] as List?) ?? [];
+            if (results.isNotEmpty) {
+              final m = results.first;
+              tituloFinal = (m['title'] ?? m['name'] ?? tituloFinal).toString();
+              sinopse = (m['overview'] ?? '').toString();
+              if (m['poster_path'] != null) capaUrl = 'https://image.tmdb.org/t/p/w500${m['poster_path']}';
+              if (m['backdrop_path'] != null) bannerUrl = 'https://image.tmdb.org/t/p/original${m['backdrop_path']}';
+              final data = (m['release_date'] ?? m['first_air_date'] ?? '').toString();
+              if (data.length >= 4) ano = data.substring(0, 4);
+            }
+          }
+        } catch (_) {}
+      }
+
+      try {
+        final rSb = await http.post(
+          Uri.parse('$sbUrl/rest/v1/catalogo_midia'),
+          headers: {
+            'apikey': sbKey,
+            'Authorization': 'Bearer $sbKey',
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal',
+          },
+          body: jsonEncode({
+            'titulo': tituloFinal,
+            'categoria': info['categoria'],
+            'url_stream': u,
+            'qualidade': info['qualidade'],
+            'audio': info['audio'],
+            'capa_url': capaUrl,
+            'banner_url': bannerUrl,
+            'sinopse': sinopse,
+            'genero': 'Ação, Aventura',
+            'ano': int.tryParse(ano) ?? 2026,
+            'aprovado': false,
+            'link_ativo': true,
+          }),
+        );
+        if (rSb.statusCode == 200 || rSb.statusCode == 201) {
+          enviados++;
+          _publicadosSessao.add(u);
+          _selecionados.remove(u);
+        }
+      } catch (_) {}
+    }
+
+    await _salvarPrefs();
+    widget.onAtualizarCatalogo();
+    if (mounted) {
+      setState(() {
+        _ocupado = false;
+        _logExecucao = 'Fila concluída! $enviados de ${urlsParaEnviar.length} itens enviados para a aba "Curadoria".\nA lista continua salva aqui até você tocar em Limpar.';
+      });
+    }
   }
 
   Future<void> _testarPing() async {
@@ -197,10 +344,8 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
       );
       return;
     }
-    await _salvarPrefs();
     setState(() {
       _ocupado = true;
-      _streamsExtraidosSite = [];
       _logExecucao = 'Varrendo HTML e iframes de $site em busca de .m3u8 / .mp4...';
     });
 
@@ -215,13 +360,17 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
 
       final data = jsonDecode(utf8.decode(res.bodyBytes));
       if (res.statusCode == 200) {
-        final lista = (data['streams'] as List?) ?? [];
+        final rawList = (data['streams'] as List?) ?? [];
+        final novaLista = rawList.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         setState(() {
-          _streamsExtraidosSite = lista;
-          _logExecucao = lista.isEmpty
+          _streamsExtraidosSite = novaLista;
+          _publicadosSessao.clear();
+          _selecionados = novaLista.map((e) => (e['url_stream'] ?? '').toString()).where((u) => u.isNotEmpty).toSet();
+          _logExecucao = novaLista.isEmpty
               ? 'Nenhum stream direto (.m3u8/.mp4) encontrado em "${data['titulo_pagina'] ?? site}".'
-              : 'Página: ${data['titulo_pagina'] ?? site}\n${lista.length} stream(s) encontrado(s). Toque em "+ Publicar" ao lado do link desejada.';
+              : 'Página: ${data['titulo_pagina'] ?? site}\n${novaLista.length} stream(s) salvos na fila abaixo até você limpar.';
         });
+        await _salvarPrefs();
       } else {
         setState(() => _logExecucao = 'Erro (${res.statusCode}): ${data['detail'] ?? res.body}');
       }
@@ -347,9 +496,9 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('1. Varrer Site Específico por URL', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.amber)),
+                const Text('1. Varrer Site Específico & Fila de Publicação', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.amber)),
                 const SizedBox(height: 4),
-                const Text('Extrai .m3u8 ou .mp4 e preenche a publicação com 1 toque.', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                const Text('A lista fica salva na fila mesmo após publicar até você limpar.', style: TextStyle(fontSize: 12, color: Colors.white70)),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _siteUrlCtrl,
@@ -371,19 +520,79 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
                   ),
                 ),
                 if (_streamsExtraidosSite.isNotEmpty) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Fila: ${_streamsExtraidosSite.length} itens (${_selecionados.length} marcados)',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.tealAccent),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _ocupado ? null : _limparListaSalva,
+                        icon: const Icon(Icons.delete_sweep, color: Colors.redAccent, size: 18),
+                        label: const Text('Limpar Lista', style: TextStyle(color: Colors.redAccent)),
+                      ),
+                    ],
+                  ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 11)),
+                      onPressed: _ocupado || _selecionados.isEmpty ? null : _enviarSelecionadosEmFila,
+                      icon: const Icon(Icons.playlist_add_check),
+                      label: Text('Enviar ${_selecionados.length} Marcados p/ Curadoria (TMDB)', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   ..._streamsExtraidosSite.map((s) {
                     final u = (s['url_stream'] ?? '').toString();
+                    final marcado = _selecionados.contains(u);
+                    final jaPublicado = _publicadosSessao.contains(u);
+                    final info = _analisarUrl(u, qualBruta: (s['qualidade'] ?? '').toString());
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white12)),
+                      decoration: BoxDecoration(
+                        color: jaPublicado ? Colors.green.withOpacity(0.12) : Colors.black26,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: jaPublicado ? Colors.greenAccent : Colors.white12),
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('${s['formato']} • ${s['qualidade']} (${s['origem']})', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.tealAccent, fontSize: 13)),
-                          const SizedBox(height: 4),
-                          Text(u, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                          Row(
+                            children: [
+                              Checkbox(
+                                value: marcado,
+                                activeColor: Colors.amber,
+                                onChanged: (v) async {
+                                  setState(() {
+                                    if (v == true) {
+                                      _selecionados.add(u);
+                                    } else {
+                                      _selecionados.remove(u);
+                                    }
+                                  });
+                                },
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${info['titulo']} • ${info['categoria']} (${info['qualidade']})',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13.5),
+                                    ),
+                                    if (jaPublicado)
+                                      const Text('✓ Já enviado / publicado', style: TextStyle(color: Colors.greenAccent, fontSize: 11.5, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(u, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: Colors.white70)),
                           const SizedBox(height: 8),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,
@@ -395,10 +604,14 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
                               ),
                               const SizedBox(width: 8),
                               ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: jaPublicado ? Colors.green : Colors.amber,
+                                  foregroundColor: jaPublicado ? Colors.white : Colors.black,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                ),
                                 onPressed: () => _abrirPublicacaoInteligente(u, qualBruta: (s['qualidade'] ?? '').toString()),
-                                icon: const Icon(Icons.add_circle, size: 18),
-                                label: const Text('+ Publicar', style: TextStyle(fontWeight: FontWeight.bold)),
+                                icon: Icon(jaPublicado ? Icons.check_circle : Icons.add_circle, size: 18),
+                                label: Text(jaPublicado ? 'Publicar Novamente' : '+ Publicar', style: const TextStyle(fontWeight: FontWeight.bold)),
                               ),
                             ],
                           ),

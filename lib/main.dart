@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'models/catalogo_item.dart';
 import 'services/supabase_service.dart';
 import 'screens/vitrine_screen.dart';
+import 'screens/robo_m3u_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,7 +62,7 @@ class _HomeAdminState extends State<HomeAdmin> {
     if (_serviceKey.isNotEmpty) {
       _atualizarCatalogo();
     } else {
-      setState(() => _abaAtual = 3);
+      setState(() => _abaAtual = 4);
     }
   }
 
@@ -274,6 +275,7 @@ class _HomeAdminState extends State<HomeAdmin> {
           BottomNavigationBarItem(icon: const Icon(Icons.movie), label: 'Publicados (${aprovados.length})'),
           BottomNavigationBarItem(icon: const Icon(Icons.fact_check), label: 'Curadoria (${pendentes.length})'),
           const BottomNavigationBarItem(icon: Icon(Icons.dashboard_customize), label: 'Vitrine & Hero'),
+          const BottomNavigationBarItem(icon: Icon(Icons.smart_toy), label: 'Robô M3U'),
           const BottomNavigationBarItem(icon: Icon(Icons.vpn_key), label: 'Chaves'),
         ],
       ),

@@ -109,7 +109,7 @@ class _HomeCinemaScreenState extends State<HomeCinemaScreen> {
               child: const Text('3.5', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
             ),
             const SizedBox(width: 8),
-            const Text('App Cinema', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Cimema', style: TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
         actions: [

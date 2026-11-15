@@ -15,10 +15,12 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Criar estrutura Android independente
+      - name: Criar estrutura Android e configurar permissoes
         run: |
           flutter create --platforms=android --org com.chiavegatti.cimema .
           sed -i 's/android:label="[^"]*"/android:label="Cimema"/' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>' android/app/src/main/AndroidManifest.xml
+          sed -i 's/<application /<application android:usesCleartextTraffic="true" /' android/app/src/main/AndroidManifest.xml
           python3 make_icon.py
 
       - name: Instalar dependencias e gerar APK

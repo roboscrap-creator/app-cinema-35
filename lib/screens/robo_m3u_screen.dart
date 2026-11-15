@@ -266,6 +266,8 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
   }
 
   Future<void> _iniciarLoteInteligente() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("ultimo_link_lote", _loteUrlCtrl.text.trim());
     final fonte = _loteUrlCtrl.text.trim();
     if (fonte.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -325,13 +327,9 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
         final msg = (data["mensagem"] ?? "").toString();
-        final rodando = data["rodando"] == true;
         setState(() {
           _logExecucao = msg.isEmpty ? "Servidor ocioso (nenhum lote ativo)." : msg;
         });
-        if (!rodando && msg.contains("finalizado")) {
-          widget.onAtualizarCatalogo();
-        }
       } else {
         setState(() => _logExecucao = "Erro HTTP ${res.statusCode} ao consultar progresso.");
       }

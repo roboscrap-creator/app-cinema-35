@@ -319,15 +319,24 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
   }
 
   Future<void> _checarStatusLote() async {
+    setState(() => _logExecucao = "Consultando progresso no Render...");
     try {
-      final res = await http.get(Uri.parse('$_baseUrl/status-lote')).timeout(const Duration(seconds: 15));
+      final res = await http.get(Uri.parse("$_baseUrl/status-lote")).timeout(const Duration(seconds: 20));
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
-        setState(() => _logExecucao = (data['mensagem'] ?? '').toString());
-        widget.onAtualizarCatalogo();
+        final msg = (data["mensagem"] ?? "").toString();
+        final rodando = data["rodando"] == true;
+        setState(() {
+          _logExecucao = msg.isEmpty ? "Servidor ocioso (nenhum lote ativo)." : msg;
+        });
+        if (!rodando && msg.contains("finalizado")) {
+          widget.onAtualizarCatalogo();
+        }
+      } else {
+        setState(() => _logExecucao = "Erro HTTP ${res.statusCode} ao consultar progresso.");
       }
     } catch (e) {
-      setState(() => _logExecucao = 'Erro ao consultar status: $e');
+      setState(() => _logExecucao = "Erro ao consultar status: $e");
     }
   }
 

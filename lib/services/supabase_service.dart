@@ -20,7 +20,7 @@ class SupabaseService {
     if (resp.statusCode != 200) throw Exception('Erro (${resp.statusCode})');
 
     final List<dynamic> dados = jsonDecode(utf8.decode(resp.bodyBytes));
-    final Map<String, List>> grupos = {};
+    final Map<String, List<Map<String, dynamic>> grupos = {};
 
     for (final item in dados) {
       if (item is! Map<String, dynamic>) continue;

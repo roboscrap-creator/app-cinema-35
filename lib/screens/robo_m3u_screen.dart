@@ -324,7 +324,6 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
         setState(() => _logExecucao = (data['mensagem'] ?? '').toString());
-        await _sincronizarCatalogoSupabase();
         widget.onAtualizarCatalogo();
       }
     } catch (e) {

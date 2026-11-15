@@ -20,6 +20,8 @@ jobs:
           sed -i 's/<application/<uses-permission android:name="android.permission.INTERNET"\/>\n    <application/' android/app/src/main/AndroidManifest.xml
       - name: Baixar pacotes
         run: flutter pub get
+      - name: Gerar logo Cimema
+        run: python3 make_icon.py
       - name: Compilar APK Release
         run: flutter build apk --release
       - name: Disponibilizar APK para Download

@@ -1,4 +1,4 @@
-name: Build RoboScrap 3.5 APK
+name: Build APK Cimema 3.5
 
 on:
   push:
@@ -10,22 +10,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-      - name: Gerar estrutura Android
-        run: flutter create --platforms=android --org com.chiavegatti.roboscrap .
-      - name: Adicionar permissao INTERNET no AndroidManifest
+
+      - name: Criar estrutura Android independente
         run: |
-          sed -i 's/<application/<uses-permission android:name="android.permission.INTERNET"\/>\n    <application/' android/app/src/main/AndroidManifest.xml
-      - name: Baixar pacotes
-        run: flutter pub get
-      - name: Gerar logo Cimema
-        run: python3 make_icon.py
-      - name: Compilar APK Release
-        run: flutter build apk --release
+          flutter create --platforms=android --org com.chiavegatti.cimema .
+          sed -i 's/android:label="[^"]*"/android:label="Cimema"/' android/app/src/main/AndroidManifest.xml
+          python3 make_icon.py
+
+      - name: Instalar dependencias e gerar APK
+        run: |
+          flutter pub get
+          flutter build apk --release
+
       - name: Disponibilizar APK para Download
         uses: actions/upload-artifact@v4
         with:
-          name: roboscrap_v35
+          name: cimema_v35
           path: build/app/outputs/flutter-apk/app-release.apk

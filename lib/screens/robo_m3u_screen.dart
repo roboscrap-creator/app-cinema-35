@@ -52,6 +52,7 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
 
   Future<void> _carregarPrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("ultimo_link_lote", _loteUrlCtrl.text.trim());
     final salvosJson = prefs.getString('robo_streams_salvos') ?? '[]';
     final pubsJson = prefs.getString('robo_publicados_salvos') ?? '[]';
     List<Map<String, dynamic>> listaSalva = [];
@@ -266,8 +267,6 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
   }
 
   Future<void> _iniciarLoteInteligente() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString("ultimo_link_lote", _loteUrlCtrl.text.trim());
     final fonte = _loteUrlCtrl.text.trim();
     if (fonte.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(

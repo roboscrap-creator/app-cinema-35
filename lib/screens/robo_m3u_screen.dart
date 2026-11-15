@@ -30,6 +30,10 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
   final _limiteCtrl = TextEditingController(text: '25');
   final _siteUrlCtrl = TextEditingController();
   final _buscaCtrl = TextEditingController();
+  final _loteUrlCtrl = TextEditingController();
+  final _loteQtdCtrl = TextEditingController(text: '100');
+  final _loteFiltroCtrl = TextEditingController();
+  bool _autoAprovarTmdb = true;
 
   bool _ocupado = false;
   String _statusServidor = 'Toque em Testar Conexão';
@@ -261,6 +265,73 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
     }
   }
 
+  Future<void> _iniciarLoteInteligente() async {
+    final fonte = _loteUrlCtrl.text.trim();
+    if (fonte.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cole o link do Gist ou lista M3U no campo acima.'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final sbUrl = prefs.getString('admin_sb_url') ?? 'https://kuziampmbltqdqkqyrlb.supabase.co';
+    final sbKey = prefs.getString('admin_sb_key') ?? '';
+    final tmdbKey = prefs.getString('admin_tmdb_key') ?? '';
+
+    if (sbKey.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Configure a Supabase Key na aba Chaves primeiro.'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() {
+      _ocupado = true;
+      _logExecucao = 'Enviando lote inteligente para o servidor Render...';
+    });
+
+    try {
+      final limite = int.tryParse(_loteQtdCtrl.text.trim()) ?? 100;
+      final res = await http
+          .post(
+            Uri.parse('$_baseUrl/importar-lote-inteligente'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'fonte_url': fonte,
+              'limite': limite,
+              'filtro': _loteFiltroCtrl.text.trim(),
+              'auto_aprovar': _autoAprovarTmdb,
+              'supabase_url': sbUrl,
+              'supabase_key': sbKey,
+              'tmdb_key': tmdbKey,
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      final data = jsonDecode(utf8.decode(res.bodyBytes));
+      setState(() => _logExecucao = (data['mensagem'] ?? res.body).toString());
+    } catch (e) {
+      setState(() => _logExecucao = 'Erro ao iniciar lote: $e');
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
+  Future<void> _checarStatusLote() async {
+    try {
+      final res = await http.get(Uri.parse('$_baseUrl/status-lote')).timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        setState(() => _logExecucao = (data['mensagem'] ?? '').toString());
+        await _sincronizarCatalogoSupabase();
+        widget.onAtualizarCatalogo();
+      }
+    } catch (e) {
+      setState(() => _logExecucao = 'Erro ao consultar status: $e');
+    }
+  }
+
   Future<void> _testarPing() async {
     await _salvarPrefs();
     setState(() {
@@ -481,6 +552,90 @@ class _RoboM3uScreenState extends State<RoboM3uScreen> {
                       onPressed: _ocupado ? null : _testarPing,
                       icon: const Icon(Icons.bolt, size: 18),
                       label: const Text('Testar'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          color: const Color(0xFF1A222D),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: const BorderSide(color: Colors.tealAccent, width: 1.2)),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Importação Inteligente em Lote (Estilo Streamer)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.tealAccent)),
+                const SizedBox(height: 4),
+                const Text(
+                  'Pula o que já está no banco, faz cache do TMDB por série e publica direto os que tiverem capa/sinopse (jogando só os duvidosos para Curadoria).',
+                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _loteUrlCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Link do Gist, Site ou Lista .m3u',
+                    hintText: 'https://gist.github.com/...',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 115,
+                      child: TextField(
+                        controller: _loteQtdCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Qtd (0=Tudo)',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: _loteFiltroCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Filtro opcional (ex: 2026, arrow)',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  activeColor: Colors.tealAccent,
+                  title: const Text('Publicar direto se achar no TMDB', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Desmarque se quiser revisar todos na Curadoria antes', style: TextStyle(fontSize: 11)),
+                  value: _autoAprovarTmdb,
+                  onChanged: (v) => setState(() => _autoAprovarTmdb = v),
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 12)),
+                        onPressed: _ocupado ? null : _iniciarLoteInteligente,
+                        icon: const Icon(Icons.rocket_launch),
+                        label: const Text('Iniciar Lote', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12)),
+                      onPressed: _checarStatusLote,
+                      icon: const Icon(Icons.sync, size: 18),
+                      label: const Text('Progresso'),
                     ),
                   ],
                 ),

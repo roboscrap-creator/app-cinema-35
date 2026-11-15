@@ -1,534 +1,519 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
-import 'models/catalogo_item.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'models/midia_model.dart';
 import 'services/supabase_service.dart';
-import 'screens/vitrine_screen.dart';
-import 'screens/robo_m3u_screen.dart';
+import 'screens/player_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const RoboScrapApp());
+  runApp(const AppCinema());
 }
 
-class RoboScrapApp extends StatelessWidget {
-  const RoboScrapApp({super.key});
+class AppCinema extends StatelessWidget {
+  const AppCinema({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'RoboScrap 3.5',
+      title: 'App Cinema 3.5',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0E1015),
-        colorScheme: const ColorScheme.dark(primary: Colors.amber, secondary: Colors.tealAccent),
+        scaffoldBackgroundColor: const Color(0xFF0B0C10),
+        primaryColor: const Color(0xFFE50914),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFFE50914),
+          secondary: Colors.amberAccent,
+          surface: Color(0xFF14161D),
+        ),
+        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF0B0C10), elevation: 0),
       ),
-      home: const HomeAdmin(),
+      home: const HomeCinemaScreen(),
     );
   }
 }
 
-class HomeAdmin extends StatefulWidget {
-  const HomeAdmin({super.key});
+class HomeCinemaScreen extends StatefulWidget {
+  const HomeCinemaScreen({super.key});
 
   @override
-  State<HomeAdmin> createState() => _HomeAdminState();
+  State<HomeCinemaScreen> createState() => _HomeCinemaScreenState();
 }
 
-class _HomeAdminState extends State<HomeAdmin> {
+class _HomeCinemaScreenState extends State<HomeCinemaScreen> {
+  List<ObraAgrupada> _catalogo = [];
+  bool _carregando = true;
+  String? _erro;
   int _abaAtual = 0;
-  String _supabaseUrl = 'https://kuziampmbltqdqkqyrlb.supabase.co';
-  String _serviceKey = '';
-  String _tmdbKey = '';
-  List<CatalogoItem> _catalogo = [];
-  bool _carregando = false;
-
-  SupabaseService get _sb => SupabaseService(supabaseUrl: _supabaseUrl, serviceKey: _serviceKey);
+  String _busca = '';
+  final TextEditingController _searchCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _carregarConfig();
+    _carregar();
   }
 
-  Future<void> _carregarConfig() async {
-    final prefs = await SharedPreferences.getInstance();
+  Future<void> _carregar() async {
     setState(() {
-      _supabaseUrl = prefs.getString('admin_sb_url') ?? 'https://kuziampmbltqdqkqyrlb.supabase.co';
-      _serviceKey = prefs.getString('admin_sb_key') ?? '';
-      _tmdbKey = prefs.getString('admin_tmdb_key') ?? '';
+      _carregando = true;
+      _erro = null;
     });
-    if (_serviceKey.isNotEmpty) {
-      _atualizarCatalogo();
-    } else {
-      setState(() => _abaAtual = 4);
-    }
-  }
-
-  Future<void> _atualizarCatalogo() async {
-    if (_serviceKey.isEmpty) return;
-    setState(() => _carregando = true);
     try {
-      final itens = await _sb.listarCatalogo();
-      if (mounted) setState(() => _catalogo = itens);
+      final lista = await SupabaseService.carregarCatalogoAgrupado();
+      if (!mounted) return;
+      setState(() {
+        _catalogo = lista;
+        _carregando = false;
+      });
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Colors.red));
-      }
-    } finally {
-      if (mounted) setState(() => _carregando = false);
+      if (!mounted) return;
+      setState(() {
+        _erro = e.toString();
+        _carregando = false;
+      });
     }
   }
 
-  Future<void> _dialogAdicionarMidia({
-    String? urlStream,
-    String? tituloSugerido,
-    String? categoriaSugerida,
-    String? qualidadeSugerida,
-    String? audioSugerido,
-  }) async {
-    final tituloCtrl = TextEditingController(text: tituloSugerido ?? '');
-    final tmdbUrlCtrl = TextEditingController();
-    final urlCtrl = TextEditingController(text: urlStream ?? '');
-    final backupCtrl = TextEditingController();
-    final capaCtrl = TextEditingController();
-    final bannerCtrl = TextEditingController();
-    final sinopseCtrl = TextEditingController();
-    final generoCtrl = TextEditingController(text: 'Ação, Aventura');
-    final anoCtrl = TextEditingController(text: '2026');
-    String categoria = categoriaSugerida ?? 'Filme';
-    String resolucao = qualidadeSugerida ?? '1080p';
-    String audio = audioSugerido ?? 'Dublado';
-    bool buscandoTmdb = false;
-    bool autoBuscaFeita = false;
+  List<ObraAgrupada> get _filtrados {
+    return _catalogo.where((o) {
+      if (_abaAtual == 1 && o.categoria != 'Filme') return false;
+      if (_abaAtual == 2 && o.categoria != 'Série') return false;
+      if (_abaAtual == 3 && o.categoria != 'TV ao Vivo') return false;
+      if (_busca.trim().isNotEmpty) {
+        final q = _busca.toLowerCase();
+        return o.titulo.toLowerCase().contains(q) || o.genero.toLowerCase().contains(q);
+      }
+      return true;
+    }).toList();
+  }
 
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialog) {
-          if (!autoBuscaFeita && tituloCtrl.text.trim().isNotEmpty && _tmdbKey.isNotEmpty) {
-            autoBuscaFeita = true;
-            Future.microtask(() async {
-              setDialog(() => buscandoTmdb = true);
-              try {
-                final q = Uri.encodeComponent(tituloCtrl.text.trim());
-                final r = await http.get(Uri.parse('https://api.themoviedb.org/3/search/multi?api_key=$_tmdbKey&language=pt-BR&query=$q'));
-                if (r.statusCode == 200) {
-                  final results = (jsonDecode(r.body)['results'] as List?) ?? [];
-                  if (results.isNotEmpty) {
-                    final m = results.first;
-                    setDialog(() {
-                      tituloCtrl.text = m['title'] ?? m['name'] ?? tituloCtrl.text;
-                      sinopseCtrl.text = m['overview'] ?? '';
-                      if (m['poster_path'] != null) capaCtrl.text = 'https://image.tmdb.org/t/p/w500${m['poster_path']}';
-                      if (m['backdrop_path'] != null) bannerCtrl.text = 'https://image.tmdb.org/t/p/original${m['backdrop_path']}';
-                      final data = (m['release_date'] ?? m['first_air_date'] ?? '').toString();
-                      if (data.length >= 4) anoCtrl.text = data.substring(0, 4);
-                    });
-                  }
-                }
-              } catch (_) {}
-              setDialog(() => buscandoTmdb = false);
-            });
-          }
-          return AlertDialog(
-          title: const Text('Publicar Filme / Série / Canal'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: tituloCtrl,
-                        decoration: const InputDecoration(labelText: 'Título', border: OutlineInputBorder()),
-                      ),
-                    ),
-                    if (_tmdbKey.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      IconButton(
-                        tooltip: 'Buscar Capa e Sinopse no TMDB',
-                        icon: buscandoTmdb
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Icon(Icons.auto_awesome, color: Colors.amber),
-                        onPressed: () async {
-                          if (tituloCtrl.text.trim().isEmpty) return;
-                          setDialog(() => buscandoTmdb = true);
-                          try {
-                            final q = Uri.encodeComponent(tituloCtrl.text.trim());
-                            final r = await http.get(Uri.parse('https://api.themoviedb.org/3/search/multi?api_key=$_tmdbKey&language=pt-BR&query=$q'));
-                            if (r.statusCode == 200) {
-                              final results = (jsonDecode(r.body)['results'] as List?) ?? [];
-                              if (results.isNotEmpty) {
-                                final m = results.first;
-                                setDialog(() {
-                                  tituloCtrl.text = m['title'] ?? m['name'] ?? tituloCtrl.text;
-                                  sinopseCtrl.text = m['overview'] ?? '';
-                                  if (m['poster_path'] != null) capaCtrl.text = 'https://image.tmdb.org/t/p/w500${m['poster_path']}';
-                                  if (m['backdrop_path'] != null) bannerCtrl.text = 'https://image.tmdb.org/t/p/original${m['backdrop_path']}';
-                                  final data = (m['release_date'] ?? m['first_air_date'] ?? '').toString();
-                                  if (data.length >= 4) anoCtrl.text = data.substring(0, 4);
-                                });
-                              }
-                            }
-                          } catch (_) {}
-                          setDialog(() => buscandoTmdb = false);
-                        },
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 10),
-                if (_tmdbKey.isNotEmpty) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: tmdbUrlCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Link ou ID do TMDB (Opcional)',
-                            hintText: 'themoviedb.org/movie/12345 ou /tv/678',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        tooltip: 'Puxar filme/série exato pelo Link ou ID TMDB',
-                        icon: const Icon(Icons.link, color: Colors.tealAccent),
-                        onPressed: () async {
-                          final raw = tmdbUrlCtrl.text.trim();
-                          if (raw.isEmpty) return;
-                          final isTv = raw.contains('/tv/') || categoria == 'Série';
-                          final match = RegExp(r'(\d+)').firstMatch(raw);
-                          if (match == null) return;
-                          final id = match.group(1);
-                          final tipo = isTv ? 'tv' : 'movie';
-                          setDialog(() => buscandoTmdb = true);
-                          try {
-                            final r = await http.get(Uri.parse('https://api.themoviedb.org/3/$tipo/$id?api_key=$_tmdbKey&language=pt-BR'));
-                            if (r.statusCode == 200) {
-                              final m = jsonDecode(r.body);
-                              setDialog(() {
-                                tituloCtrl.text = m['title'] ?? m['name'] ?? tituloCtrl.text;
-                                sinopseCtrl.text = m['overview'] ?? '';
-                                if (m['poster_path'] != null) capaCtrl.text = 'https://image.tmdb.org/t/p/w500${m['poster_path']}';
-                                if (m['backdrop_path'] != null) bannerCtrl.text = 'https://image.tmdb.org/t/p/original${m['backdrop_path']}';
-                                final data = (m['release_date'] ?? m['first_air_date'] ?? '').toString();
-                                if (data.length >= 4) anoCtrl.text = data.substring(0, 4);
-                                categoria = isTv ? 'Série' : 'Filme';
-                              });
-                            }
-                          } catch (_) {}
-                          setDialog(() => buscandoTmdb = false);
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                DropdownButtonFormField<String>(
-                  value: categoria,
-                  decoration: const InputDecoration(labelText: 'Categoria', border: OutlineInputBorder()),
-                  items: const [
-                    DropdownMenuItem(value: 'Filme', child: Text('Filme')),
-                    DropdownMenuItem(value: 'Série', child: Text('Série')),
-                    DropdownMenuItem(value: 'TV Ao Vivo', child: Text('TV Ao Vivo')),
-                  ],
-                  onChanged: (v) => setDialog(() => categoria = v ?? 'Filme'),
-                ),
-                const SizedBox(height: 10),
-                TextField(controller: urlCtrl, decoration: const InputDecoration(labelText: 'Link Stream Principal (.m3u8 / .mp4)', border: OutlineInputBorder())),
-                const SizedBox(height: 10),
-                TextField(controller: backupCtrl, decoration: const InputDecoration(labelText: 'Link Stream Backup (Opcional)', border: OutlineInputBorder())),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        value: resolucao,
-                        decoration: const InputDecoration(labelText: 'Qualidade', border: OutlineInputBorder()),
-                        items: const [
-                          DropdownMenuItem(value: '4K', child: Text('4K')),
-                          DropdownMenuItem(value: '1080p', child: Text('1080p')),
-                          DropdownMenuItem(value: '720p', child: Text('720p')),
-                        ],
-                        onChanged: (v) => setDialog(() => resolucao = v ?? '1080p'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        value: audio,
-                        decoration: const InputDecoration(labelText: 'Áudio', border: OutlineInputBorder()),
-                        items: const [
-                          DropdownMenuItem(value: 'Dublado', child: Text('Dublado')),
-                          DropdownMenuItem(value: 'Dual Áudio', child: Text('Dual Áudio')),
-                          DropdownMenuItem(value: 'Legendado', child: Text('Legendado')),
-                        ],
-                        onChanged: (v) => setDialog(() => audio = v ?? 'Dublado'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                TextField(controller: capaCtrl, decoration: const InputDecoration(labelText: 'URL da Capa (Pôster)', border: OutlineInputBorder())),
-                const SizedBox(height: 10),
-                TextField(controller: bannerCtrl, decoration: const InputDecoration(labelText: 'URL do Banner (Horizontal)', border: OutlineInputBorder())),
-                const SizedBox(height: 10),
-                TextField(controller: generoCtrl, decoration: const InputDecoration(labelText: 'Gêneros', border: OutlineInputBorder())),
-                const SizedBox(height: 10),
-                TextField(controller: sinopseCtrl, maxLines: 2, decoration: const InputDecoration(labelText: 'Sinopse', border: OutlineInputBorder())),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
-              onPressed: () async {
-                if (tituloCtrl.text.trim().isEmpty || urlCtrl.text.trim().isEmpty) return;
-                await _sb.inserirMidia({
-                  'titulo': tituloCtrl.text.trim(),
-                  'categoria': categoria,
-                  'url_stream': urlCtrl.text.trim(),
-                  'url_stream_backup': backupCtrl.text.trim(),
-                  'capa_url': capaCtrl.text.trim(),
-                  'banner_url': bannerCtrl.text.trim(),
-                  'genero': generoCtrl.text.trim(),
-                  'sinopse': sinopseCtrl.text.trim(),
-                  'ano': int.tryParse(anoCtrl.text) ?? 2026,
-                  'resolucao': resolucao,
-                  'tipo_audio': audio,
-                  'aprovado': true,
-                  'link_ativo': true,
-                });
-                if (ctx.mounted) Navigator.pop(ctx);
-                _atualizarCatalogo();
-              },
-              child: const Text('Publicar Agora'),
-            ),
-          ],
-        );
-        },
-      ),
-    );
+  void _abrirDetalhes(ObraAgrupada obra) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => DetalhesObraScreen(obra: obra)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final pendentes = _catalogo.where((e) => !e.aprovado).toList();
-    final aprovados = _catalogo.where((e) => e.aprovado).toList();
+    final destaques = _catalogo.where((o) => o.emDestaque).toList();
+    final hero = destaques.isNotEmpty ? destaques.first : (_catalogo.isNotEmpty ? _catalogo.first : null);
+    final filmes = _catalogo.where((o) => o.categoria == 'Filme').toList();
+    final series = _catalogo.where((o) => o.categoria == 'Série').toList();
+    final canais = _catalogo.where((o) => o.categoria == 'TV ao Vivo').toList();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('RoboScrap 3.5 • Painel Admin'),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _atualizarCatalogo),
-        ],
-      ),
-      floatingActionButton: _abaAtual == 0 && _serviceKey.isNotEmpty
-          ? FloatingActionButton.extended(
-              backgroundColor: Colors.amber,
-              foregroundColor: Colors.black,
-              onPressed: _dialogAdicionarMidia,
-              icon: const Icon(Icons.add),
-              label: const Text('Adicionar Mídia', style: TextStyle(fontWeight: FontWeight.bold)),
-            )
-          : null,
-      body: _carregando
-          ? const Center(child: CircularProgressIndicator(color: Colors.amber))
-          : IndexedStack(
-              index: _abaAtual,
-              children: [
-                _listaItens(aprovados, vazio: 'Nenhum título publicado ainda. Toque em "+ Adicionar Mídia".'),
-                _listaItens(pendentes, vazio: 'Nenhum item pendente na fila de curadoria.', isCuradoria: true),
-                VitrineScreen(supabase: _sb),
-                RoboM3uScreen(onAtualizarCatalogo: _atualizarCatalogo, onPublicarLink: _dialogAdicionarMidia),
-                _telaConfig(),
-              ],
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(color: const Color(0xFFE50914), borderRadius: BorderRadius.circular(6)),
+              child: const Text('3.5', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
             ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _abaAtual,
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: Colors.amber,
-        onTap: (i) => setState(() => _abaAtual = i),
-        items: [
-          BottomNavigationBarItem(icon: const Icon(Icons.movie), label: 'Publicados (${aprovados.length})'),
-          BottomNavigationBarItem(icon: const Icon(Icons.fact_check), label: 'Curadoria (${pendentes.length})'),
-          const BottomNavigationBarItem(icon: Icon(Icons.dashboard_customize), label: 'Vitrine & Hero'),
-          const BottomNavigationBarItem(icon: Icon(Icons.smart_toy), label: 'Robô M3U'),
-          const BottomNavigationBarItem(icon: Icon(Icons.vpn_key), label: 'Chaves'),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _dialogCorrigirLink(CatalogoItem item) async {
-    final novoUrlCtrl = TextEditingController(text: item.urlStream);
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Corrigir Link: ${item.titulo}'),
-        content: TextField(
-          controller: novoUrlCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Novo Link Stream (.m3u8 / .mp4)',
-            border: OutlineInputBorder(),
-          ),
+            const SizedBox(width: 8),
+            const Text('App Cinema', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent, foregroundColor: Colors.black),
-            onPressed: () async {
-              final urlNova = novoUrlCtrl.text.trim();
-              if (urlNova.isEmpty) return;
-              Navigator.pop(ctx);
-              await http.patch(
-                Uri.parse('https://kuziampmbltqdqkqyrlb.supabase.co/rest/v1/catalogo_midia?id=eq.${item.id}'),
-                headers: {
-                  'apikey': _serviceKey,
-                  'Authorization': 'Bearer $_serviceKey',
-                  'Content-Type': 'application/json',
-                },
-                body: jsonEncode({'url_stream': urlNova, 'link_ativo': true}),
-              );
-              _atualizarCatalogo();
-            },
-            child: const Text('Salvar & Reativar', style: TextStyle(fontWeight: FontWeight.bold)),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _carregar),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
+            child: TextField(
+              controller: _searchCtrl,
+              onChanged: (v) => setState(() => _busca = v),
+              decoration: InputDecoration(
+                hintText: 'Buscar filmes, séries, canais ou gêneros...',
+                prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                suffixIcon: _busca.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, color: Colors.white54),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _busca = '');
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: const Color(0xFF161922),
+                contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
           ),
+          Expanded(
+            child: _carregando
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFFE50914)))
+                : _erro != null
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(_erro!, textAlign: TextAlign.center),
+                            const SizedBox(height: 12),
+                            ElevatedButton(onPressed: _carregar, child: const Text('Recarregar')),
+                          ],
+                        ),
+                      )
+                    : _busca.isNotEmpty || _abaAtual != 0
+                        ? _buildGrade(_filtrados)
+                        : RefreshIndicator(
+                            onRefresh: _carregar,
+                            child: ListView(
+                              padding: const EdgeInsets.only(bottom: 24),
+                              children: [
+                                if (hero != null) _buildBannerHero(hero),
+                                if (destaques.isNotEmpty) _buildCarrossel('Em Destaque na Vitrine', destaques),
+                                if (filmes.isNotEmpty) _buildCarrossel('Filmes Recentes (${filmes.length})', filmes),
+                                if (series.isNotEmpty) _buildCarrossel('Séries (${series.length})', series),
+                                if (canais.isNotEmpty) _buildCarrossel('TV ao Vivo (${canais.length})', canais),
+                              ],
+                            ),
+                          ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        backgroundColor: const Color(0xFF11131A),
+        selectedIndex: _abaAtual,
+        indicatorColor: const Color(0xFFE50914).withOpacity(0.25),
+        onDestinationSelected: (idx) => setState(() => _abaAtual = idx),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Início'),
+          NavigationDestination(icon: Icon(Icons.movie_outlined), selectedIcon: Icon(Icons.movie), label: 'Filmes'),
+          NavigationDestination(icon: Icon(Icons.tv_outlined), selectedIcon: Icon(Icons.tv), label: 'Séries'),
+          NavigationDestination(icon: Icon(Icons.live_tv_outlined), selectedIcon: Icon(Icons.live_tv), label: 'TV ao Vivo'),
         ],
       ),
     );
   }
 
-  Widget _listaItens(List<CatalogoItem> lista, {required String vazio, bool isCuradoria = false}) {
-    final quebrados = !isCuradoria ? lista.where((e) => !e.linkAtivo).toList() : <CatalogoItem>[];
-    if (lista.isEmpty) return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(vazio, textAlign: TextAlign.center)));
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        if (quebrados.isNotEmpty) ...[
-          Container(
-            margin: const EdgeInsets.only(bottom: 14),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.redAccent.withOpacity(0.14),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.redAccent),
+  Widget _buildBannerHero(ObraAgrupada obra) {
+    final img = obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl;
+    return GestureDetector(
+      onTap: () => _abrirDetalhes(obra),
+      child: Container(
+        height: 230,
+        margin: const EdgeInsets.fromLTRB(14, 4, 14, 16),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(16), color: const Color(0xFF1A1D26)),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (img.isNotEmpty)
+              CachedNetworkImage(
+                imageUrl: img,
+                fit: BoxFit.cover,
+                errorWidget: (_, __, ___) => const Icon(Icons.movie, size: 64, color: Colors.white24),
+              ),
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Colors.black87, Colors.black],
+                ),
+              ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 14,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(color: const Color(0xFFE50914), borderRadius: BorderRadius.circular(4)),
+                        child: Text(obra.categoria.toUpperCase(),
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('${obra.audiosDisponiveis.join(" / ")} • ${obra.resolucoesDisponiveis.first}',
+                          style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(obra.titulo,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        ),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => PlayerScreen(obra: obra, fonteInicial: obra.fontes.first)),
+                          );
+                        },
+                        icon: const Icon(Icons.play_arrow),
+                        label: const Text('Assistir Agora', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Colors.white54),
+                        ),
+                        onPressed: () => _abrirDetalhes(obra),
+                        icon: const Icon(Icons.tune, size: 18),
+                        label: Text(obra.fontes.length > 1 ? '${obra.fontes.length} opções' : 'Detalhes'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCarrossel(String titulo, List<ObraAgrupada> itens) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+          child: Text(titulo, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+        ),
+        SizedBox(
+          height: 215,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            scrollDirection: Axis.horizontal,
+            itemCount: itens.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (_, idx) => SizedBox(width: 124, child: _buildCardObra(itens[idx])),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGrade(List<ObraAgrupada> itens) {
+    if (itens.isEmpty) return const Center(child: Text('Nenhum título encontrado.'));
+    return GridView.builder(
+      padding: const EdgeInsets.all(14),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 0.56,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: itens.length,
+      itemBuilder: (_, idx) => _buildCardObra(itens[idx]),
+    );
+  }
+
+  Widget _buildCardObra(ObraAgrupada obra) {
+    return GestureDetector(
+      onTap: () => _abrirDetalhes(obra),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Stack(
+              fit: StackFit.expand,
               children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: obra.capaUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: obra.capaUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => Container(color: const Color(0xFF1A1D26)),
+                          errorWidget: (_, __, ___) =>
+                              Container(color: const Color(0xFF1A1D26), child: const Icon(Icons.movie, color: Colors.white24)),
+                        )
+                      : Container(color: const Color(0xFF1A1D26), child: const Icon(Icons.movie, color: Colors.white24)),
+                ),
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(4)),
+                    child: Text(obra.resolucoesDisponiveis.first,
+                        style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.amberAccent)),
+                  ),
+                ),
+                if (obra.audiosDisponiveis.length > 1)
+                  Positioned(
+                    bottom: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(color: const Color(0xFFE50914), borderRadius: BorderRadius.circular(4)),
+                      child: const Text('DUAL', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(obra.titulo,
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          Text(obra.audiosDisponiveis.join(' • '),
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: Colors.white54)),
+        ],
+      ),
+    );
+  }
+}
+
+class DetalhesObraScreen extends StatefulWidget {
+  final ObraAgrupada obra;
+  const DetalhesObraScreen({super.key, required this.obra});
+
+  @override
+  State<DetalhesObraScreen> createState() => _DetalhesObraScreenState();
+}
+
+class _DetalhesObraScreenState extends State<DetalhesObraScreen> {
+  int _temporadaSelecionada = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.obra.temporadasDisponiveis.isNotEmpty) {
+      _temporadaSelecionada = widget.obra.temporadasDisponiveis.first;
+    }
+  }
+
+  void _reproduzir(FonteMidia fonte) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerScreen(obra: widget.obra, fonteInicial: fonte)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final obra = widget.obra;
+    final banner = obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl;
+
+    return Scaffold(
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 240,
+            pinned: true,
+            flexibleSpace: FlexibleSpaceBar(
+              title: Text(obra.titulo,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 16, shadows: [Shadow(blurRadius: 8, color: Colors.black)])),
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (banner.isNotEmpty) CachedNetworkImage(imageUrl: banner, fit: BoxFit.cover),
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.black26, Color(0xFF0B0C10)],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.all(16),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
                 Row(
                   children: [
-                    const Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+                    Chip(label: Text(obra.categoria), backgroundColor: const Color(0xFFE50914)),
+                    const SizedBox(width: 8),
+                    if (obra.ano.isNotEmpty) Chip(label: Text(obra.ano), backgroundColor: const Color(0xFF1A1D26)),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        'Links Quebrados / Offline (${quebrados.length})',
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 15),
-                      ),
+                      child: Text(obra.genero,
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 13)),
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
-                const Text('Estes títulos pararam de funcionar e precisam de novo link:', style: TextStyle(fontSize: 12, color: Colors.white70)),
-                const Divider(color: Colors.redAccent),
-                ...quebrados.map((q) => ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text('${q.titulo} (${q.categoria})', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                  subtitle: Text(q.urlStream, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white60, fontSize: 11.5)),
-                  trailing: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 10)),
-                    onPressed: () => _dialogCorrigirLink(q),
-                    child: const Text('Trocar Link', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                Text(obra.sinopse, style: const TextStyle(color: Colors.white70, height: 1.4, fontSize: 14)),
+                const SizedBox(height: 20),
+                if (obra.categoria != 'Série') ...[
+                  const Text('Escolha o Áudio e a Qualidade para Assistir:',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  ...obra.fontes.map(
+                    (f) => Card(
+                      color: const Color(0xFF161922),
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: ListTile(
+                        leading: const CircleAvatar(
+                          backgroundColor: Color(0xFFE50914),
+                          child: Icon(Icons.play_arrow, color: Colors.white),
+                        ),
+                        title: Text('${f.tipoAudio} • ${f.resolucao}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text('Stream ${f.formato.toUpperCase()} • Idiomas: ${f.idiomasAudio.join(", ")}',
+                            style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _reproduzir(f),
+                      ),
+                    ),
                   ),
-                )),
-              ],
+                ] else ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Episódios', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                      DropdownButton<int>(
+                        value: _temporadaSelecionada,
+                        dropdownColor: const Color(0xFF161922),
+                        items: obra.temporadasDisponiveis
+                            .map((t) => DropdownMenuItem(value: t, child: Text('Temporada $t')))
+                            .toList(),
+                        onChanged: (v) {
+                          if (v != null) setState(() => _temporadaSelecionada = v);
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ...obra.episodiosDaTemporada(_temporadaSelecionada).map(
+                        (ep) => Card(
+                          color: const Color(0xFF161922),
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: const Color(0xFF232836),
+                              child: Text('${ep.episodio ?? 1}',
+                                  style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
+                            ),
+                            title: Text(
+                              ep.etiquetaEpisodio.isNotEmpty ? '${ep.etiquetaEpisodio} - ${ep.titulo}' : ep.titulo,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(ep.badgeResumo, style: const TextStyle(color: Colors.amberAccent, fontSize: 12)),
+                            trailing: const Icon(Icons.play_circle_fill, color: Color(0xFFE50914), size: 30),
+                            onTap: () => _reproduzir(ep),
+                          ),
+                        ),
+                      ),
+                ],
+              ]),
             ),
           ),
         ],
-        ...List.generate(lista.length, (i) {
-        final item = lista[i];
-        return Card(
-          child: ListTile(
-            leading: item.capaUrl.isNotEmpty
-                ? Image.network(item.capaUrl, width: 42, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.movie))
-                : const Icon(Icons.movie),
-            title: Text(item.titulo, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text('${item.categoria} • ${item.resolucao} • ${item.tipoAudio}'),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isCuradoria)
-                  IconButton(
-                    icon: const Icon(Icons.check_circle, color: Colors.greenAccent),
-                    onPressed: () async {
-                      await _sb.atualizarStatus(item.id, aprovado: true, linkAtivo: true);
-                      _atualizarCatalogo();
-                    },
-                  ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                  onPressed: () async {
-                    await _sb.excluirMidia(item.id);
-                    _atualizarCatalogo();
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      }),
-      ],
-    );
-  }
-
-  Widget _telaConfig() {
-    final urlCtrl = TextEditingController(text: _supabaseUrl);
-    final keyCtrl = TextEditingController(text: _serviceKey);
-    final tmdbCtrl = TextEditingController(text: _tmdbKey);
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text('Credenciais Administrativas (Supabase & TMDB)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 14),
-        TextField(controller: urlCtrl, decoration: const InputDecoration(labelText: 'Supabase URL', border: OutlineInputBorder())),
-        const SizedBox(height: 12),
-        TextField(
-          controller: keyCtrl,
-          decoration: const InputDecoration(labelText: 'Supabase Secret / service_role Key', border: OutlineInputBorder()),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: tmdbCtrl,
-          decoration: const InputDecoration(labelText: 'TMDB API Key (para puxar capas e sinopses)', border: OutlineInputBorder()),
-        ),
-        const SizedBox(height: 18),
-        ElevatedButton.icon(
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14)),
-          onPressed: () async {
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('admin_sb_url', urlCtrl.text.trim());
-            await prefs.setString('admin_sb_key', keyCtrl.text.trim());
-            await prefs.setString('admin_tmdb_key', tmdbCtrl.text.trim());
-            await _carregarConfig();
-            if (mounted) {
-              setState(() => _abaAtual = 0);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chaves salvas!'), backgroundColor: Colors.green));
-            }
-          },
-          icon: const Icon(Icons.save),
-          label: const Text('Salvar e Conectar', style: TextStyle(fontWeight: FontWeight.bold)),
-        ),
-      ],
+      ),
     );
   }
 }

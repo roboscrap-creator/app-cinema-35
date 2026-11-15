@@ -1,139 +1,93 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../models/catalogo_item.dart';
+import '../models/midia_model.dart';
 
 class SupabaseService {
-  final String supabaseUrl;
-  final String serviceKey;
+  static const String baseUrl = 'https://kuziampmbltqdqkqyrlb.supabase.co';
+  static const String anonKey = '';
 
-  SupabaseService({required this.supabaseUrl, required this.serviceKey});
-
-  Map<String, String> get _headers => {
-        'apikey': serviceKey,
-        'Authorization': 'Bearer $serviceKey',
+  static Map<String, String> get _headers => {
+        'apikey': anonKey,
+        'Authorization': 'Bearer $anonKey',
         'Content-Type': 'application/json',
-        'Prefer': 'return=representation',
       };
 
-  Future<List<CatalogoItem>> listarCatalogo({bool? aprovado}) async {
-    String filtro = aprovado != null ? '&aprovado=eq.$aprovado' : '';
-    final res = await http.get(
-      Uri.parse('$supabaseUrl/rest/v1/catalogo_midia?select=*$filtro&order=criado_em.desc'),
-      headers: _headers,
+  static Future<List<ObraAgrupada>> carregarCatalogoAgrupado() async {
+    final uri = Uri.parse(
+      '$baseUrl/rest/v1/catalogo_midia?select=*&aprovado=eq.true&link_ativo=eq.true&order=ordem_destaque.asc,criado_em.desc&limit=1000',
     );
-    if (res.statusCode == 200) {
-      final List dados = jsonDecode(utf8.decode(res.bodyBytes));
-      return dados.map((e) => CatalogoItem.fromJson(e)).toList();
+    final resp = await http.get(uri, headers: _headers);
+    if (resp.statusCode != 200) throw Exception('Erro (${resp.statusCode})');
+
+    final List<dynamic> dados = jsonDecode(utf8.decode(resp.bodyBytes));
+    final Map<String, List>> grupos = {};
+
+    for (final item in dados) {
+      if (item is! Map<String, dynamic>) continue;
+      if ((item['url_stream'] ?? '').toString().trim().isEmpty) continue;
+      final cat = (item['categoria'] ?? 'Filme').toString().trim();
+      final tmdb = item['tmdb_id'];
+      final tituloBase = ((cat == 'Série' && (item['serie_nome'] ?? '').toString().trim().isNotEmpty)
+              ? item['serie_nome']
+              : item['titulo'] ?? 'Sem Título')
+          .toString()
+          .trim();
+      final chave = (tmdb != null && tmdb.toString().isNotEmpty)
+          ? '${cat}_tmdb_$tmdb'
+          : '${cat}_${tituloBase.toLowerCase()}';
+      grupos.putIfAbsent(chave, () => []).add(item);
     }
-    throw Exception('Erro HTTP ${res.statusCode}: ${res.body}');
+
+    final List<ObraAgrupada> obras = [];
+    grupos.forEach((chave, lista) {
+      lista.sort((a, b) => ((b['capa_url'] ?? '').toString().isNotEmpty ? 1 : 0)
+          .compareTo((a['capa_url'] ?? '').toString().isNotEmpty ? 1 : 0));
+      final p = lista.first;
+      final cat = (p['categoria'] ?? 'Filme').toString();
+      final titulo = ((cat == 'Série' && (p['serie_nome'] ?? '').toString().trim().isNotEmpty)
+              ? p['serie_nome']
+              : p['titulo'] ?? 'Sem Título')
+          .toString()
+          .trim();
+      final fontes = lista.map((e) => FonteMidia.fromJson(e)).toList();
+      fontes.sort((a, b) {
+        int peso(String r) {
+          final up = r.toUpperCase();
+          if (up.contains('4K') || up.contains('2160')) return 4;
+          if (up.contains('1080')) return 3;
+          if (up.contains('720')) return 2;
+          return 1;
+        }
+        final c = peso(b.resolucao).compareTo(peso(a.resolucao));
+        return c != 0 ? c : a.tipoAudio.compareTo(b.tipoAudio);
+      });
+
+      obras.add(ObraAgrupada(
+        chaveGrupo: chave,
+        tmdbId: p['tmdb_id'] is int ? p['tmdb_id'] : int.tryParse('${p['tmdb_id'] ?? ''}'),
+        titulo: titulo,
+        categoria: cat,
+        genero: (p['genero'] ?? 'Variados').toString(),
+        sinopse: (p['sinopse'] ?? 'Sinopse não disponível.').toString(),
+        capaUrl: (p['capa_url'] ?? '').toString(),
+        bannerUrl: (p['banner_url'] ?? '').toString(),
+        ano: (p['ano'] ?? '').toString(),
+        emDestaque: p['em_destaque'] == true,
+        ordemDestaque: p['ordem_destaque'] is int ? p['ordem_destaque'] : 999,
+        fontes: fontes,
+      ));
+    });
+    return obras;
   }
 
-  Future<void> inserirMidia(Map<String, dynamic> dados) async {
-    final res = await http.post(
-      Uri.parse('$supabaseUrl/rest/v1/catalogo_midia'),
-      headers: _headers,
-      body: jsonEncode(dados),
-    );
-    if (res.statusCode >= 300) {
-      throw Exception('Falha ao salvar: ${res.body}');
-    }
-  }
-
-  Future<void> atualizarStatus(String id, {bool? aprovado, bool? linkAtivo, String? backupUrl}) async {
-    final Map<String, dynamic> body = {};
-    if (aprovado != null) body['aprovado'] = aprovado;
-    if (linkAtivo != null) body['link_ativo'] = linkAtivo;
-    if (backupUrl != null) body['url_stream_backup'] = backupUrl;
-
-    await http.patch(
-      Uri.parse('$supabaseUrl/rest/v1/catalogo_midia?id=eq.$id'),
-      headers: _headers,
-      body: jsonEncode(body),
-    );
-  }
-
-  Future<void> excluirMidia(String id) async {
-    await http.delete(
-      Uri.parse('$supabaseUrl/rest/v1/catalogo_midia?id=eq.$id'),
-      headers: _headers,
-    );
-  }
-
-  Future<List<dynamic>> listarDestaquesHero() async {
-    final res = await http.get(
-      Uri.parse('$supabaseUrl/rest/v1/catalogo_midia?em_destaque=eq.true&order=ordem_destaque.asc'),
-      headers: _headers,
-    );
-    if (res.statusCode == 200) {
-      return List<dynamic>.from(jsonDecode(utf8.decode(res.bodyBytes)));
-    }
-    return [];
-  }
-
-  Future<void> definirDestaqueHero(String id, bool emDestaque, {int ordem = 1}) async {
-    await http.patch(
-      Uri.parse('$supabaseUrl/rest/v1/catalogo_midia?id=eq.$id'),
-      headers: _headers,
-      body: jsonEncode({
-        'em_destaque': emDestaque,
-        'ordem_destaque': emDestaque ? ordem : 0,
-      }),
-    );
-  }
-
-  Future<List<dynamic>> listarAbas() async {
-    final res = await http.get(
-      Uri.parse('$supabaseUrl/rest/v1/catalogo_abas?order=ordem.asc'),
-      headers: _headers,
-    );
-    if (res.statusCode == 200) {
-      return List<dynamic>.from(jsonDecode(utf8.decode(res.bodyBytes)));
-    }
-    return [];
-  }
-
-  Future<void> criarAba(String nome, int ordem) async {
-    final id = 'aba_${DateTime.now().millisecondsSinceEpoch}';
-    await http.post(
-      Uri.parse('$supabaseUrl/rest/v1/catalogo_abas'),
-      headers: _headers,
-      body: jsonEncode({'id': id, 'nome': nome, 'ordem': ordem, 'esta_ativa': true}),
-    );
-  }
-
-  Future<void> excluirAba(String id) async {
-    await http.delete(Uri.parse('$supabaseUrl/rest/v1/catalogo_abas?id=eq.$id'), headers: _headers);
-  }
-
-  Future<List<dynamic>> listarBlocos() async {
-    final res = await http.get(
-      Uri.parse('$supabaseUrl/rest/v1/catalogo_blocos?order=ordem.asc'),
-      headers: _headers,
-    );
-    if (res.statusCode == 200) {
-      return List<dynamic>.from(jsonDecode(utf8.decode(res.bodyBytes)));
-    }
-    return [];
-  }
-
-  Future<void> criarBloco(String idAba, String nome, String tipoBusca, String valorBusca, int ordem) async {
-    final id = 'bloco_${DateTime.now().millisecondsSinceEpoch}';
-    await http.post(
-      Uri.parse('$supabaseUrl/rest/v1/catalogo_blocos'),
-      headers: _headers,
-      body: jsonEncode({
-        'id': id,
-        'id_aba': idAba,
-        'nome': nome,
-        'tipo_busca': tipoBusca,
-        'valor_busca': valorBusca,
-        'ordem': ordem,
-        'esta_ativo': true,
-      }),
-    );
-  }
-
-  Future<void> excluirBloco(String id) async {
-    await http.delete(Uri.parse('$supabaseUrl/rest/v1/catalogo_blocos?id=eq.$id'), headers: _headers);
+  static Future<void> registrarVisualizacao(String id) async {
+    if (id.isEmpty) return;
+    try {
+      await http.post(
+        Uri.parse('$baseUrl/rest/v1/rpc/incrementar_visualizacao'),
+        headers: _headers,
+        body: jsonEncode({'midia_id': id}),
+      );
+    } catch (_) {}
   }
 }

@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import '../models/midia_model.dart';
@@ -36,7 +38,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _iniciarStream(_fonteAtual.urlStream);
   }
 
-  Future<Uri> _resolverRedirect(Uri inicial, Map<String, String> headers) async {
+  Future<Uri> _extrairStreamReal(Uri inicial, Map<String, String> headers) async {
+    final urlStr = inicial.toString();
+    if (urlStr.contains('blogger.com/video-play.mp4') || urlStr.contains('blogspot.com')) {
+      try {
+        final resp = await http.get(inicial, headers: {
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Referer': 'https://www.blogger.com/',
+        }).timeout(const Duration(seconds: 10));
+        final body = resp.body;
+        final matches = RegExp(r'https?:\\?/\\?/[^"\\\s]+googlevideo\.com\\?/videoplayback[^"\\\s]+').allMatches(body);
+        if (matches.isNotEmpty) {
+          var raw = matches.last.group(0)!;
+          raw = raw.replaceAll(r'\u0026', '&').replaceAll(r'\u003d', '=').replaceAll(r'\/', '/');
+          return Uri.parse(raw);
+        }
+        final playUrl = RegExp(r'"play_url"\s*:\s*"([^"]+)"').firstMatch(body);
+        if (playUrl != null) {
+          final decoded = jsonDecode('"${playUrl.group(1)!}"') as String;
+          if (decoded.startsWith('http')) return Uri.parse(decoded);
+        }
+      } catch (_) {}
+    }
+
     try {
       final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
       var atual = inicial;
@@ -77,13 +102,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await oldVideo?.dispose();
 
     try {
+      final isBlogger = url.contains('blogger.com') || url.contains('googlevideo.com');
       final headers = <String, String>{
-        'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18',
+        'User-Agent': isBlogger
+            ? 'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
+            : 'VLC/3.0.18 LibVLC/3.0.18',
         'Accept': '*/*',
         'Connection': 'keep-alive',
+        if (isBlogger) 'Referer': 'https://www.blogger.com/',
         ..._fonteAtual.headers,
       };
-      final uriFinal = await _resolverRedirect(Uri.parse(url.trim()), headers);
+      final uriFinal = await _extrairStreamReal(Uri.parse(url.trim()), headers);
       final lower = uriFinal.toString().toLowerCase();
       final VideoFormat? fmt = (lower.contains('.m3u8') || _fonteAtual.formato.toLowerCase() == 'hls')
           ? VideoFormat.hls

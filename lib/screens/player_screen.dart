@@ -18,11 +18,14 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
+  static const String _torrServerBase = 'http://127.0.0.1:8090';
+
   late FonteMidia _fonteAtual;
   VideoPlayerController? _videoController;
   ChewieController? _chewieController;
   WebViewController? _webController;
   bool _carregando = true;
+  String _mensagemCarregamento = '';
   bool _modoWeb = false;
   String? _erro;
   final Set<String> _urlsJaTestadas = {};
@@ -55,6 +58,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         u.contains('dood');
   }
 
+  String _montarUrlTorrServer(String magnetUrl) {
+    final encoded = Uri.encodeComponent(magnetUrl.trim());
+    return '$_torrServerBase/stream?link=$encoded&index=1&play';
+  }
+
   void _tentarProximoServidorOuFalhar(String motivo) {
     final candidatos = widget.obra.fontes.where((f) {
       final mesmoEp = f.temporada == _fonteAtual.temporada && f.episodio == _fonteAtual.episodio;
@@ -72,7 +80,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() {
       _carregando = false;
       _modoWeb = false;
-      _erro = 'Fonte offline no servidor de origem ($motivo).\nEste link da lista M3U expirou ou foi removido.';
+      _erro = motivo;
     });
   }
 
@@ -131,7 +139,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           },
           onWebResourceError: (err) {
             if (err.isForMainFrame == true) {
-              _tentarProximoServidorOuFalhar('HTTP ${err.errorCode}');
+              _tentarProximoServidorOuFalhar('Erro web HTTP ${err.errorCode}.');
             }
           },
         ),
@@ -166,8 +174,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final cleanUrl = url.trim();
     _urlsJaTestadas.add(cleanUrl);
 
+    final isMagnet = cleanUrl.toLowerCase().startsWith('magnet:?');
+
     setState(() {
       _carregando = true;
+      _mensagemCarregamento = isMagnet
+          ? 'Conectando peers via TorrServer integrado...'
+          : 'Carregando ${widget.obra.titulo} (${_fonteAtual.badgeResumo})...';
       _modoWeb = false;
       _webController = null;
       _erro = null;
@@ -181,20 +194,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
     oldChewie?.dispose();
     await oldVideo?.dispose();
 
-    final ytId = _extrairYoutubeId(cleanUrl);
-    if (ytId != null) {
-      _abrirYoutubeNoWebView(ytId);
-      return;
-    }
+    String streamUrlFinal = cleanUrl;
 
-    if (_ehPaginaWebEmbed(cleanUrl)) {
-      _abrirUrlNoWebView(cleanUrl);
-      return;
+    if (isMagnet) {
+      final online = await TorrServerService.garantirAtivo();
+      if (!online) {
+        if (!mounted) return;
+        setState(() {
+          _carregando = false;
+          _erro = 'Motor TorrServer integrado não respondeu em 127.0.0.1:8090. Toque em "Tentar Novamente".';
+        });
+        return;
+      }
+      streamUrlFinal = _montarUrlTorrServer(cleanUrl);
+    } else {
+      final ytId = _extrairYoutubeId(cleanUrl);
+      if (ytId != null) {
+        _abrirYoutubeNoWebView(ytId);
+        return;
+      }
+
+      if (_ehPaginaWebEmbed(cleanUrl)) {
+        _abrirUrlNoWebView(cleanUrl);
+        return;
+      }
     }
 
     try {
-      final uri = Uri.parse(cleanUrl);
-      final lower = cleanUrl.toLowerCase();
+      final uri = Uri.parse(streamUrlFinal);
+      final lower = streamUrlFinal.toLowerCase();
       final VideoFormat? fmt = (lower.contains('.m3u8') || _fonteAtual.formato.toLowerCase() == 'hls')
           ? VideoFormat.hls
           : null;
@@ -237,12 +265,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _chewieController = chewie;
         _carregando = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (_fonteAtual.urlStreamBackup.trim().isNotEmpty &&
           !_urlsJaTestadas.contains(_fonteAtual.urlStreamBackup.trim())) {
         return _iniciarStream(_fonteAtual.urlStreamBackup.trim(), posicaoRetomar: posicaoRetomar);
       }
-      _tentarProximoServidorOuFalhar('404 / Stream indisponível');
+      _tentarProximoServidorOuFalhar(
+        isMagnet
+            ? 'Sem seeds ativos no torrent ou buffer expirado no TorrServer ($e).'
+            : 'Fonte offline no servidor de origem (404 / Stream indisponível).',
+      );
     }
   }
 
@@ -277,6 +309,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               const SizedBox(height: 12),
               ...lista.take(8).map((f) {
                 final ativo = f.id == _fonteAtual.id;
+                final isTor = f.urlStream.trim().toLowerCase().startsWith('magnet:?');
                 return ListTile(
                   leading: Icon(
                     ativo ? Icons.radio_button_checked : Icons.radio_button_off,
@@ -284,7 +317,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
                   title: Text('${f.tipoAudio} • ${f.resolucao}',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                  subtitle: Text('Formato: ${f.formato.toUpperCase()}',
+                  subtitle: Text(isTor ? 'TORRENT P2P (TorrServer)' : 'Formato: ${f.formato.toUpperCase()}',
                       style: const TextStyle(color: Colors.white54, fontSize: 12)),
                   onTap: () {
                     Navigator.pop(context);
@@ -325,7 +358,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     children: [
                       const CircularProgressIndicator(color: Color(0xFF2196F3)),
                       const SizedBox(height: 12),
-                      Text('Carregando ${widget.obra.titulo} (${_fonteAtual.badgeResumo})...',
+                      Text(_mensagemCarregamento,
+                          textAlign: TextAlign.center,
                           style: const TextStyle(color: Colors.white70)),
                     ],
                   )

@@ -38,20 +38,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _iniciarStream(_fonteAtual.urlStream);
   }
 
-  String? _converterParaEmbedWeb(String url) {
-    final u = url.trim();
-    final ytWatch = RegExp(r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([A-Za-z0-9_-]{6,})').firstMatch(u);
-    if (ytWatch != null) {
-      return 'https://www.youtube.com/embed/${ytWatch.group(1)}?autoplay=1&playsinline=1&rel=0';
-    }
-    if (u.contains('blogger.com/video-play.mp4') ||
+  String? _extrairYoutubeId(String url) {
+    final m = RegExp(
+      r'(?:youtube\.com/(?:watch\?v=|embed/|shorts/)|youtu\.be/)([A-Za-z0-9_-]{6,})',
+    ).firstMatch(url.trim());
+    return m?.group(1);
+  }
+
+  bool _ehPaginaWebEmbed(String url) {
+    final u = url.trim().toLowerCase();
+    return u.contains('blogger.com/video-play.mp4') ||
         u.contains('drive.google.com') ||
         u.contains('streamtape.') ||
         u.contains('mixdrop.') ||
-        u.contains('dood')) {
-      return u;
-    }
-    return null;
+        u.contains('dood');
   }
 
   void _tentarProximoServidorOuFalhar(String motivo) {
@@ -75,7 +75,51 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
-  void _abrirNoWebView(String url) {
+  void _abrirYoutubeNoWebView(String videoId) {
+    final html = '''
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+    iframe { width: 100%; height: 100%; border: 0; }
+  </style>
+</head>
+<body>
+  <iframe
+    src="https://www.youtube-nocookie.com/embed/$videoId?autoplay=1&playsinline=1&rel=0&modestbranding=1"
+    allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+    allowfullscreen>
+  </iframe>
+</body>
+</html>
+''';
+
+    final wc = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      ..setUserAgent('Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36')
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) {
+            if (mounted) setState(() => _carregando = false);
+          },
+        ),
+      )
+      ..loadHtmlString(html, baseUrl: 'https://www.youtube-nocookie.com');
+
+    SupabaseService.registrarVisualizacao(_fonteAtual.id);
+    if (!mounted) return;
+    setState(() {
+      _webController = wc;
+      _modoWeb = true;
+      _erro = null;
+      _carregando = false;
+    });
+  }
+
+  void _abrirUrlNoWebView(String url) {
     final wc = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
@@ -103,6 +147,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
+  Future<VideoPlayerController> _criarEInicializarNativo(
+    Uri uri,
+    VideoFormat? fmt,
+    Map<String, String> headers,
+  ) async {
+    final controller = VideoPlayerController.networkUrl(
+      uri,
+      formatHint: fmt,
+      httpHeaders: headers,
+    );
+    await controller.initialize();
+    return controller;
+  }
+
   Future<void> _iniciarStream(String url, {Duration? posicaoRetomar}) async {
     final cleanUrl = url.trim();
     _urlsJaTestadas.add(cleanUrl);
@@ -122,9 +180,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     oldChewie?.dispose();
     await oldVideo?.dispose();
 
-    final embedUrl = _converterParaEmbedWeb(cleanUrl);
-    if (embedUrl != null) {
-      _abrirNoWebView(embedUrl);
+    final ytId = _extrairYoutubeId(cleanUrl);
+    if (ytId != null) {
+      _abrirYoutubeNoWebView(ytId);
+      return;
+    }
+
+    if (_ehPaginaWebEmbed(cleanUrl)) {
+      _abrirUrlNoWebView(cleanUrl);
       return;
     }
 
@@ -135,12 +198,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ? VideoFormat.hls
           : null;
 
-      final controller = VideoPlayerController.networkUrl(
-        uri,
-        formatHint: fmt,
-        httpHeaders: _fonteAtual.headers,
-      );
-      await controller.initialize();
+      VideoPlayerController controller;
+      try {
+        controller = await _criarEInicializarNativo(uri, fmt, _fonteAtual.headers);
+      } catch (_) {
+        final vlcHeaders = {
+          'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18',
+          ..._fonteAtual.headers,
+        };
+        controller = await _criarEInicializarNativo(uri, fmt, vlcHeaders);
+      }
+
       if (posicaoRetomar != null && posicaoRetomar > Duration.zero) {
         await controller.seekTo(posicaoRetomar);
       }

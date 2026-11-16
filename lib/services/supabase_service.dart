@@ -91,6 +91,23 @@ class SupabaseService {
     return u;
   }
 
+  static bool _urlEstaAtiva(String url) {
+    final u = url.toLowerCase();
+    const mortos = [
+      'staniptv',
+      'ntcdn.us',
+      'vstreaming.net',
+      'popfilmeshd.net',
+      'themediafire.club',
+      'cdnv12.ec.cx',
+      'cdnv18.ec.cx',
+    ];
+    for (final m in mortos) {
+      if (u.contains(m)) return false;
+    }
+    return true;
+  }
+
   static List<ObraAgrupada> _agruparDados(List<dynamic> dados) {
     final Map<String, List> grupos = {};
     final Set<String> idsVistos = {};
@@ -102,7 +119,8 @@ class SupabaseService {
       if (id.isNotEmpty && idsVistos.contains(id)) continue;
       if (id.isNotEmpty) idsVistos.add(id);
 
-      if ((map['url_stream'] ?? '').toString().trim().isEmpty) continue;
+      final url = (map['url_stream'] ?? '').toString().trim();
+      if (url.isEmpty || !_urlEstaAtiva(url)) continue;
 
       final tituloBruto = (map['titulo'] ?? 'Sem Título').toString().trim();
       var capa = _normalizarUrlImagem((map['capa_url'] ?? '').toString());
@@ -180,7 +198,8 @@ class SupabaseService {
 
   static Future<List<dynamic>> _fetchLote(String key, String filtroQuery, int limite) async {
     const cols = 'id,tmdb_id,titulo,serie_nome,categoria,genero,sinopse,capa_url,banner_url,ano,temporada,episodio,url_stream,url_stream_backup,formato,tipo_audio,resolucao,em_destaque,ordem_destaque';
-    final uri = Uri.parse('$baseUrl/rest/v1/catalogo_midia?select=$cols$filtroQuery&order=ordem_destaque.asc,criado_em.desc');
+    const filtroAtivos = '&url_stream=not.ilike.*STANIPTV*&url_stream=not.ilike.*ntcdn.us*&url_stream=not.ilike.*vstreaming.net*&url_stream=not.ilike.*popfilmeshd.net*&url_stream=not.ilike.*themediafire.club*&url_stream=not.ilike.*cdnv12.ec.cx*&url_stream=not.ilike.*cdnv18.ec.cx*';
+    final uri = Uri.parse('$baseUrl/rest/v1/catalogo_midia?select=$cols$filtroAtivos$filtroQuery&order=ordem_destaque.asc,criado_em.desc');
     final resp = await http.get(uri, headers: {
       'apikey': key,
       'Authorization': 'Bearer $key',

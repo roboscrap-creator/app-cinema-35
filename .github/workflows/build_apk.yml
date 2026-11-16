@@ -39,32 +39,33 @@ jobs:
           chmod +x android/app/src/main/jniLibs/armeabi-v7a/libtorrserver.so
 
           MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
-          cat << 'KTEOF' > "$MAIN_ACT"
-          package com.chiavegatti.cinema
-
-          import io.flutter.embedding.android.FlutterActivity
-          import io.flutter.embedding.engine.FlutterEngine
-          import io.flutter.plugin.common.MethodChannel
-
-          class MainActivity: FlutterActivity() {
-              private val CHANNEL = "com.chiavegatti.cinema/torrserver"
-
-              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-                  super.configureFlutterEngine(flutterEngine)
-                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
-                      if (call.method == "getPaths") {
-                          val paths = mapOf(
-                              "nativeLibDir" to applicationContext.applicationInfo.nativeLibraryDir,
-                              "filesDir" to applicationContext.filesDir.absolutePath
-                          )
-                          result.success(paths)
-                      } else {
-                          result.notImplemented()
-                      }
-                  }
-              }
-          }
-          KTEOF
+          PKG_LINE=$(grep "^package " "$MAIN_ACT" | head -n 1)
+          {
+            echo "$PKG_LINE"
+            echo ""
+            echo "import io.flutter.embedding.android.FlutterActivity"
+            echo "import io.flutter.embedding.engine.FlutterEngine"
+            echo "import io.flutter.plugin.common.MethodChannel"
+            echo ""
+            echo "class MainActivity: FlutterActivity() {"
+            echo "    private val CHANNEL = \"com.chiavegatti.cinema/torrserver\""
+            echo ""
+            echo "    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {"
+            echo "        super.configureFlutterEngine(flutterEngine)"
+            echo "        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->"
+            echo "            if (call.method == \"getPaths\") {"
+            echo "                val paths = mapOf("
+            echo "                    \"nativeLibDir\" to applicationContext.applicationInfo.nativeLibraryDir,"
+            echo "                    \"filesDir\" to applicationContext.filesDir.absolutePath"
+            echo "                )"
+            echo "                result.success(paths)"
+            echo "            } else {"
+            echo "                result.notImplemented()"
+            echo "            }"
+            echo "        }"
+            echo "    }"
+            echo "}"
+          } > "$MAIN_ACT"
 
           python3 -m pip install pillow
           python3 gerar_icone.py

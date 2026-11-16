@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'models/midia_model.dart';
 import 'services/supabase_service.dart';
-import 'services/torrserver_service.dart';
 import 'screens/detalhe_obra_screen.dart';
 import 'screens/aba_categoria_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  TorrServerService.garantirAtivo();
   runApp(const CinemaApp());
 }
 

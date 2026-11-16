@@ -17,11 +17,49 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-      - name: Criar estrutura Android, liberar HTTP e gerar logo Cinema
+      - name: Criar estrutura Android, embutir TorrServer e gerar logo Cinema
         run: |
           flutter create . --platforms=android --org com.chiavegatti.cinema
-          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><application android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><application android:usesCleartextTraffic="true" android:extractNativeLibs="true"|' android/app/src/main/AndroidManifest.xml
           sed -i 's/android:label="app_cinema"/android:label="Cinema"/' android/app/src/main/AndroidManifest.xml
+
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          mkdir -p android/app/src/main/jniLibs/armeabi-v7a
+          curl -fsSL -o android/app/src/main/jniLibs/arm64-v8a/libtorrserver.so \
+            https://github.com/YouROK/TorrServer/releases/latest/download/TorrServer-android-arm64
+          curl -fsSL -o android/app/src/main/jniLibs/armeabi-v7a/libtorrserver.so \
+            https://github.com/YouROK/TorrServer/releases/latest/download/TorrServer-android-arm7
+          chmod +x android/app/src/main/jniLibs/arm64-v8a/libtorrserver.so
+          chmod +x android/app/src/main/jniLibs/armeabi-v7a/libtorrserver.so
+
+          MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
+          cat << 'KTEOF' > "$MAIN_ACT"
+          package com.chiavegatti.cinema
+
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+
+          class MainActivity: FlutterActivity() {
+              private val CHANNEL = "com.chiavegatti.cinema/torrserver"
+
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+                      if (call.method == "getPaths") {
+                          val paths = mapOf(
+                              "nativeLibDir" to applicationContext.applicationInfo.nativeLibraryDir,
+                              "filesDir" to applicationContext.filesDir.absolutePath
+                          )
+                          result.success(paths)
+                      } else {
+                          result.notImplemented()
+                      }
+                  }
+              }
+          }
+          KTEOF
+
           python3 -m pip install pillow
           python3 gerar_icone.py
       - name: Instalar dependencias

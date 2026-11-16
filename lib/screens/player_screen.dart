@@ -5,6 +5,7 @@ import 'package:chewie/chewie.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
+import '../services/torrserver_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   final ObraAgrupada obra;

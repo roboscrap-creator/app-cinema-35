@@ -34,6 +34,19 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
     return keys.map((k) => porNumero[k]!).toList();
   }
 
+  List<FonteMidia> _fontesFilmeUnicas(List<FonteMidia> brutos) {
+    final Set<String> urlsVistas = {};
+    final List<FonteMidia> unicas = [];
+    for (final f in brutos) {
+      final u = f.urlStream.trim();
+      if (u.isEmpty || urlsVistas.contains(u)) continue;
+      urlsVistas.add(u);
+      unicas.add(f);
+      if (unicas.length >= 6) break;
+    }
+    return unicas;
+  }
+
   @override
   Widget build(BuildContext context) {
     final o = widget.obra;
@@ -43,7 +56,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
         o.fontes.any((f) => f.episodio != null);
     final temps = o.temporadasDisponiveis;
     final epsBrutos = isSerie ? o.episodiosDaTemporada(_tempAtual) : o.fontes;
-    final eps = isSerie ? _episodiosUnicos(epsBrutos) : epsBrutos;
+    final eps = isSerie ? _episodiosUnicos(epsBrutos) : _fontesFilmeUnicas(epsBrutos);
     final img = o.bannerUrl.isNotEmpty ? o.bannerUrl : o.capaUrl;
 
     return Scaffold(
@@ -95,19 +108,23 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
           ],
           const SizedBox(height: 16),
           Text(
-            isSerie ? 'Temporada $_tempAtual • ${eps.length} Episódios' : 'Opções de Reprodução (${eps.length})',
+            isSerie ? 'Temporada $_tempAtual • ${eps.length} Episódios' : 'Servidores Disponíveis (${eps.length})',
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          ...eps.map((f) => Card(
-                color: const Color(0xFF1A1C26),
-                child: ListTile(
-                  leading: const Icon(Icons.play_circle_fill, color: Color(0xFF2196F3), size: 32),
-                  title: Text(isSerie ? 'Episódio ${f.episodio ?? 1} - ${f.titulo}' : f.titulo),
-                  subtitle: Text(f.badgeResumo),
-                  onTap: () => _play(f),
-                ),
-              )),
+          ...eps.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final f = entry.value;
+            return Card(
+              color: const Color(0xFF1A1C26),
+              child: ListTile(
+                leading: const Icon(Icons.play_circle_fill, color: Color(0xFF2196F3), size: 32),
+                title: Text(isSerie ? 'Episódio ${f.episodio ?? 1} - ${f.titulo}' : 'Servidor ${idx + 1} • ${f.titulo}'),
+                subtitle: Text(f.badgeResumo),
+                onTap: () => _play(f),
+              ),
+            );
+          }),
         ],
       ),
     );

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -24,7 +25,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _carregando = true;
   bool _modoWeb = false;
   String? _erro;
-  bool _tentouBackup = false;
+  final Set<String> _urlsJaTestadas = {};
 
   @override
   void initState() {
@@ -54,6 +55,37 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return null;
   }
 
+  Future<bool> _linkEstaOnline(String url) async {
+    try {
+      final resp = await http.head(Uri.parse(url)).timeout(const Duration(seconds: 4));
+      if (resp.statusCode == 404 || resp.statusCode == 410) return false;
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  void _tentarProximoServidorOuFalhar(String motivo) {
+    final candidatos = widget.obra.fontes.where((f) {
+      final mesmoEp = f.temporada == _fonteAtual.temporada && f.episodio == _fonteAtual.episodio;
+      return mesmoEp && f.urlStream.trim().isNotEmpty && !_urlsJaTestadas.contains(f.urlStream.trim());
+    }).toList();
+
+    if (candidatos.isNotEmpty) {
+      final prox = candidatos.first;
+      setState(() => _fonteAtual = prox);
+      _iniciarStream(prox.urlStream);
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _carregando = false;
+      _modoWeb = false;
+      _erro = 'Link indisponível ou expirado no servidor ($motivo).\nTeste outro título do catálogo.';
+    });
+  }
+
   void _abrirNoWebView(String url, {bool envolverVideoHtml = false}) {
     final wc = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -62,6 +94,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         NavigationDelegate(
           onPageFinished: (_) {
             if (mounted) setState(() => _carregando = false);
+          },
+          onWebResourceError: (err) {
+            if (err.isForMainFrame == true) {
+              _tentarProximoServidorOuFalhar('HTTP ${err.errorCode}');
+            }
           },
         ),
       );
@@ -73,7 +110,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 <head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <style>html,body{margin:0;padding:0;background:#000;width:100%;height:100%;overflow:hidden}video{width:100%;height:100%;object-fit:contain}</style>
 </head>
-<body><video src="$url" controls autoplay playsinline></video></body>
+<body><video src="$url" controls autoplay playsinline onerror="document.title='ERR_VIDEO'"></video></body>
 </html>''';
       wc.loadHtmlString(html);
     } else {
@@ -91,6 +128,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _iniciarStream(String url, {Duration? posicaoRetomar}) async {
+    final cleanUrl = url.trim();
+    _urlsJaTestadas.add(cleanUrl);
+
     setState(() {
       _carregando = true;
       _modoWeb = false;
@@ -106,10 +146,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     oldChewie?.dispose();
     await oldVideo?.dispose();
 
-    final cleanUrl = url.trim();
     final embedUrl = _converterParaEmbedWeb(cleanUrl);
     if (embedUrl != null) {
+      final ok = await _linkEstaOnline(embedUrl);
+      if (!ok) {
+        _tentarProximoServidorOuFalhar('404 Not Found');
+        return;
+      }
       _abrirNoWebView(embedUrl);
+      return;
+    }
+
+    final online = await _linkEstaOnline(cleanUrl);
+    if (!online) {
+      _tentarProximoServidorOuFalhar('404 Not Found');
       return;
     }
 
@@ -153,22 +203,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _chewieController = chewie;
         _carregando = false;
       });
-    } catch (_) {
-      if (!_tentouBackup && _fonteAtual.urlStreamBackup.trim().isNotEmpty) {
-        _tentouBackup = true;
+    } catch (e) {
+      if (_fonteAtual.urlStreamBackup.trim().isNotEmpty &&
+          !_urlsJaTestadas.contains(_fonteAtual.urlStreamBackup.trim())) {
         return _iniciarStream(_fonteAtual.urlStreamBackup.trim(), posicaoRetomar: posicaoRetomar);
       }
-      _abrirNoWebView(cleanUrl, envolverVideoHtml: true);
+      _tentarProximoServidorOuFalhar('Fonte inválida');
     }
   }
 
   Future<void> _trocarFonte(FonteMidia novaFonte) async {
     if (novaFonte.id == _fonteAtual.id) return;
     final pos = _videoController?.value.position;
-    setState(() {
-      _fonteAtual = novaFonte;
-      _tentouBackup = false;
-    });
+    setState(() => _fonteAtual = novaFonte);
     await _iniciarStream(novaFonte.urlStream, posicaoRetomar: pos);
   }
 
@@ -194,7 +241,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               const Text('Selecionar Áudio e Resolução',
                   style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
-              ...lista.map((f) {
+              ...lista.take(8).map((f) {
                 final ativo = f.id == _fonteAtual.id;
                 return ListTile(
                   leading: Icon(
@@ -251,20 +298,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 : _modoWeb && _webController != null
                     ? WebViewWidget(controller: _webController!)
                     : _erro != null
-                        ? Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
-                              const SizedBox(height: 8),
-                              Text(_erro!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 12)),
-                              const SizedBox(height: 12),
-                              ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
-                                onPressed: () => _iniciarStream(_fonteAtual.urlStream),
-                                icon: const Icon(Icons.refresh, color: Colors.white),
-                                label: const Text('Tentar Novamente', style: TextStyle(color: Colors.white)),
-                              ),
-                            ],
+                        ? Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
+                                const SizedBox(height: 8),
+                                Text(_erro!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                                const SizedBox(height: 12),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
+                                  onPressed: () {
+                                    _urlsJaTestadas.clear();
+                                    _iniciarStream(_fonteAtual.urlStream);
+                                  },
+                                  icon: const Icon(Icons.refresh, color: Colors.white),
+                                  label: const Text('Tentar Novamente', style: TextStyle(color: Colors.white)),
+                                ),
+                              ],
+                            ),
                           )
                         : _chewieController != null
                             ? Chewie(controller: _chewieController!)

@@ -6,7 +6,8 @@ import '../models/midia_model.dart';
 class SupabaseService {
   static const String baseUrl = 'https://kuziampmbltqdqkqyrlb.supabase.co';
   static const String defaultAnonKey = 'sb_publishable_ts3-fnYSelSkjp6GIY8jVw_-ZZTkD_5';
-  static const String _cacheKey = 'cinema_catalogo_cache_v1';
+
+  static List<ObraAgrupada>? _memoriaRapida;
 
   static Future<String> getAnonKey() async {
     final prefs = await SharedPreferences.getInstance();
@@ -21,9 +22,7 @@ class SupabaseService {
 
   static String? _extrairLogoM3u(String texto) {
     final m = RegExp(r'tvg-logo\s*=\s*"([^"]+)"', caseSensitive: false).firstMatch(texto);
-    if (m != null && m.group(1)!.startsWith('http')) {
-      return m.group(1)!.trim();
-    }
+    if (m != null && m.group(1)!.startsWith('http')) return m.group(1)!.trim();
     return null;
   }
 
@@ -33,9 +32,7 @@ class SupabaseService {
       final lastQuote = s.lastIndexOf('"');
       final comma = s.lastIndexOf(',');
       final cut = lastQuote > comma ? lastQuote : comma;
-      if (cut != -1 && cut + 1 < s.length) {
-        s = s.substring(cut + 1).trim();
-      }
+      if (cut != -1 && cut + 1 < s.length) s = s.substring(cut + 1).trim();
     }
     return s;
   }
@@ -176,49 +173,27 @@ class SupabaseService {
   }
 
   static Future<List<ObraAgrupada>> carregarCatalogoAgrupado() async {
-    final prefs = await SharedPreferences.getInstance();
-    final cachedJson = prefs.getString(_cacheKey);
-    if (cachedJson != null && cachedJson.isNotEmpty) {
-      _atualizarCacheEmSegundoPlano();
-      try {
-        final listaCache = jsonDecode(cachedJson) as List<dynamic>;
-        if (listaCache.isNotEmpty) return _agruparDados(listaCache);
-      } catch (_) {}
+    if (_memoriaRapida != null && _memoriaRapida!.isNotEmpty) {
+      return _memoriaRapida!;
     }
-    return _buscarDoServidorESalvar();
-  }
-
-  static Future<void> _atualizarCacheEmSegundoPlano() async {
-    try {
-      await _buscarDoServidorESalvar();
-    } catch (_) {}
-  }
-
-  static Future<List<ObraAgrupada>> _buscarDoServidorESalvar() async {
     final key = await getAnonKey();
-    final headers = {'apikey': key, 'Authorization': 'Bearer $key', 'Content-Type': 'application/json'};
-    final List<dynamic> dados = [];
-    int offset = 0;
-    const int pageSize = 1000;
-    while (true) {
-      final h = {...headers, 'Range': '$offset-${offset + pageSize - 1}'};
-      final uri = Uri.parse(
-        '$baseUrl/rest/v1/catalogo_midia?select=id,tmdb_id,titulo,serie_nome,categoria,genero,sinopse,capa_url,banner_url,ano,temporada,episodio,url_stream,url_stream_backup,formato,tipo_audio,resolucao,em_destaque,ordem_destaque&order=ordem_destaque.asc,criado_em.desc',
-      );
-      final resp = await http.get(uri, headers: h);
-      if (resp.statusCode != 200 && resp.statusCode != 206) throw Exception('Erro (${resp.statusCode})');
-      final lote = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
-      dados.addAll(lote);
-      if (lote.length < pageSize) break;
-      offset += pageSize;
+    final headers = {
+      'apikey': key,
+      'Authorization': 'Bearer $key',
+      'Content-Type': 'application/json',
+      'Range': '0-2499',
+    };
+    final uri = Uri.parse(
+      '$baseUrl/rest/v1/catalogo_midia?select=id,tmdb_id,titulo,serie_nome,categoria,genero,sinopse,capa_url,banner_url,ano,temporada,episodio,url_stream,url_stream_backup,formato,tipo_audio,resolucao,em_destaque,ordem_destaque&order=ordem_destaque.asc,criado_em.desc',
+    );
+    final resp = await http.get(uri, headers: headers).timeout(const Duration(seconds: 12));
+    if (resp.statusCode != 200 && resp.statusCode != 206) {
+      throw Exception('Erro (${resp.statusCode})');
     }
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_cacheKey, jsonEncode(dados));
-    } catch (_) {}
-
-    return _agruparDados(dados);
+    final loteInicial = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
+    final agrupado = _agruparDados(loteInicial);
+    _memoriaRapida = agrupado;
+    return agrupado;
   }
 
   static Future<void> registrarVisualizacao(String id) async {

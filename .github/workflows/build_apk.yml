@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
@@ -24,7 +24,9 @@ jobs:
       - name: Instalar dependencias
         run: flutter pub get
       - name: Compilar APK Release
-        run: echo "android.lint.checkReleaseBuilds=false" >> android/gradle.properties && flutter build apk --release
+        run: |
+          flutter build apk --config-only --release
+          cd android && ./gradlew assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

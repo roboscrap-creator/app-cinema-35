@@ -5,7 +5,7 @@ import '../models/midia_model.dart';
 
 class SupabaseService {
   static const String baseUrl = 'https://kuziampmbltqdqkqyrlb.supabase.co';
-  static const String defaultAnonKey = 'COLE_SUA_ANON_KEY_AQUI';
+  static const String defaultAnonKey = 'sb_publishable_ts3-fnYSelSkjp6GIY8jVw_-ZZTkD_5';
 
   static Future<String> getAnonKey() async {
     final prefs = await SharedPreferences.getInstance();

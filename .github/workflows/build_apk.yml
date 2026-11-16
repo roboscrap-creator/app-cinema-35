@@ -17,10 +17,13 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-      - name: Criar estrutura Android e liberar HTTP
+      - name: Criar estrutura Android, liberar HTTP e gerar logo Cinema
         run: |
           flutter create . --platforms=android --org com.chiavegatti.cinema
           sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="app_cinema"/android:label="Cinema"/' android/app/src/main/AndroidManifest.xml
+          python3 -m pip install pillow
+          python3 gerar_icone.py
       - name: Instalar dependencias
         run: flutter pub get
       - name: Compilar APK Release

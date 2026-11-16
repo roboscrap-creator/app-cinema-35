@@ -51,7 +51,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     try {
       final headers = <String, String>{
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppCinema/3.5',
+        'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18',
         ..._fonteAtual.headers,
       };
       final controller = VideoPlayerController.networkUrl(Uri.parse(url), httpHeaders: headers);

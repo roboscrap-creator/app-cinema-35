@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'models/midia_model.dart';
 import 'services/supabase_service.dart';
-import 'screens/player_screen.dart';
+import 'screens/detalhe_obra_screen.dart';
 import 'screens/aba_categoria_page.dart';
 
 void main() => runApp(const CinemaApp());
@@ -62,13 +62,20 @@ class _HomeCinemaPageState extends State<HomeCinemaPage> with SingleTickerProvid
 
   List<ObraAgrupada> _filtrarAba(String aba) {
     if (aba == 'Recomendações') return _todas;
-    final alow = aba.toLowerCase();
-    return _todas.where((o) => o.categoria.toLowerCase().contains(alow) || o.genero.toLowerCase().contains(alow)).toList();
+    return _todas.where((o) {
+      final c = o.categoria.toLowerCase();
+      final g = o.genero.toLowerCase();
+      if (aba == 'Filmes') return c.contains('filme') && !c.contains('série') && !c.contains('serie');
+      if (aba == 'Séries') return c.contains('série') || c.contains('serie');
+      if (aba == 'Infantil') return c.contains('infantil') || g.contains('infantil') || g.contains('animação') || g.contains('animacao') || g.contains('família') || g.contains('familia');
+      if (aba == 'Anime') return c.contains('anime') || g.contains('anime');
+      return true;
+    }).toList();
   }
 
   void _abrirObra(ObraAgrupada obra) {
     if (obra.fontes.isEmpty) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerScreen(obra: obra, fonteInicial: obra.fontes.first)));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => DetalheObraScreen(obra: obra)));
   }
 
   void _abrirBusca() {

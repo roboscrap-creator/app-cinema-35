@@ -26,7 +26,7 @@ class SupabaseService {
       'Content-Type': 'application/json',
     };
 
-    final List<dynamic> dados = <FonteMidia>[];
+    final List<dynamic> dados = [];
     int offset = 0;
     const int pageSize = 1000;
     while (true) {
@@ -61,7 +61,7 @@ class SupabaseService {
       grupos.putIfAbsent(chave, () => []).add(item);
     }
 
-    final List<ObraAgrupada> obras = <FonteMidia>[];
+    final List<ObraAgrupada> obras = [];
     grupos.forEach((chave, lista) {
       lista.sort((a, b) => ((b['capa_url'] ?? '').toString().isNotEmpty ? 1 : 0)
           .compareTo((a['capa_url'] ?? '').toString().isNotEmpty ? 1 : 0));
@@ -85,7 +85,7 @@ class SupabaseService {
         ano: (p['ano'] ?? '').toString(),
         emDestaque: p['em_destaque'] == true,
         ordemDestaque: p['ordem_destaque'] is int ? p['ordem_destaque'] : 999,
-        fontes: lista.map((e) => FonteMidia.fromJson(e)).toList(),
+        fontes: (lista as List).map<FonteMidia>((e) => FonteMidia.fromJson(Map<String, dynamic>.from(e))).toList(),
       ));
     });
     return obras;

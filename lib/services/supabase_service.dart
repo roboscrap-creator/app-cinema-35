@@ -42,7 +42,7 @@ class SupabaseService {
       offset += pageSize;
     }
 
-    final Map<String, List>> grupos = {};
+    final Map<String, List> grupos = {};
     for (final item in dados) {
       if (item is! Map<String, dynamic>) continue;
       if ((item['url_stream'] ?? '').toString().trim().isEmpty) continue;

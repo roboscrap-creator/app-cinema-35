@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -55,16 +54,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return null;
   }
 
-  Future<bool> _linkEstaOnline(String url) async {
-    try {
-      final resp = await http.head(Uri.parse(url)).timeout(const Duration(seconds: 4));
-      if (resp.statusCode == 404 || resp.statusCode == 410) return false;
-      return true;
-    } catch (_) {
-      return true;
-    }
-  }
-
   void _tentarProximoServidorOuFalhar(String motivo) {
     final candidatos = widget.obra.fontes.where((f) {
       final mesmoEp = f.temporada == _fonteAtual.temporada && f.episodio == _fonteAtual.episodio;
@@ -82,11 +71,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() {
       _carregando = false;
       _modoWeb = false;
-      _erro = 'Link indisponível ou expirado no servidor ($motivo).\nTeste outro título do catálogo.';
+      _erro = 'Fonte offline no servidor de origem ($motivo).\nEste link da lista M3U expirou ou foi removido.';
     });
   }
 
-  void _abrirNoWebView(String url, {bool envolverVideoHtml = false}) {
+  void _abrirNoWebView(String url) {
     final wc = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
@@ -101,21 +90,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
             }
           },
         ),
-      );
-
-    if (envolverVideoHtml) {
-      final html = '''
-<!DOCTYPE html>
-<html>
-<head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<style>html,body{margin:0;padding:0;background:#000;width:100%;height:100%;overflow:hidden}video{width:100%;height:100%;object-fit:contain}</style>
-</head>
-<body><video src="$url" controls autoplay playsinline onerror="document.title='ERR_VIDEO'"></video></body>
-</html>''';
-      wc.loadHtmlString(html);
-    } else {
-      wc.loadRequest(Uri.parse(url));
-    }
+      )
+      ..loadRequest(Uri.parse(url));
 
     SupabaseService.registrarVisualizacao(_fonteAtual.id);
     if (!mounted) return;
@@ -148,18 +124,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final embedUrl = _converterParaEmbedWeb(cleanUrl);
     if (embedUrl != null) {
-      final ok = await _linkEstaOnline(embedUrl);
-      if (!ok) {
-        _tentarProximoServidorOuFalhar('404 Not Found');
-        return;
-      }
       _abrirNoWebView(embedUrl);
-      return;
-    }
-
-    final online = await _linkEstaOnline(cleanUrl);
-    if (!online) {
-      _tentarProximoServidorOuFalhar('404 Not Found');
       return;
     }
 
@@ -203,12 +168,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _chewieController = chewie;
         _carregando = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (_fonteAtual.urlStreamBackup.trim().isNotEmpty &&
           !_urlsJaTestadas.contains(_fonteAtual.urlStreamBackup.trim())) {
         return _iniciarStream(_fonteAtual.urlStreamBackup.trim(), posicaoRetomar: posicaoRetomar);
       }
-      _tentarProximoServidorOuFalhar('Fonte inválida');
+      _tentarProximoServidorOuFalhar('404 / Stream indisponível');
     }
   }
 

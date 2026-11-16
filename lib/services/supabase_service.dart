@@ -93,9 +93,15 @@ class SupabaseService {
 
   static List<ObraAgrupada> _agruparDados(List<dynamic> dados) {
     final Map<String, List> grupos = {};
+    final Set<String> idsVistos = {};
+
     for (final item in dados) {
       if (item is! Map) continue;
       final map = Map<String, dynamic>.from(item);
+      final id = (map['id'] ?? '').toString();
+      if (id.isNotEmpty && idsVistos.contains(id)) continue;
+      if (id.isNotEmpty) idsVistos.add(id);
+
       if ((map['url_stream'] ?? '').toString().trim().isEmpty) continue;
 
       final tituloBruto = (map['titulo'] ?? 'Sem Título').toString().trim();
@@ -172,26 +178,44 @@ class SupabaseService {
     return obras;
   }
 
+  static Future<List<dynamic>> _fetchLote(String key, String filtroQuery, int limite) async {
+    const cols = 'id,tmdb_id,titulo,serie_nome,categoria,genero,sinopse,capa_url,banner_url,ano,temporada,episodio,url_stream,url_stream_backup,formato,tipo_audio,resolucao,em_destaque,ordem_destaque';
+    final uri = Uri.parse('$baseUrl/rest/v1/catalogo_midia?select=$cols$filtroQuery&order=ordem_destaque.asc,criado_em.desc');
+    final resp = await http.get(uri, headers: {
+      'apikey': key,
+      'Authorization': 'Bearer $key',
+      'Content-Type': 'application/json',
+      'Range': '0-${limite - 1}',
+    }).timeout(const Duration(seconds: 12));
+    if (resp.statusCode != 200 && resp.statusCode != 206) return [];
+    return jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
+  }
+
   static Future<List<ObraAgrupada>> carregarCatalogoAgrupado() async {
     if (_memoriaRapida != null && _memoriaRapida!.isNotEmpty) {
       return _memoriaRapida!;
     }
     final key = await getAnonKey();
-    final headers = {
-      'apikey': key,
-      'Authorization': 'Bearer $key',
-      'Content-Type': 'application/json',
-      'Range': '0-2499',
-    };
-    final uri = Uri.parse(
-      '$baseUrl/rest/v1/catalogo_midia?select=id,tmdb_id,titulo,serie_nome,categoria,genero,sinopse,capa_url,banner_url,ano,temporada,episodio,url_stream,url_stream_backup,formato,tipo_audio,resolucao,em_destaque,ordem_destaque&order=ordem_destaque.asc,criado_em.desc',
-    );
-    final resp = await http.get(uri, headers: headers).timeout(const Duration(seconds: 12));
-    if (resp.statusCode != 200 && resp.statusCode != 206) {
-      throw Exception('Erro (${resp.statusCode})');
+    final resultados = await Future.wait([
+      _fetchLote(key, '&categoria=ilike.*Filme*', 1200),
+      _fetchLote(key, '&categoria=ilike.*S*rie*', 2000),
+      _fetchLote(key, '&or=(categoria.ilike.*Anime*,genero.ilike.*Anime*)', 800),
+      _fetchLote(key, '&or=(categoria.ilike.*Infantil*,genero.ilike.*Infantil*,genero.ilike.*Anima*)', 800),
+    ]);
+
+    final combinado = <dynamic>[
+      ...resultados[0],
+      ...resultados[1],
+      ...resultados[2],
+      ...resultados[3],
+    ];
+
+    if (combinado.isEmpty) {
+      final fallback = await _fetchLote(key, '', 2000);
+      combinado.addAll(fallback);
     }
-    final loteInicial = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
-    final agrupado = _agruparDados(loteInicial);
+
+    final agrupado = _agruparDados(combinado);
     _memoriaRapida = agrupado;
     return agrupado;
   }

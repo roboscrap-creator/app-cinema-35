@@ -90,4 +90,14 @@ class SupabaseService {
     });
     return obras;
   }
+  static Future<void> registrarVisualizacao(String id) async {
+    try {
+      final key = await getAnonKey();
+      await http.post(
+        Uri.parse('$baseUrl/rest/v1/rpc/incrementar_visualizacao'),
+        headers: {'apikey': key, 'Authorization': 'Bearer $key', 'Content-Type': 'application/json'},
+        body: jsonEncode({'media_id': id}),
+      );
+    } catch (_) {}
+  }
 }

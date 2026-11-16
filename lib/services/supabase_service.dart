@@ -18,11 +18,50 @@ class SupabaseService {
     await prefs.setString('cinema_anon_key', key.trim());
   }
 
-  static String _limparNomeSerie(String titulo) {
-    return titulo
-        .replaceAll(RegExp(r'\s*[\|\-\[\(]?\s*(?:S|T)\d{1,2}\s*[\|\-:\s]*E(?:P)?\d{1,3}.*$', caseSensitive: false), '')
-        .replaceAll(RegExp(r'\s*[\|\-\[\(]?\s*EP(?:IS[OÓ]DIO)?\s*\d{1,3}.*$', caseSensitive: false), '')
+  static Map<String, int>? _extrairTempEp(String titulo) {
+    final patterns = [
+      RegExp(r'(?:S|T)\s*(\d{1,2})\s*[\|\-:\.\s]*E(?:P)?\s*(\d{1,3})', caseSensitive: false),
+      RegExp(r'(\d{1,2})\s*[xX]\s*(\d{1,3})'),
+      RegExp(r'TEMPORADA\s*(\d{1,2}).*?EP(?:IS[OÓ]DIO)?\s*(\d{1,3})', caseSensitive: false),
+    ];
+    for (final rx in patterns) {
+      final m = rx.firstMatch(titulo);
+      if (m != null) {
+        final t = int.tryParse(m.group(1)!);
+        final e = int.tryParse(m.group(2)!);
+        if (t != null && e != null) return {'t': t, 'e': e};
+      }
+    }
+    final epOnly = RegExp(r'(?:^|[\s\|\-\[\(])EP(?:IS[OÓ]DIO)?\s*0*(\d{1,3})(?:$|[\s\|\-\]\)])', caseSensitive: false).firstMatch(titulo);
+    if (epOnly != null) {
+      final e = int.tryParse(epOnly.group(1)!);
+      if (e != null) return {'t': 1, 'e': e};
+    }
+    return null;
+  }
+
+  static String _limparNomeObra(String titulo) {
+    var s = titulo
+        .replaceAll(RegExp(r'[\|\-\[\(]?\s*(?:S|T)\s*\d{1,2}\s*[\|\-:\.\s]*E(?:P)?\s*\d{1,3}.*$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'[\|\-\[\(]?\s*\d{1,2}\s*[xX]\s*\d{1,3}.*$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'[\|\-\[\(]?\s*TEMPORADA\s*\d{1,2}.*$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'[\|\-\[\(]?\s*EP(?:IS[OÓ]DIO)?\s*\d{1,3}.*$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\s*[\(\[](?:dublado|legendado|dual|nacional|hd|fhd|4k|1080p|720p)[\)\]]', caseSensitive: false), '')
+        .replaceAll(RegExp(r'[\|\-:\s]+$'), '')
         .trim();
+    return s.isEmpty ? titulo.trim() : s;
+  }
+
+  static String _normalizarChave(String texto) {
+    return _limparNomeObra(texto)
+        .toLowerCase()
+        .replaceAll(RegExp(r'[áàâãä]'), 'a')
+        .replaceAll(RegExp(r'[éèêë]'), 'e')
+        .replaceAll(RegExp(r'[íìîï]'), 'i')
+        .replaceAll(RegExp(r'[óòôõö]'), 'o')
+        .replaceAll(RegExp(r'[úùûü]'), 'u')
+        .replaceAll('ç', 'c')
+        .replaceAll(RegExp(r'[^a-z0-9]'), '');
   }
 
   static Future<List<ObraAgrupada>> carregarCatalogoAgrupado() async {
@@ -44,34 +83,48 @@ class SupabaseService {
 
     final Map<String, List> grupos = {};
     for (final item in dados) {
-      if (item is! Map<String, dynamic>) continue;
-      if ((item['url_stream'] ?? '').toString().trim().isEmpty) continue;
-      final tituloRaw = (item['titulo'] ?? 'Sem Título').toString().trim();
-      final isEp = RegExp(r'(?:S|T)\d{1,2}\s*[\|\-:\s]*E(?:P)?\d{1,3}', caseSensitive: false).hasMatch(tituloRaw) || item['episodio'] != null;
-      final cat = isEp ? 'Série' : (item['categoria'] ?? 'Filme').toString().trim();
-      item['categoria'] = cat;
-      final serieNome = (item['serie_nome'] ?? '').toString().trim();
-      final tituloBase = serieNome.isNotEmpty ? serieNome : (isEp ? _limparNomeSerie(tituloRaw) : tituloRaw);
-      if (item['temporada'] == null || item['episodio'] == null) {
-        final m = RegExp(r'(?:S|T)(\d{1,2})\s*[\|\-:\s]*E(?:P)?(\d{1,3})', caseSensitive: false).firstMatch(tituloRaw);
-        if (m != null) {
-          item['temporada'] ??= int.tryParse(m.group(1)!);
-          item['episodio'] ??= int.tryParse(m.group(2)!);
-        }
+      if (item is! Map) continue;
+      final map = Map<String, dynamic>.from(item);
+      if ((map['url_stream'] ?? '').toString().trim().isEmpty) continue;
+
+      final tituloRaw = (map['titulo'] ?? 'Sem Título').toString().trim();
+      final te = _extrairTempEp(tituloRaw);
+      final catOrig = (map['categoria'] ?? 'Filme').toString().trim();
+      final isSerie = te != null ||
+          map['episodio'] != null ||
+          catOrig.toLowerCase().contains('série') ||
+          catOrig.toLowerCase().contains('serie');
+
+      if (te != null) {
+        map['temporada'] = te['t'];
+        map['episodio'] = te['e'];
       }
-      final tmdb = item['tmdb_id'];
-      final chave = (tmdb != null && tmdb.toString().isNotEmpty) ? '${cat}_tmdb_$tmdb' : '${cat}_${tituloBase.toLowerCase()}';
-      grupos.putIfAbsent(chave, () => []).add(item);
+      if (isSerie && !catOrig.toLowerCase().contains('anime') && !catOrig.toLowerCase().contains('infantil')) {
+        map['categoria'] = 'Série';
+      }
+
+      final serieNome = (map['serie_nome'] ?? '').toString().trim();
+      final nomeBase = serieNome.isNotEmpty ? _limparNomeObra(serieNome) : _limparNomeObra(tituloRaw);
+      final norm = _normalizarChave(nomeBase);
+      final chave = isSerie ? 'serie_$norm' : 'filme_$norm';
+      grupos.putIfAbsent(chave, () => []).add(map);
     }
 
     final List<ObraAgrupada> obras = [];
     grupos.forEach((chave, lista) {
-      lista.sort((a, b) => ((b['capa_url'] ?? '').toString().isNotEmpty ? 1 : 0).compareTo((a['capa_url'] ?? '').toString().isNotEmpty ? 1 : 0));
-      final p = lista.first;
-      final cat = (p['categoria'] ?? 'Filme').toString().trim();
-      final tituloRaw = (p['titulo'] ?? 'Sem Título').toString().trim();
+      final typed = lista.cast>();
+      typed.sort((a, b) => ((b['capa_url'] ?? '').toString().isNotEmpty ? 1 : 0)
+          .compareTo((a['capa_url'] ?? '').toString().isNotEmpty ? 1 : 0));
+      final p = typed.first;
+      final isSerie = chave.startsWith('serie_');
+      final catOrig = (p['categoria'] ?? 'Filme').toString().trim();
+      final cat = isSerie && !catOrig.toLowerCase().contains('anime') && !catOrig.toLowerCase().contains('infantil')
+          ? 'Série'
+          : catOrig;
       final serieNome = (p['serie_nome'] ?? '').toString().trim();
-      final tituloFinal = serieNome.isNotEmpty ? serieNome : (cat == 'Série' ? _limparNomeSerie(tituloRaw) : tituloRaw);
+      final tituloRaw = (p['titulo'] ?? 'Sem Título').toString().trim();
+      final tituloFinal = serieNome.isNotEmpty ? _limparNomeObra(serieNome) : _limparNomeObra(tituloRaw);
+
       obras.add(ObraAgrupada(
         chaveGrupo: chave,
         tmdbId: p['tmdb_id'] is int ? p['tmdb_id'] : int.tryParse('${p['tmdb_id'] ?? ''}'),
@@ -84,7 +137,7 @@ class SupabaseService {
         ano: (p['ano'] ?? '').toString(),
         emDestaque: p['em_destaque'] == true,
         ordemDestaque: p['ordem_destaque'] is int ? p['ordem_destaque'] : 999,
-        fontes: lista.map<FonteMidia>((e) => FonteMidia.fromJson(e)).toList(),
+        fontes: typed.map<FonteMidia>((e) => FonteMidia.fromJson(e)).toList(),
       ));
     });
     return obras;
@@ -93,7 +146,11 @@ class SupabaseService {
   static Future<void> registrarVisualizacao(String id) async {
     try {
       final key = await getAnonKey();
-      await http.post(Uri.parse('$baseUrl/rest/v1/rpc/incrementar_visualizacao'), headers: {'apikey': key, 'Authorization': 'Bearer $key', 'Content-Type': 'application/json'}, body: jsonEncode({'media_id': id}));
+      await http.post(
+        Uri.parse('$baseUrl/rest/v1/rpc/incrementar_visualizacao'),
+        headers: {'apikey': key, 'Authorization': 'Bearer $key', 'Content-Type': 'application/json'},
+        body: jsonEncode({'media_id': id}),
+      );
     } catch (_) {}
   }
 }

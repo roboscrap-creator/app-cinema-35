@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
@@ -35,6 +36,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _iniciarStream(_fonteAtual.urlStream);
   }
 
+  Future<Uri> _resolverRedirect(Uri inicial, Map<String, String> headers) async {
+    try {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+      var atual = inicial;
+      for (int i = 0; i < 4; i++) {
+        final req = await client.getUrl(atual);
+        req.followRedirects = false;
+        headers.forEach((k, v) => req.headers.set(k, v));
+        final resp = await req.close();
+        await resp.drain();
+        if (resp.isRedirect || (resp.statusCode >= 300 && resp.statusCode < 400)) {
+          final loc = resp.headers.value(HttpHeaders.locationHeader);
+          if (loc != null && loc.isNotEmpty) {
+            atual = atual.resolve(loc);
+            continue;
+          }
+        }
+        break;
+      }
+      client.close(force: true);
+      return atual;
+    } catch (_) {
+      return inicial;
+    }
+  }
+
   Future<void> _iniciarStream(String url, {Duration? posicaoRetomar}) async {
     setState(() {
       _carregando = true;
@@ -52,9 +79,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
     try {
       final headers = <String, String>{
         'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18',
+        'Accept': '*/*',
+        'Connection': 'keep-alive',
         ..._fonteAtual.headers,
       };
-      final controller = VideoPlayerController.networkUrl(Uri.parse(url), httpHeaders: headers);
+      final uriFinal = await _resolverRedirect(Uri.parse(url.trim()), headers);
+      final lower = uriFinal.toString().toLowerCase();
+      final VideoFormat? fmt = (lower.contains('.m3u8') || _fonteAtual.formato.toLowerCase() == 'hls')
+          ? VideoFormat.hls
+          : VideoFormat.other;
+
+      final controller = VideoPlayerController.networkUrl(
+        uriFinal,
+        formatHint: fmt,
+        httpHeaders: headers,
+      );
       await controller.initialize();
       if (posicaoRetomar != null && posicaoRetomar > Duration.zero) {
         await controller.seekTo(posicaoRetomar);
@@ -69,8 +108,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         allowMuting: true,
         showControlsOnInitialize: true,
         materialProgressColors: ChewieProgressColors(
-          playedColor: const Color(0xFFE50914),
-          handleColor: const Color(0xFFE50914),
+          playedColor: const Color(0xFF2196F3),
+          handleColor: const Color(0xFF2196F3),
           bufferedColor: Colors.white38,
           backgroundColor: Colors.white12,
         ),
@@ -91,7 +130,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (!mounted) return;
       setState(() {
         _carregando = false;
-        _erro = 'Falha ao reproduzir este link.\nTroque o áudio/qualidade no botão acima.';
+        _erro = 'Falha ao reproduzir: $e\nURL: ${url.trim()}';
       });
     }
   }
@@ -107,11 +146,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _abrirSeletorFonteNoPlayer() {
-    final opcoes = widget.obra.categoria == 'Série'
-        ? widget.obra.fontes
-            .where((f) => f.temporada == _fonteAtual.temporada && f.episodio == _fonteAtual.episodio)
-            .toList()
-        : widget.obra.fontes;
+    final opcoes = widget.obra.fontes
+        .where((f) => f.temporada == _fonteAtual.temporada && f.episodio == _fonteAtual.episodio)
+        .toList();
+    final lista = opcoes.isNotEmpty ? opcoes : widget.obra.fontes;
 
     showModalBottomSheet(
       context: context,
@@ -129,12 +167,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
               const Text('Selecionar Áudio e Resolução',
                   style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
-              ...opcoes.map((f) {
+              ...lista.map((f) {
                 final ativo = f.id == _fonteAtual.id;
                 return ListTile(
                   leading: Icon(
                     ativo ? Icons.radio_button_checked : Icons.radio_button_off,
-                    color: ativo ? const Color(0xFFE50914) : Colors.white54,
+                    color: ativo ? const Color(0xFF2196F3) : Colors.white54,
                   ),
                   title: Text('${f.tipoAudio} • ${f.resolucao}',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
@@ -164,11 +202,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final opcoesMesmoItem = widget.obra.categoria == 'Série'
-        ? widget.obra.fontes
-            .where((f) => f.temporada == _fonteAtual.temporada && f.episodio == _fonteAtual.episodio)
-            .toList()
-        : widget.obra.fontes;
+    final opcoesMesmoItem = widget.obra.fontes
+        .where((f) => f.temporada == _fonteAtual.temporada && f.episodio == _fonteAtual.episodio)
+        .toList();
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -179,27 +215,37 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ? Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const CircularProgressIndicator(color: Color(0xFFE50914)),
+                      const CircularProgressIndicator(color: Color(0xFF2196F3)),
                       const SizedBox(height: 12),
                       Text('Carregando ${widget.obra.titulo} (${_fonteAtual.badgeResumo})...',
                           style: const TextStyle(color: Colors.white70)),
                     ],
                   )
                 : _erro != null
-                    ? Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.error_outline, color: Colors.redAccent, size: 42),
-                          const SizedBox(height: 10),
-                          Text(_erro!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
-                          const SizedBox(height: 14),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE50914)),
-                            onPressed: () => _iniciarStream(_fonteAtual.urlStream),
-                            icon: const Icon(Icons.refresh, color: Colors.white),
-                            label: const Text('Tentar Novamente', style: TextStyle(color: Colors.white)),
-                          ),
-                        ],
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
+                            const SizedBox(height: 8),
+                            Text(_erro!,
+                                maxLines: 5,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Colors.white, fontSize: 12)),
+                            const SizedBox(height: 12),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
+                              onPressed: () {
+                                _tentouBackup = false;
+                                _iniciarStream(_fonteAtual.urlStream);
+                              },
+                              icon: const Icon(Icons.refresh, color: Colors.white),
+                              label: const Text('Tentar Novamente', style: TextStyle(color: Colors.white)),
+                            ),
+                          ],
+                        ),
                       )
                     : _chewieController != null
                         ? Chewie(controller: _chewieController!)
@@ -212,39 +258,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
             child: Row(
               children: [
                 IconButton(
-                  icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
                   onPressed: () => Navigator.pop(context),
                 ),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${widget.obra.titulo} ${_fonteAtual.etiquetaEpisodio}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          shadows: [Shadow(blurRadius: 6, color: Colors.black)],
-                        ),
-                      ),
-                      Text(_fonteAtual.badgeResumo,
-                          style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.w600)),
-                    ],
+                  child: Text(
+                    '${widget.obra.titulo} ${_fonteAtual.etiquetaEpisodio}',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 if (opcoesMesmoItem.length > 1)
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.black87,
-                      side: const BorderSide(color: Colors.white30),
-                    ),
+                  TextButton.icon(
                     onPressed: _abrirSeletorFonteNoPlayer,
-                    icon: const Icon(Icons.subtitles, size: 18, color: Colors.amberAccent),
-                    label: Text('Áudio / Qualidade (${opcoesMesmoItem.length})',
-                        style: const TextStyle(color: Colors.white, fontSize: 12)),
+                    icon: const Icon(Icons.subtitles, color: Colors.white, size: 18),
+                    label: Text(_fonteAtual.badgeResumo, style: const TextStyle(color: Colors.white, fontSize: 12)),
                   ),
               ],
             ),

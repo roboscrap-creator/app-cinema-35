@@ -24,12 +24,26 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
     Navigator.push(context, MaterialPageRoute(builder: (_) => PlayerScreen(obra: widget.obra, fonteInicial: fonte)));
   }
 
+  List<FonteMidia> _episodiosUnicos(List<FonteMidia> brutos) {
+    final Map<int, FonteMidia> porNumero = {};
+    for (final f in brutos) {
+      final epNum = f.episodio ?? (porNumero.length + 1);
+      porNumero.putIfAbsent(epNum, () => f);
+    }
+    final keys = porNumero.keys.toList()..sort();
+    return keys.map((k) => porNumero[k]!).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final o = widget.obra;
-    final isSerie = o.categoria.toLowerCase().contains('série') || o.categoria.toLowerCase().contains('serie') || o.fontes.any((f) => f.episodio != null);
+    final isSerie = o.chaveGrupo.startsWith('serie_') ||
+        o.categoria.toLowerCase().contains('série') ||
+        o.categoria.toLowerCase().contains('serie') ||
+        o.fontes.any((f) => f.episodio != null);
     final temps = o.temporadasDisponiveis;
-    final eps = isSerie ? o.episodiosDaTemporada(_tempAtual) : o.fontes;
+    final epsBrutos = isSerie ? o.episodiosDaTemporada(_tempAtual) : o.fontes;
+    final eps = isSerie ? _episodiosUnicos(epsBrutos) : epsBrutos;
     final img = o.bannerUrl.isNotEmpty ? o.bannerUrl : o.capaUrl;
 
     return Scaffold(
@@ -80,7 +94,10 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
             ),
           ],
           const SizedBox(height: 16),
-          Text(isSerie ? 'Episódios (${eps.length})' : 'Opções de Reprodução (${eps.length})', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          Text(
+            isSerie ? 'Temporada $_tempAtual • ${eps.length} Episódios' : 'Opções de Reprodução (${eps.length})',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
           ...eps.map((f) => Card(
                 color: const Color(0xFF1A1C26),

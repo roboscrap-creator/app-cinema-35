@@ -1,10 +1,8 @@
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
 
@@ -22,7 +20,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   late FonteMidia _fonteAtual;
   VideoPlayerController? _videoController;
   ChewieController? _chewieController;
+  WebViewController? _webController;
   bool _carregando = true;
+  bool _modoWeb = false;
   String? _erro;
   bool _tentouBackup = false;
 
@@ -38,58 +38,63 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _iniciarStream(_fonteAtual.urlStream);
   }
 
-  Future<Uri> _extrairStreamReal(Uri inicial, Map<String, String> headers) async {
-    final urlStr = inicial.toString();
-    if (urlStr.contains('blogger.com/video-play.mp4') || urlStr.contains('blogspot.com')) {
-      try {
-        final resp = await http.get(inicial, headers: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Referer': 'https://www.blogger.com/',
-        }).timeout(const Duration(seconds: 10));
-        final body = resp.body;
-        final matches = RegExp(r'https?:\\?/\\?/[^"\\\s]+googlevideo\.com\\?/videoplayback[^"\\\s]+').allMatches(body);
-        if (matches.isNotEmpty) {
-          var raw = matches.last.group(0)!;
-          raw = raw.replaceAll(r'\u0026', '&').replaceAll(r'\u003d', '=').replaceAll(r'\/', '/');
-          return Uri.parse(raw);
-        }
-        final playUrl = RegExp(r'"play_url"\s*:\s*"([^"]+)"').firstMatch(body);
-        if (playUrl != null) {
-          final decoded = jsonDecode('"${playUrl.group(1)!}"') as String;
-          if (decoded.startsWith('http')) return Uri.parse(decoded);
-        }
-      } catch (_) {}
+  String? _converterParaEmbedWeb(String url) {
+    final u = url.trim();
+    final ytWatch = RegExp(r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([A-Za-z0-9_-]{6,})').firstMatch(u);
+    if (ytWatch != null) {
+      return 'https://www.youtube.com/embed/${ytWatch.group(1)}?autoplay=1&playsinline=1&rel=0';
+    }
+    if (u.contains('blogger.com/video-play.mp4') ||
+        u.contains('drive.google.com') ||
+        u.contains('streamtape.') ||
+        u.contains('mixdrop.') ||
+        u.contains('dood')) {
+      return u;
+    }
+    return null;
+  }
+
+  void _abrirNoWebView(String url, {bool envolverVideoHtml = false}) {
+    final wc = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) {
+            if (mounted) setState(() => _carregando = false);
+          },
+        ),
+      );
+
+    if (envolverVideoHtml) {
+      final html = '''
+<!DOCTYPE html>
+<html>
+<head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<style>html,body{margin:0;padding:0;background:#000;width:100%;height:100%;overflow:hidden}video{width:100%;height:100%;object-fit:contain}</style>
+</head>
+<body><video src="$url" controls autoplay playsinline></video></body>
+</html>''';
+      wc.loadHtmlString(html);
+    } else {
+      wc.loadRequest(Uri.parse(url));
     }
 
-    try {
-      final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
-      var atual = inicial;
-      for (int i = 0; i < 4; i++) {
-        final req = await client.getUrl(atual);
-        req.followRedirects = false;
-        headers.forEach((k, v) => req.headers.set(k, v));
-        final resp = await req.close();
-        await resp.drain();
-        if (resp.isRedirect || (resp.statusCode >= 300 && resp.statusCode < 400)) {
-          final loc = resp.headers.value(HttpHeaders.locationHeader);
-          if (loc != null && loc.isNotEmpty) {
-            atual = atual.resolve(loc);
-            continue;
-          }
-        }
-        break;
-      }
-      client.close(force: true);
-      return atual;
-    } catch (_) {
-      return inicial;
-    }
+    SupabaseService.registrarVisualizacao(_fonteAtual.id);
+    if (!mounted) return;
+    setState(() {
+      _webController = wc;
+      _modoWeb = true;
+      _erro = null;
+      _carregando = false;
+    });
   }
 
   Future<void> _iniciarStream(String url, {Duration? posicaoRetomar}) async {
     setState(() {
       _carregando = true;
+      _modoWeb = false;
+      _webController = null;
       _erro = null;
     });
 
@@ -101,27 +106,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
     oldChewie?.dispose();
     await oldVideo?.dispose();
 
+    final cleanUrl = url.trim();
+    final embedUrl = _converterParaEmbedWeb(cleanUrl);
+    if (embedUrl != null) {
+      _abrirNoWebView(embedUrl);
+      return;
+    }
+
     try {
-      final isBlogger = url.contains('blogger.com') || url.contains('googlevideo.com');
-      final headers = <String, String>{
-        'User-Agent': isBlogger
-            ? 'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
-            : 'VLC/3.0.18 LibVLC/3.0.18',
-        'Accept': '*/*',
-        'Connection': 'keep-alive',
-        if (isBlogger) 'Referer': 'https://www.blogger.com/',
-        ..._fonteAtual.headers,
-      };
-      final uriFinal = await _extrairStreamReal(Uri.parse(url.trim()), headers);
-      final lower = uriFinal.toString().toLowerCase();
+      final uri = Uri.parse(cleanUrl);
+      final lower = cleanUrl.toLowerCase();
       final VideoFormat? fmt = (lower.contains('.m3u8') || _fonteAtual.formato.toLowerCase() == 'hls')
           ? VideoFormat.hls
-          : VideoFormat.other;
+          : null;
 
       final controller = VideoPlayerController.networkUrl(
-        uriFinal,
+        uri,
         formatHint: fmt,
-        httpHeaders: headers,
+        httpHeaders: _fonteAtual.headers,
       );
       await controller.initialize();
       if (posicaoRetomar != null && posicaoRetomar > Duration.zero) {
@@ -151,16 +153,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _chewieController = chewie;
         _carregando = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!_tentouBackup && _fonteAtual.urlStreamBackup.trim().isNotEmpty) {
         _tentouBackup = true;
         return _iniciarStream(_fonteAtual.urlStreamBackup.trim(), posicaoRetomar: posicaoRetomar);
       }
-      if (!mounted) return;
-      setState(() {
-        _carregando = false;
-        _erro = 'Falha ao reproduzir: $e\nURL: ${url.trim()}';
-      });
+      _abrirNoWebView(cleanUrl, envolverVideoHtml: true);
     }
   }
 
@@ -250,35 +248,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           style: const TextStyle(color: Colors.white70)),
                     ],
                   )
-                : _erro != null
-                    ? Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
-                            const SizedBox(height: 8),
-                            Text(_erro!,
-                                maxLines: 5,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(color: Colors.white, fontSize: 12)),
-                            const SizedBox(height: 12),
-                            ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
-                              onPressed: () {
-                                _tentouBackup = false;
-                                _iniciarStream(_fonteAtual.urlStream);
-                              },
-                              icon: const Icon(Icons.refresh, color: Colors.white),
-                              label: const Text('Tentar Novamente', style: TextStyle(color: Colors.white)),
-                            ),
-                          ],
-                        ),
-                      )
-                    : _chewieController != null
-                        ? Chewie(controller: _chewieController!)
-                        : const SizedBox.shrink(),
+                : _modoWeb && _webController != null
+                    ? WebViewWidget(controller: _webController!)
+                    : _erro != null
+                        ? Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
+                              const SizedBox(height: 8),
+                              Text(_erro!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                              const SizedBox(height: 12),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
+                                onPressed: () => _iniciarStream(_fonteAtual.urlStream),
+                                icon: const Icon(Icons.refresh, color: Colors.white),
+                                label: const Text('Tentar Novamente', style: TextStyle(color: Colors.white)),
+                              ),
+                            ],
+                          )
+                        : _chewieController != null
+                            ? Chewie(controller: _chewieController!)
+                            : const SizedBox.shrink(),
           ),
           Positioned(
             top: 12,

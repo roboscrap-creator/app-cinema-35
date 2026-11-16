@@ -6,6 +6,7 @@ import '../models/midia_model.dart';
 class SupabaseService {
   static const String baseUrl = 'https://kuziampmbltqdqkqyrlb.supabase.co';
   static const String defaultAnonKey = 'sb_publishable_ts3-fnYSelSkjp6GIY8jVw_-ZZTkD_5';
+  static const String _cacheKey = 'cinema_catalogo_cache_v1';
 
   static Future<String> getAnonKey() async {
     final prefs = await SharedPreferences.getInstance();
@@ -93,23 +94,7 @@ class SupabaseService {
     return u;
   }
 
-  static Future<List<ObraAgrupada>> carregarCatalogoAgrupado() async {
-    final key = await getAnonKey();
-    final headers = {'apikey': key, 'Authorization': 'Bearer $key', 'Content-Type': 'application/json'};
-    final List<dynamic> dados = [];
-    int offset = 0;
-    const int pageSize = 1000;
-    while (true) {
-      final h = {...headers, 'Range': '$offset-${offset + pageSize - 1}'};
-      final uri = Uri.parse('$baseUrl/rest/v1/catalogo_midia?select=*&order=ordem_destaque.asc,criado_em.desc');
-      final resp = await http.get(uri, headers: h);
-      if (resp.statusCode != 200 && resp.statusCode != 206) throw Exception('Erro (${resp.statusCode})');
-      final lote = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
-      dados.addAll(lote);
-      if (lote.length < pageSize) break;
-      offset += pageSize;
-    }
-
+  static List<ObraAgrupada> _agruparDados(List<dynamic> dados) {
     final Map<String, List> grupos = {};
     for (final item in dados) {
       if (item is! Map) continue;
@@ -188,6 +173,52 @@ class SupabaseService {
       return a.ordemDestaque.compareTo(b.ordemDestaque);
     });
     return obras;
+  }
+
+  static Future<List<ObraAgrupada>> carregarCatalogoAgrupado() async {
+    final prefs = await SharedPreferences.getInstance();
+    final cachedJson = prefs.getString(_cacheKey);
+    if (cachedJson != null && cachedJson.isNotEmpty) {
+      _atualizarCacheEmSegundoPlano();
+      try {
+        final listaCache = jsonDecode(cachedJson) as List<dynamic>;
+        if (listaCache.isNotEmpty) return _agruparDados(listaCache);
+      } catch (_) {}
+    }
+    return _buscarDoServidorESalvar();
+  }
+
+  static Future<void> _atualizarCacheEmSegundoPlano() async {
+    try {
+      await _buscarDoServidorESalvar();
+    } catch (_) {}
+  }
+
+  static Future<List<ObraAgrupada>> _buscarDoServidorESalvar() async {
+    final key = await getAnonKey();
+    final headers = {'apikey': key, 'Authorization': 'Bearer $key', 'Content-Type': 'application/json'};
+    final List<dynamic> dados = [];
+    int offset = 0;
+    const int pageSize = 1000;
+    while (true) {
+      final h = {...headers, 'Range': '$offset-${offset + pageSize - 1}'};
+      final uri = Uri.parse(
+        '$baseUrl/rest/v1/catalogo_midia?select=id,tmdb_id,titulo,serie_nome,categoria,genero,sinopse,capa_url,banner_url,ano,temporada,episodio,url_stream,url_stream_backup,formato,tipo_audio,resolucao,em_destaque,ordem_destaque&order=ordem_destaque.asc,criado_em.desc',
+      );
+      final resp = await http.get(uri, headers: h);
+      if (resp.statusCode != 200 && resp.statusCode != 206) throw Exception('Erro (${resp.statusCode})');
+      final lote = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
+      dados.addAll(lote);
+      if (lote.length < pageSize) break;
+      offset += pageSize;
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_cacheKey, jsonEncode(dados));
+    } catch (_) {}
+
+    return _agruparDados(dados);
   }
 
   static Future<void> registrarVisualizacao(String id) async {

@@ -18,15 +18,15 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  static const String _torrServerBase = 'http://127.0.0.1:8090';
-
   late FonteMidia _fonteAtual;
   VideoPlayerController? _videoController;
   ChewieController? _chewieController;
   WebViewController? _webController;
   bool _carregando = true;
   String _mensagemCarregamento = '';
+  String _badgeTorrent = '';
   bool _modoWeb = false;
+  bool _telaFechada = false;
   String? _erro;
   final Set<String> _urlsJaTestadas = {};
 
@@ -56,11 +56,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         u.contains('streamtape.') ||
         u.contains('mixdrop.') ||
         u.contains('dood');
-  }
-
-  String _montarUrlTorrServer(String magnetUrl) {
-    final encoded = Uri.encodeComponent(magnetUrl.trim());
-    return '$_torrServerBase/stream?link=$encoded&index=1&play';
   }
 
   void _tentarProximoServidorOuFalhar(String motivo) {
@@ -173,13 +168,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _iniciarStream(String url, {Duration? posicaoRetomar}) async {
     final cleanUrl = url.trim();
     _urlsJaTestadas.add(cleanUrl);
-
     final isMagnet = cleanUrl.toLowerCase().startsWith('magnet:?');
 
     setState(() {
       _carregando = true;
+      _badgeTorrent = '';
       _mensagemCarregamento = isMagnet
-          ? 'Conectando peers via TorrServer integrado...'
+          ? 'Iniciando motor TorrServer integrado...'
           : 'Carregando ${widget.obra.titulo} (${_fonteAtual.badgeResumo})...';
       _modoWeb = false;
       _webController = null;
@@ -197,23 +192,38 @@ class _PlayerScreenState extends State<PlayerScreen> {
     String streamUrlFinal = cleanUrl;
 
     if (isMagnet) {
-      final online = await TorrServerService.garantirAtivo();
-      if (!online) {
-        if (!mounted) return;
+      final torrentInfo = await TorrServerService.prepararMagnet(
+        cleanUrl,
+        cancelado: () => _telaFechada || !mounted,
+        onStatus: (status) {
+          if (mounted) setState(() => _mensagemCarregamento = status);
+        },
+      );
+
+      if (_telaFechada || !mounted) return;
+
+      if (torrentInfo == null) {
         setState(() {
           _carregando = false;
-          _erro = 'Motor TorrServer integrado não respondeu em 127.0.0.1:8090. Toque em "Tentar Novamente".';
+          _erro = TorrServerService.ultimoErro.isNotEmpty
+              ? TorrServerService.ultimoErro
+              : 'Motor TorrServer integrado não respondeu em 127.0.0.1:8090.';
         });
         return;
       }
-      streamUrlFinal = _montarUrlTorrServer(cleanUrl);
+
+      streamUrlFinal = torrentInfo.playUrl;
+      if (mounted) {
+        setState(() {
+          _badgeTorrent = 'P2P • ${torrentInfo.tamanhoFormatado} • ${torrentInfo.velocidadeFormatada}';
+        });
+      }
     } else {
       final ytId = _extrairYoutubeId(cleanUrl);
       if (ytId != null) {
         _abrirYoutubeNoWebView(ytId);
         return;
       }
-
       if (_ehPaginaWebEmbed(cleanUrl)) {
         _abrirUrlNoWebView(cleanUrl);
         return;
@@ -272,7 +282,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       _tentarProximoServidorOuFalhar(
         isMagnet
-            ? 'Sem seeds ativos no torrent ou buffer expirado no TorrServer ($e).'
+            ? 'Sem seeds ativos no torrent ou formato MKV/AC3 incompatível com ExoPlayer ($e).'
             : 'Fonte offline no servidor de origem (404 / Stream indisponível).',
       );
     }
@@ -334,6 +344,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    _telaFechada = true;
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _chewieController?.dispose();
@@ -353,15 +364,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
         children: [
           Center(
             child: _carregando
-                ? Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(color: Color(0xFF2196F3)),
-                      const SizedBox(height: 12),
-                      Text(_mensagemCarregamento,
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(color: Color(0xFF2196F3)),
+                        const SizedBox(height: 14),
+                        Text(
+                          _mensagemCarregamento,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.white70)),
-                    ],
+                          style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                        ),
+                      ],
+                    ),
                   )
                 : _modoWeb && _webController != null
                     ? WebViewWidget(controller: _webController!)
@@ -402,10 +418,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   onPressed: () => Navigator.pop(context),
                 ),
                 Expanded(
-                  child: Text(
-                    '${widget.obra.titulo} ${_fonteAtual.etiquetaEpisodio}',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                    overflow: TextOverflow.ellipsis,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${widget.obra.titulo} ${_fonteAtual.etiquetaEpisodio}',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (_badgeTorrent.isNotEmpty)
+                        Text(
+                          _badgeTorrent,
+                          style: const TextStyle(color: Color(0xFF64B5F6), fontSize: 11, fontWeight: FontWeight.w600),
+                        ),
+                    ],
                   ),
                 ),
                 if (opcoesMesmoItem.length > 1)

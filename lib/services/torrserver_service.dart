@@ -167,6 +167,12 @@ class TorrServerService {
 
   static const List<String> _trackersPublicos = [
     'udp://tracker.opentrackr.org:1337/announce',
+    'udp://93.158.213.92:1337/announce',
+    'udp://185.148.3.231:80/announce',
+    'udp://185.230.4.150:1337/announce',
+    'udp://208.83.20.20:6969/announce',
+    'udp://107.189.11.58:6969/announce',
+    'http://93.158.213.92:1337/announce',
     'udp://open.stealth.si:80/announce',
     'udp://tracker.torrent.eu.org:451/announce',
     'udp://tracker.bittor.pw:1337/announce',
@@ -257,6 +263,9 @@ class TorrServerService {
       }
     }());
 
+    String ultimoStat = 'sem resposta';
+    int ultimoPeers = 0;
+    int ultimoSeeds = 0;
     for (int tentativa = 0; tentativa < 180; tentativa++) {
       if (cancelado != null && cancelado()) return null;
 
@@ -272,6 +281,9 @@ class TorrServerService {
         final rawStats = info['file_stats'];
 
         final statStr = (info['stat_string'] ?? '').toString().trim();
+        if (statStr.isNotEmpty) ultimoStat = statStr;
+        ultimoPeers = totalPeers;
+        ultimoSeeds = seeds;
         final totalPeers = (info['total_peers'] as num?)?.toInt() ?? peers;
         final speedKb = (speed / 1024).toStringAsFixed(0);
         final pctBusca = (0.10 + (tentativa / 180.0) * 0.40 + (totalPeers > 0 ? 0.12 : 0.0) + (seeds > 0 ? 0.13 : 0.0)).clamp(0.10, 0.72);
@@ -347,7 +359,7 @@ class TorrServerService {
       await Future.delayed(const Duration(milliseconds: 500));
     }
 
-    ultimoErro = 'Nenhum seeder ativo encontrado para este torrent (90s).';
+    ultimoErro = 'Timeout P2P (90s) | Estado: $ultimoStat ert{} Peers:$ultimoPeers | Seeds: $ultimoSeeds ert{} Hash:$hash';
     return null;
   }
 }

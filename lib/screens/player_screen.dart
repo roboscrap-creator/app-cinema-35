@@ -1,8 +1,114 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import '../models/midia_model.dart';
+import '../services/supabase_service.dart';
+import '../services/torrserver_service.dart';
+
+class PlayerScreen extends StatefulWidget {
+  final ObraAgrupada obra;
+  final FonteMidia fonteInicial;
+
+  const PlayerScreen({
+    super.key,
+    required this.obra,
+    required this.fonteInicial,
+  });
+
+  @override
+  State<PlayerScreen> createState() => _PlayerScreenState();
+}
+
+class _PlayerScreenState extends State<PlayerScreen> {
+  late FonteMidia _fonteAtual;
+  late final Player _player;
+  late final VideoController _videoController;
+  WebViewController? _webController;
+
+  StreamSubscription<String>? _erroSub;
+  StreamSubscription<bool>? _bufferingSub;
+  StreamSubscription<Duration>? _durationSub;
+
+  bool _carregando = true;
+  String _mensagemCarregamento = '';
+  String _badgeTorrent = '';
+  bool _modoWeb = false;
+  bool _telaFechada = false;
+  bool _visualizacaoRegistrada = false;
+  String? _erro;
+  Duration? _posicaoPendente;
+  final Set<String> _urlsJaTestadas = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _fonteAtual = widget.fonteInicial;
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+    _player = Player(
+      configuration: const PlayerConfiguration(
+        bufferSize: 32 * 1024 * 1024,
+        logLevel: MPVLogLevel.warn,
+      ),
+    );
+    _videoController = VideoController(_player);
+
+    _erroSub = _player.stream.error.listen((err) {
+      if (_responderErroPlayer(err)) {
+        _tentarProximoServidorOuFalhar('Falha no player (libmpv): $err');
+      }
+    });
+
+    _bufferingSub = _player.stream.buffering.listen((buf) {
+      if (!buf && _carregando && !_modoWeb && _erro == null) {
+        if (mounted) setState(() => _carregando = false);
+      }
+    });
+
+    _durationSub = _player.stream.duration.listen((dur) {
+      if (dur > Duration.zero) {
+        if (!_visualizacaoRegistrada) {
+          _visualizacaoRegistrada = true;
+          SupabaseService.registrarVisualizacao(_fonteAtual.id);
+        }
+        if (_posicaoPendente != null) {
+          final pos = _posicaoPendente!;
+          _posicaoPendente = null;
+          _player.seek(pos);
+        }
+        if (_carregando && mounted) {
+          setState(() => _carregando = false);
+        }
+      }
+    });
+
+    _iniciarStream(_fonteAtual.urlStream);
+  }
+
+  bool _responderErroPlayer(String err) {
+    final l = err.toLowerCase();
+    return l.contains('failed to open') ||
+        l.contains('error opening') ||
+        l.contains('unrecognized file format') ||
+        l.contains('http error') ||
+        l.contains('connection refused') ||
+        l.contains('timed out');
+  }
 
   void _tentarProximoServidorOuFalhar(String motivo) {
-    final candidatos = widget.obra.fontes.where((f) => {
-      final mesmoEp = f.temporada == _fonteAtual.temporada && f.episodio == _fonteAtual.episodio;
-      return mesmoEp && f.urlStream.trim().isNotEmpty && !_urlsJaTestadas.contains(f.urlStream.trim());
+    final candidatos = widget.obra.fontes.where((f) {
+      final mesmoEp = f.temporada == _fonteAtual.temporada &&
+          f.episodio == _fonteAtual.episodio;
+      return mesmoEp &&
+          f.urlStream.trim().isNotEmpty &&
+          !_urlsJaTestadas.contains(f.urlStream.trim());
     }).toList();
 
     if (candidatos.isNotEmpty) {
@@ -13,42 +119,508 @@
     }
 
     if (!mounted) return;
-    setState(() => {
+    setState(() {
       _carregando = false;
-      _[ÙÕÙXˆH˜[ÙNÂˆÙ\œ›ÈH[İ]›ÎÂˆJNÂˆB‚ˆ›ÚYØXœš\–[İ]X™S›ÕÙX•šY]Êİš[™ÈšY[ÒY
-HÂˆš[˜[[H	ÉÉÂQĞÕTH[‚[‚XY‚Y]H˜[YOHšY]ÜÜˆÛÛ[HÚYY]šXÙK]ÚY[š]X[\ØØ[OLKŒX^[][K\ØØ[OLKŒ\Ù\‹\ØØ[X›O[›È‚İ[O‚ˆ[›ÙHÈX\™Ú[ˆÈY[™ÎˆÈÚYˆL	NÈZYÚˆL	NÈ˜XÚÙÜ›İ[™ˆÌÈİ™\™›İÎˆY[ÈBˆYœ˜[YHÈÚYˆL	NÈZYÚˆL	NÈ›Ü™\ˆÈBÜİ[O‚ÚXY‚›ÙO‚Yœ˜[YBˆÜ˜ÏHšÎ‹ËİİİË[İ]X™K[›ØÛÛÚÚYK˜ÛÛKÙ[X™YÉšY[ÒYØ]]Ü^OLIœ^\Ú[›[™OLIœ™[L	›[Ù\İœ˜[™[™ÏLH‚ˆ[İÏH˜]]Ü^NÈ[ØÜ™Y[È[˜Ü\Y[YYXH‚ˆ[İÙ[ØÜ™Y[‚ÚYœ˜[YO‚Ø›ÙO‚Ú[‚‰ÉÉÎÂ‚ˆš[˜[ØÈHÙX•šY]ĞÛÛ›Û\Š
-Bˆ‹œÙ]˜]˜TØÜš\[ÙJ˜]˜TØÜš\[ÙK[œ™\İšXİY
-Bˆ‹œÙ]˜XÚÙÜ›İ[™ÛÛÜŠÛÛÜœË˜›XÚÊBˆ‹œÙ]˜]šYØ][Û‘[YØ]Jˆ˜]šYØ][Û‘[YØ]JˆÛ”YÙQš[š\ÚYˆ
-ÊHOˆÂˆYˆ
-[İ[Y
-HÙ]İ]J
+      _modoWeb = false;
+      _erro = motivo;
+    });
+  }
 
-HOˆØØ\œ™YØ[™ÈH˜[ÙJNÂˆKˆÛ•ÙX”™\Ûİ\˜ÙQ\œ›Üˆ
-\œŠHOˆÂˆYˆ
-\œ‹š\Ñ›Ü“XZ[‘œ˜[YHOHYJHÂˆİ[\”›Ş[[ÔÙ\šYÜ“İQ˜[\Š	Ñ\œ›È[ÈØ\œ™YØ\ˆ^Y\ˆ[İUX™K‰ÊNÂˆBˆKˆ
-Kˆ
-Bˆ‹›ØY[İš[™Ê[˜\ÙU\›ˆ	ÚÎ‹ËİİİË[İ]X™K[›ØÛÛÚÚYK˜ÛÛIÊNÂ‚ˆİ\X˜\ÙTÙ\šXÙKœ™YÚ\İ˜\•š\İX[^˜XØ[ÊÙ›ÛP]X[šY
-NÂˆYˆ
-[[İ[Y
-H™]\›ÂˆÙ]İ]J
+  String? _extrairYoutubeId(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return null;
+    final host = uri.host.toLowerCase();
+    if (host.contains('youtu.be')) {
+      return uri.pathSegments.isNotEmpty ? uri.pathSegments.first : null;
+    }
+    if (host.contains('youtube.com') || host.contains('youtube-nocookie.com')) {
+      if (uri.queryParameters['v'] != null) return uri.queryParameters['v'];
+      if (uri.pathSegments.length >= 2 &&
+          (uri.pathSegments[0] == 'embed' ||
+              uri.pathSegments[0] == 'shorts' ||
+              uri.pathSegments[0] == 'live')) {
+        return uri.pathSegments[1];
+      }
+    }
+    return null;
+  }
 
-HOˆÂˆİÙXÛÛ›Û\ˆHØÎÂˆÛ[ÙÕÙXˆHYNÂˆÙ\œ›ÈH[ÂˆØØ\œ™YØ[™ÈH˜[ÙNÂˆJNÂˆB‚ˆ›ÚYØXœš\•\››ÕÙX•šY]Êİš[™È\›
-HÂˆš[˜[ØÈHÙX•šY]ĞÛÛ›Û\Š
-Bˆ‹œÙ]˜]˜TØÜš\[ÙJ˜]˜TØÜš\[ÙK[œ™\İšXİY
-Bˆ‹œÙ]˜XÚÙÜ›İ[™ÛÛÜŠÛÛÜœË˜›XÚÊBˆ‹œÙ]˜]šYØ][Û‘[YØ]Jˆ˜]šYØ][Û‘[YØ]JˆÛ˜YÙQš[š\ÚYˆ
-ÊHOˆÂˆYˆ
-[İ[Y
-HÙ]İ]J
+  bool _ehPaginaWebEmbed(String url) {
+    final l = url.toLowerCase();
+    if (l.startsWith('magnet:?') ||
+        l.contains('.m3u8') ||
+        l.contains('.mp4') ||
+        l.contains('.mkv') ||
+        l.contains('.avi') ||
+        l.contains('.ts')) {
+      return false;
+    }
+    return l.contains('/embed') ||
+        l.contains('player.') ||
+        l.contains('streamtape') ||
+        l.contains('dood') ||
+        l.contains('mixdrop') ||
+        l.contains('filemoon') ||
+        l.contains('vidsrc');
+  }
 
-HOˆØØ\œ™YØ[™ÈH˜[ÙJNÂˆKˆÛ•ÙX”™\Ûİ\˜ÙQ\œ›Üˆ
-\œŠHOˆÂˆYˆ
-\œ‹š\Ñ›Ü“XZ[‘œ˜[YHOHYJHÂˆÙ[\”›Ş[[ÔÙ\šYÜ“İQ˜[\Š	Ñ\œ›ÈÙXˆ	Ù\œ‹™\œ›ÜÛÙ_K‰ÊNÂˆBˆKˆ
-Kˆ
-Bˆ‹›ØY™\]Y\İ
-\šKœ\œÙJ\›
-JNÂ‚ˆİ\X˜\ÙTÙ\šXÙKœ™YÚ\İ˜\•š\İX[^˜XØ[ÊÙ›ÛP]X[šY
-NÂˆYˆ
-[[İ[Y
-H™]\›ÂˆÙ]İ]J
+  void _abrirYoutubeNoWebView(String videoId) {
+    final html = '''
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  iframe { width: 100%; height: 100%; border: 0; }
+</style>
+</head>
+<body>
+<iframe
+  src="https://www.youtube-nocookie.com/embed/$videoId?autoplay=1&playsinline=1&rel=0&modestbranding=1"
+  allow="autoplay; fullscreen; encrypted-media"
+  allowfullscreen>
+</iframe>
+</body>
+</html>
+''';
 
-HOˆÂˆİÙXÛÛ›Û\ˆHØÎÂˆÛ[ÙÕÙXˆHYNÂˆÙ\œ›ÈH[ÂˆØØ\œ™YØ[™ÈH˜[ÙNÂˆJNÂˆB
+    final wc = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) {
+            if (mounted) setState(() => _carregando = false);
+          },
+          onWebResourceError: (err) {
+            if (err.isForMainFrame == true) {
+              _tentarProximoServidorOuFalhar('Erro YouTube HTTP ${err.errorCode}.');
+            }
+          },
+        ),
+      )
+      ..loadHtmlString(html, baseUrl: 'https://www.youtube-nocookie.com');
+
+    SupabaseService.registrarVisualizacao(_fonteAtual.id);
+    if (!mounted) return;
+    setState(() {
+      _webController = wc;
+      _modoWeb = true;
+      _erro = null;
+      _carregando = false;
+    });
+  }
+
+  void _abrirUrlNoWebView(String url) {
+    final wc = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) {
+            if (mounted) setState(() => _carregando = false);
+          },
+          onWebResourceError: (err) {
+            if (err.isForMainFrame == true) {
+              _tentarProximoServidorOuFalhar('Erro web HTTP ${err.errorCode}.');
+            }
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(url));
+
+    SupabaseService.registrarVisualizacao(_fonteAtual.id);
+    if (!mounted) return;
+    setState(() {
+      _webController = wc;
+      _modoWeb = true;
+      _erro = null;
+      _carregando = false;
+    });
+  }
+
+  Future<void> _iniciarStream(String url, {Duration? posicaoRetomar}) async {
+    final cleanUrl = url.trim();
+    _urlsJaTestadas.add(cleanUrl);
+    final isMagnet = cleanUrl.toLowerCase().startsWith('magnet:?');
+
+    setState(() {
+      _carregando = true;
+      _badgeTorrent = '';
+      _mensagemCarregamento = isMagnet
+          ? 'Iniciando motor TorrServer integrado...'
+          : 'Carregando ${widget.obra.titulo} (${_fonteAtual.badgeResumo})...';
+      _modoWeb = false;
+      _webController = null;
+      _erro = null;
+      _visualizacaoRegistrada = false;
+      _posicaoPendente = posicaoRetomar;
+    });
+
+    await _player.stop();
+
+    String streamUrlFinal = cleanUrl;
+
+    if (isMagnet) {
+      final torrentInfo = await TorrServerService.prepararMagnet(
+        cleanUrl,
+        cancelado: () => _telaFechada || !mounted,
+        onStatus: (status) {
+          if (mounted) setState(() => _mensagemCarregamento = status);
+        },
+      );
+
+      if (_telaFechada || !mounted) return;
+
+      if (torrentInfo == null) {
+        setState(() {
+          _carregando = false;
+          _erro = TorrServerService.ultimoErro.isNotEmpty
+              ? TorrServerService.ultimoErro
+              : 'Motor TorrServer integrado nÃ£o respondeu em 127.0.0.1:8090.';
+        });
+        return;
+      }
+
+      streamUrlFinal = torrentInfo.playUrl;
+      if (mounted) {
+        setState(() {
+          _badgeTorrent =
+              'P2P â€¢ ${torrentInfo.tamanhoFormatado} â€¢ ${torrentInfo.velocidadeFormatada}';
+        });
+      }
+    } else {
+      final ytId = _extrairYoutubeId(cleanUrl);
+      if (ytId != null) {
+        _abrirYoutubeNoWebView(ytId);
+        return;
+      }
+      if (_ehPaginaWebEmbed(cleanUrl)) {
+        _abrirUrlNoWebView(cleanUrl);
+        return;
+      }
+    }
+
+    try {
+      final headers = <String, String>{
+        'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18',
+        ..._fonteAtual.headers,
+      };
+      await _player.open(
+        Media(streamUrlFinal, httpHeaders: headers),
+        play: true,
+      );
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted && _carregando) {
+        setState(() => _carregando = false);
+      }
+    } catch (e) {
+      _tentarProximoServidorOuFalhar('Falha ao iniciar stream: $e');
+    }
+  }
+
+  Future<void> _trocarFonte(FonteMidia novaFonte) async {
+    if (novaFonte.id == _fonteAtual.id) return;
+    final pos = _player.state.position;
+    setState(() => _fonteAtual = novaFonte);
+    await _iniciarStream(novaFonte.urlStream, posicaoRetomar: pos);
+  }
+
+  void _abrirSeletorFonteNoPlayer() {
+    final opcoes = widget.obra.fontes
+        .where((f) =>
+            f.temporada == _fonteAtual.temporada &&
+            f.episodio == _fonteAtual.episodio)
+        .toList();
+    final lista = opcoes.isNotEmpty ? opcoes : widget.obra.fontes;
+    final audioTracks = _player.state.tracks.audio
+        .where((t) => t.id != 'auto' && t.id != 'no')
+        .toList();
+    final subTracks = _player.state.tracks.subtitle
+        .where((t) => t.id != 'auto')
+        .toList();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF16181D),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (audioTracks.isNotEmpty) ...[
+                  const Text(
+                    'Faixa de Ãudio (libmpv)',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ...audioTracks.map((t) {
+                    final ativo = _player.state.track.audio.id == t.id;
+                    final label = [t.title, t.language]
+                        .where((s) => s != null && s.isNotEmpty)
+                        .join(' â€¢ ');
+                    return ListTile(
+                      dense: true,
+                      leading: Icon(
+                        ativo ? Icons.audiotrack : Icons.audiotrack_outlined,
+                        color: ativo ? const Color(0xFF2196F3) : Colors.white54,
+                      ),
+                      title: Text(
+                        label.isEmpty ? 'Faixa ${t.id}' : label,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      onTap: () {
+                        _player.setAudioTrack(t);
+                        Navigator.pop(context);
+                      },
+                    );
+                  }),
+                  const Divider(color: Colors.white12),
+                ],
+                if (subTracks.isNotEmpty) ...[
+                  const Text(
+                    'Legendas Embutidas',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ...subTracks.map((t) {
+                    final ativo = _player.state.track.subtitle.id == t.id;
+                    final label = t.id == 'no'
+                        ? 'Desativada'
+                        : [t.title, t.language]
+                            .where((s) => s != null && s.isNotEmpty)
+                            .join(' â€¢ ');
+                    return ListTile(
+                      dense: true,
+                      leading: Icon(
+                        ativo ? Icons.subtitles : Icons.subtitles_outlined,
+                        color: ativo ? const Color(0xFF2196F3) : Colors.white54,
+                      ),
+                      title: Text(
+                        label.isEmpty ? 'Legenda ${t.id}' : label,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      onTap: () {
+                        _player.setSubtitleTrack(t);
+                        Navigator.pop(context);
+                      },
+                    );
+                  }),
+                  const Divider(color: Colors.white12),
+                ],
+                const Text(
+                  'Servidores e ResoluÃ§Ã£o',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...lista.take(10).map((f) {
+                  final ativo = f.id == _fonteAtual.id;
+                  final isTor =
+                      f.urlStream.trim().toLowerCase().startsWith('magnet:?');
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(
+                      ativo
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_off,
+                      color: ativo ? const Color(0xFF2196F3) : Colors.white54,
+                    ),
+                    title: Text(
+                      '${f.tipoAudio} â€¢ ${f.resolucao}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: Text(
+                      isTor
+                          ? 'TORRENT P2P (TorrServer)'
+                          : 'Formato: ${f.formato.toUpperCase()}',
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _trocarFonte(f);
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _telaFechada = true;
+    _erroSub?.cancel();
+    _bufferingSub?.cancel();
+    _durationSub?.cancel();
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _player.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          Center(
+            child: _modoWeb && _webController != null
+                ? WebViewWidget(controller: _webController!)
+                : _erro != null
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.error_outline,
+                              color: Colors.redAccent,
+                              size: 40,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _erro!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2196F3),
+                              ),
+                              onPressed: () {
+                                _urlsJaTestadas.clear();
+                                _iniciarStream(_fonteAtual.urlStream);
+                              },
+                              icon: const Icon(
+                                Icons.refresh,
+                                color: Colors.white,
+                              ),
+                              label: const Text(
+                                'Tentar Novamente',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : Video(controller: _videoController),
+          ),
+          if (_carregando)
+            Container(
+              color: Colors.black54,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(
+                        color: Color(0xFF2196F3),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        _mensagemCarregamento,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          Positioned(
+            top: 12,
+            left: 16,
+            right: 16,
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${widget.obra.titulo} ${_fonteAtual.etiquetaEpisodio}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (_badgeTorrent.isNotEmpty)
+                        Text(
+                          _badgeTorrent,
+                          style: const TextStyle(
+                            color: Color(0xFF64B5F6),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _abrirSeletorFonteNoPlayer,
+                  icon: const Icon(
+                    Icons.subtitles,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                  label: Text(
+                    _fonteAtual.badgeResumo,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

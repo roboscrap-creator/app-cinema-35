@@ -112,7 +112,7 @@ class SupabaseService {
   }
 
   static List<ObraAgrupada> _agruparDados(List<dynamic> dados) {
-    final Map<String, List> grupos = {};
+    final Map<String, List>> grupos = {};
     final Set<String> idsVistos = {};
 
     for (final item in dados) {
@@ -161,7 +161,7 @@ class SupabaseService {
 
     final List<ObraAgrupada> obras = [];
     grupos.forEach((chave, lista) {
-      final typed = lista.cast();
+      final typed = List>.from(lista);
       typed.sort((a, b) => ((b['capa_url'] ?? '').toString().isNotEmpty ? 1 : 0)
           .compareTo((a['capa_url'] ?? '').toString().isNotEmpty ? 1 : 0));
       final p = Map<String, dynamic>.from(typed.first);

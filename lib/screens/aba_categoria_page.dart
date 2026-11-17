@@ -4,19 +4,19 @@ import '../models/midia_model.dart';
 
 class AbaCategoriaPage extends StatefulWidget {
   final String nomeAba;
-  final List obras;
+  final List<ObraAgrupada> obras;
   final Function(ObraAgrupada) onAbrirObra;
   const AbaCategoriaPage({super.key, required this.nomeAba, required this.obras, required this.onAbrirObra});
   @override
-  State createState() => _AbaCategoriaPageState();
+  State<AbaCategoriaPage> createState() => _AbaCategoriaPageState();
 }
 
-class _AbaCategoriaPageState extends State {
+class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
   final PageController _pageCtrl = PageController();
   int _bannerAtual = 0;
   Timer? _timer;
-  List get _obras => (widget as AbaCategoriaPage).obras;
-  List get _banners {
+  List<ObraAgrupada> get _obras => widget.obras;
+  List<ObraAgrupada> get _banners {
     final l = _obras.where((O) => O.bannerUrl.isNotEmpty || O.capaUrl.isNotEmpty).toList();
     final d = l.where((O) => O.emDestaque).toList();
     return (d.isNotEmpty ? d : l).take(5).toList();
@@ -95,7 +95,7 @@ class _AbaCategoriaPageState extends State {
       ),
     );
   }
-  Widget _buildFileira(String titulo, List itens) {
+  Widget _buildFileira(String titulo, List<ObraAgrupada> itens) {
     if (itens.isEmpty) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

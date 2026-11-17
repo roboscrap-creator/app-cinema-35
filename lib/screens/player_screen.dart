@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
@@ -44,6 +45,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration? _posicaoPendente;
   final Set<String> _urlsJaTestadas = {};
 
+  void _finalizarCarregamento() {
+    _timerProgresso?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _progressoCarregamento = 1.0;
+      _carregando = false;
+    });
+  }
+
   void _iniciarTimerProgresso({required bool isMagnet}) {
     _timerProgresso?.cancel();
     _timerProgresso = Timer.periodic(const Duration(milliseconds: 250), (t) {
@@ -86,8 +96,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
 
     _bufferingSub = _player.stream.buffering.listen((buf) {
-      if (!buf && _carregando && !_modoWeb && _erro == null) {
-        if (mounted) setState(() => _carregando = false);
+      if (!buf && _carregando && !_modoWeb && _erro == null && _player.state.duration > Duration.zero) {
+        _finalizarCarregamento();
       }
     });
 
@@ -102,8 +112,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _posicaoPendente = null;
           _player.seek(pos);
         }
-        if (_carregando && mounted) {
-          setState(() => _carregando = false);
+        if (_carregando) {
+          _finalizarCarregamento();
         }
       }
     });
@@ -122,6 +132,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _tentarProximoServidorOuFalhar(String motivo) {
+    _timerProgresso?.cancel();
+    final backup = _fonteAtual.urlStreamBackup.trim();
+    if (backup.isNotEmpty && !_urlsJaTestadas.contains(backup)) {
+      _iniciarStream(backup);
+      return;
+    }
+
     final candidatos = widget.obra.fontes.where((f) {
       final mesmoEp = f.temporada == _fonteAtual.temporada &&
           f.episodio == _fonteAtual.episodio;
@@ -180,10 +197,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
         l.contains('dood') ||
         l.contains('mixdrop') ||
         l.contains('filemoon') ||
-        l.contains('vidsrc') || l.contains('dailymotion.com/video/') || l.contains('geo.dailymotion.com') || l.contains('dai.ly/');
+        l.contains('vidsrc') ||
+        l.contains('drivedirect') ||
+        l.contains('dailymotion.com/video/') ||
+        l.contains('geo.dailymotion.com') ||
+        l.contains('dai.ly/');
+  }
+
+  Future> _resolverUrlHttp(String url, Map<String, String> headers) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+    try {
+      final req = await client.getUrl(Uri.parse(url));
+      headers.forEach((k, v) => req.headers.set(k, v));
+      req.followRedirects = true;
+      req.maxRedirects = 5;
+      final res = await req.close().timeout(const Duration(seconds: 7));
+      final finalUrl = res.redirects.isNotEmpty ? res.redirects.last.location.toString() : url;
+      final contentType = (res.headers.contentType?.mimeType ?? '').toLowerCase();
+      await res.drain();
+      final isHtml = contentType.contains('text/html') || contentType.contains('application/xhtml');
+      return {'url': finalUrl, 'isHtml': isHtml, 'status': res.statusCode};
+    } catch (_) {
+      return {'url': url, 'isHtml': false, 'status': 0};
+    } finally {
+      client.close(force: true);
+    }
   }
 
   void _abrirYoutubeNoWebView(String videoId) {
+    _timerProgresso?.cancel();
     final html = '''
 <!DOCTYPE html>
 <html>
@@ -209,9 +251,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ..setBackgroundColor(Colors.black)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (_) {
-            if (mounted) setState(() => _carregando = false);
-          },
+          onPageFinished: (_) => _finalizarCarregamento(),
           onWebResourceError: (err) {
             if (err.isForMainFrame == true) {
               _tentarProximoServidorOuFalhar('Erro YouTube HTTP ${err.errorCode}.');
@@ -232,14 +272,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _abrirUrlNoWebView(String url) {
+    _timerProgresso?.cancel();
     final wc = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (_) {
-            if (mounted) setState(() => _carregando = false);
-          },
+          onPageFinished: (_) => _finalizarCarregamento(),
           onWebResourceError: (err) {
             if (err.isForMainFrame == true) {
               _tentarProximoServidorOuFalhar('Erro web HTTP ${err.errorCode}.');
@@ -283,6 +322,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     String streamUrlFinal = cleanUrl;
 
+    final headers = <String, String>{
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+      if (streamUrlFinal.contains('dailymotion')) 'Referer': 'https://www.dailymotion.com/',
+      ..._fonteAtual.headers,
+    };
+
     if (isMagnet) {
       final torrentInfo = await TorrServerService.prepararMagnet(
         cleanUrl,
@@ -324,21 +369,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _abrirUrlNoWebView(cleanUrl);
         return;
       }
+      if (cleanUrl.startsWith('http')) {
+        final res = await _resolverUrlHttp(cleanUrl, headers);
+        if (_telaFechada || !mounted) return;
+        final resolved = (res['url'] ?? cleanUrl).toString();
+        final isHtml = res['isHtml'] == true;
+        if (isHtml || _ehPaginaWebEmbed(resolved)) {
+          _abrirUrlNoWebView(resolved);
+          return;
+        }
+        streamUrlFinal = resolved;
+      }
     }
 
     try {
-      final headers = <String, String>{
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36', if (streamUrlFinal.contains('dailymotion')) 'Referer': 'https://www.dailymotion.com/',
-        ..._fonteAtual.headers,
-      };
       await _player.open(
         Media(streamUrlFinal, httpHeaders: headers),
         play: true,
       );
-      await Future.delayed(const Duration(seconds: 1));
-      if (mounted && _carregando) {
-        setState(() => _carregando = false);
-      }
     } catch (e) {
       _tentarProximoServidorOuFalhar('Falha ao iniciar stream: $e');
     }
@@ -383,28 +431,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 if (audioTracks.isNotEmpty) ...[
                   const Text(
                     'Faixa de Áudio (libmpv)',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
                   ...audioTracks.map((t) {
                     final ativo = _player.state.track.audio.id == t.id;
-                    final label = [t.title, t.language]
-                        .where((s) => s != null && s.isNotEmpty)
-                        .join(' • ');
+                    final label = [t.title, t.language].where((s) => s != null && s.isNotEmpty).join(' • ');
                     return ListTile(
                       dense: true,
                       leading: Icon(
                         ativo ? Icons.audiotrack : Icons.audiotrack_outlined,
                         color: ativo ? const Color(0xFF2196F3) : Colors.white54,
                       ),
-                      title: Text(
-                        label.isEmpty ? 'Faixa ${t.id}' : label,
-                        style: const TextStyle(color: Colors.white),
-                      ),
+                      title: Text(label.isEmpty ? 'Faixa ${t.id}' : label, style: const TextStyle(color: Colors.white)),
                       onTap: () {
                         _player.setAudioTrack(t);
                         Navigator.pop(context);
@@ -416,30 +455,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 if (subTracks.isNotEmpty) ...[
                   const Text(
                     'Legendas Embutidas',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
                   ...subTracks.map((t) {
                     final ativo = _player.state.track.subtitle.id == t.id;
                     final label = t.id == 'no'
                         ? 'Desativada'
-                        : [t.title, t.language]
-                            .where((s) => s != null && s.isNotEmpty)
-                            .join(' • ');
+                        : [t.title, t.language].where((s) => s != null && s.isNotEmpty).join(' • ');
                     return ListTile(
                       dense: true,
                       leading: Icon(
                         ativo ? Icons.subtitles : Icons.subtitles_outlined,
                         color: ativo ? const Color(0xFF2196F3) : Colors.white54,
                       ),
-                      title: Text(
-                        label.isEmpty ? 'Legenda ${t.id}' : label,
-                        style: const TextStyle(color: Colors.white),
-                      ),
+                      title: Text(label.isEmpty ? 'Legenda ${t.id}' : label, style: const TextStyle(color: Colors.white)),
                       onTap: () {
                         _player.setSubtitleTrack(t);
                         Navigator.pop(context);
@@ -450,40 +480,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ],
                 const Text(
                   'Servidores e Resolução',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 ...lista.take(10).map((f) {
                   final ativo = f.id == _fonteAtual.id;
-                  final isTor =
-                      f.urlStream.trim().toLowerCase().startsWith('magnet:?');
+                  final isTor = f.urlStream.trim().toLowerCase().startsWith('magnet:?');
                   return ListTile(
                     dense: true,
                     leading: Icon(
-                      ativo
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_off,
+                      ativo ? Icons.radio_button_checked : Icons.radio_button_off,
                       color: ativo ? const Color(0xFF2196F3) : Colors.white54,
                     ),
-                    title: Text(
-                      '${f.tipoAudio} • ${f.resolucao}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    title: Text('${f.tipoAudio} • ${f.resolucao}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
                     subtitle: Text(
-                      isTor
-                          ? 'TORRENT P2P (TorrServer)'
-                          : 'Formato: ${f.formato.toUpperCase()}',
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 12,
-                      ),
+                      isTor ? 'TORRENT P2P (TorrServer)' : 'Formato: ${f.formato.toUpperCase()}',
+                      style: const TextStyle(color: Colors.white54, fontSize: 12),
                     ),
                     onTap: () {
                       Navigator.pop(context);
@@ -527,37 +539,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              Icons.error_outline,
-                              color: Colors.redAccent,
-                              size: 40,
-                            ),
+                            const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
                             const SizedBox(height: 8),
-                            Text(
-                              _erro!,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                              ),
-                            ),
+                            Text(_erro!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 13)),
                             const SizedBox(height: 12),
                             ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2196F3),
-                              ),
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
                               onPressed: () {
                                 _urlsJaTestadas.clear();
                                 _iniciarStream(_fonteAtual.urlStream);
                               },
-                              icon: const Icon(
-                                Icons.refresh,
-                                color: Colors.white,
-                              ),
-                              label: const Text(
-                                'Tentar Novamente',
-                                style: TextStyle(color: Colors.white),
-                              ),
+                              icon: const Icon(Icons.refresh, color: Colors.white),
+                              label: const Text('Tentar Novamente', style: TextStyle(color: Colors.white)),
                             ),
                           ],
                         ),
@@ -591,11 +584,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             ),
                             Text(
                               '${(_progressoCarregamento * 100).round().clamp(0, 100)}%',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
+                              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                             ),
                           ],
                         ),
@@ -604,11 +593,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       Text(
                         _mensagemCarregamento,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                          height: 1.4,
-                        ),
+                        style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
                       ),
                     ],
                   ),
@@ -631,39 +616,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     children: [
                       Text(
                         '${widget.obra.titulo} ${_fonteAtual.etiquetaEpisodio}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                        ),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                         overflow: TextOverflow.ellipsis,
                       ),
                       if (_badgeTorrent.isNotEmpty)
                         Text(
                           _badgeTorrent,
-                          style: const TextStyle(
-                            color: Color(0xFF64B5F6),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: const TextStyle(color: Color(0xFF64B5F6), fontSize: 11, fontWeight: FontWeight.w600),
                         ),
                     ],
                   ),
                 ),
                 TextButton.icon(
                   onPressed: _abrirSeletorFonteNoPlayer,
-                  icon: const Icon(
-                    Icons.subtitles,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                  label: Text(
-                    _fonteAtual.badgeResumo,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                    ),
-                  ),
+                  icon: const Icon(Icons.subtitles, color: Colors.white, size: 18),
+                  label: Text(_fonteAtual.badgeResumo, style: const TextStyle(color: Colors.white, fontSize: 12)),
                 ),
               ],
             ),

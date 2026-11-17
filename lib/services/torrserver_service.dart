@@ -55,44 +55,33 @@ class TorrServerService {
 
   static Future<bool> garantirAtivo() async {
     if (await _portaAberta()) return true;
-
     try {
       final paths = await _channel.invokeMapMethod<String, String>('getPaths');
       final nativeLibDir = paths?['nativeLibDir'] ?? '';
       final filesDir = paths?['filesDir'] ?? '';
-
       if (nativeLibDir.isEmpty || filesDir.isEmpty) {
         ultimoErro = 'Caminhos nativos vazios (nativeLibDir/filesDir).';
         return false;
       }
-
       final binPath = '$nativeLibDir/libtorrserver.so';
-      final binFile = File(binPath);
-      if (!await binFile.exists()) {
+      if (!await File(binPath).exists()) {
         ultimoErro = 'Binário não encontrado em: $binPath';
         return false;
       }
-
       final dataDir = Directory('$filesDir/torrserver');
-      if (!await dataDir.exists()) {
-        await dataDir.create(recursive: true);
-      }
+      if (!await dataDir.exists()) await dataDir.create(recursive: true);
 
       final tentativasArgs = <List<String>>[
         ['-p', '8090', '-d', dataDir.path],
         ['--port', '8090', '--path', dataDir.path],
         <String>[],
       ];
-
       final logs = <String>[];
 
       for (final args in tentativasArgs) {
-        if (_process != null) {
-          _process!.kill();
-          _process = null;
-        }
+        _process?.kill();
+        _process = null;
         logs.clear();
-
         int? exitCodeCapturado;
         _process = await Process.start(
           binPath,
@@ -100,7 +89,6 @@ class TorrServerService {
           workingDirectory: dataDir.path,
           environment: {'HOME': filesDir, 'TMPDIR': dataDir.path},
         );
-
         _process!.stdout.transform(utf8.decoder).listen((d) {
           final line = d.trim();
           if (line.isNotEmpty && logs.length < 15) logs.add(line);
@@ -120,7 +108,6 @@ class TorrServerService {
           if (exitCodeCapturado != null) break;
         }
       }
-
       ultimoErro = logs.isNotEmpty
           ? 'TorrServer encerrou: ${logs.join(" | ")}'
           : 'Timeout na porta 8090 ($binPath).';
@@ -148,9 +135,37 @@ class TorrServerService {
     }
   }
 
-  static String? _extrairHashDoMagnet(String magnet) {
+  static String _base32ParaHex(String base32) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    final clean = base32.toUpperCase().replaceAll('=', '');
+    int bits = 0;
+    int value = 0;
+    final bytes = <int>[];
+    for (int i = 0; i < clean.length; i++) {
+      final idx = alphabet.indexOf(clean[i]);
+      if (idx < 0) return base32.toLowerCase();
+      value = (value << 5) | idx;
+      bits += 5;
+      if (bits >= 8) {
+        bytes.add((value >> (bits - 8)) & 0xFF);
+        bits -= 8;
+      }
+    }
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join().toLowerCase();
+  }
+
+  static String? _extrairHashHexDoMagnet(String magnet) {
     final m = RegExp(r'btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})', caseSensitive: false).firstMatch(magnet);
-    return m?.group(1)?.toLowerCase();
+    final raw = m?.group(1);
+    if (raw == null) return null;
+    return raw.length == 32 ? _base32ParaHex(raw) : raw.toLowerCase();
+  }
+
+  static String _normalizarMagnetParaHex(String magnet) {
+    return magnet.replaceFirstMapped(
+      RegExp(r'(btih:)([a-zA-Z2-7]{32})(?=&|$)', caseSensitive: false),
+      (m) => '${m.group(1)}${_base32ParaHex(m.group(2)!)}',
+    );
   }
 
   static bool _ehArquivoVideo(String path) {
@@ -184,7 +199,7 @@ class TorrServerService {
   ];
 
   static String _enriquecerMagnetComTrackers(String magnet) {
-    final clean = magnet.trim();
+    final clean = _normalizarMagnetParaHex(magnet.trim());
     if (!clean.toLowerCase().startsWith('magnet:?')) return clean;
     final lower = clean.toLowerCase();
     final sb = StringBuffer(clean);
@@ -207,14 +222,13 @@ class TorrServerService {
     if (!ativo) return null;
 
     final cleanMagnet = _enriquecerMagnetComTrackers(magnetUrl);
-    final hashPrevio = _extrairHashDoMagnet(cleanMagnet);
+    final hashPrevio = _extrairHashHexDoMagnet(cleanMagnet);
     if (hashPrevio != null && hashPrevio.isNotEmpty) {
       await _postJson('/torrents', {'action': 'rem', 'hash': hashPrevio});
     }
     onProgress?.call(0.08);
     onStatus?.call('Ativando DHT/P2P e trackers...');
 
-    // Garante DHT, PEX e Retrackers habilitados no motor TorrServer
     await _postJson('/settings', {
       'action': 'set',
       'sets': {
@@ -240,17 +254,15 @@ class TorrServerService {
     String hash = '';
     if (addResp is Map<String, dynamic>) {
       hash = (addResp['hash'] ?? '').toString().trim().toLowerCase();
+      if (hash.length == 32) hash = _base32ParaHex(hash);
     }
-    if (hash.isEmpty) {
-      hash = _extrairHashDoMagnet(cleanMagnet) ?? '';
-    }
+    if (hash.isEmpty) hash = _extrairHashHexDoMagnet(cleanMagnet) ?? '';
 
     if (hash.isEmpty) {
       ultimoErro = 'Não foi possível extrair o hash do magnet link.';
       return null;
     }
 
-    // Desperta o download ativo de metadados no TorrServer (evita ficar em idle)
     unawaited(() async {
       final c = HttpClient()..connectionTimeout = const Duration(seconds: 5);
       try {
@@ -266,13 +278,23 @@ class TorrServerService {
     String ultimoStat = 'sem resposta';
     int ultimoPeers = 0;
     int ultimoSeeds = 0;
+
     for (int tentativa = 0; tentativa < 180; tentativa++) {
       if (cancelado != null && cancelado()) return null;
 
-      final info = await _postJson('/torrents', {
-        'action': 'get',
-        'hash': hash,
-      });
+      dynamic info = await _postJson('/torrents', {'action': 'get', 'hash': hash});
+      if (info == null) {
+        final lista = await _postJson('/torrents', {'action': 'list'});
+        if (lista is List) {
+          for (final item in lista) {
+            if (item is Map<String, dynamic> &&
+                (item['hash'] ?? '').toString().toLowerCase() == hash) {
+              info = item;
+              break;
+            }
+          }
+        }
+      }
 
       if (info is Map<String, dynamic>) {
         final peers = (info['active_peers'] as num?)?.toInt() ?? 0;
@@ -286,12 +308,14 @@ class TorrServerService {
         ultimoPeers = totalPeers;
         ultimoSeeds = seeds;
         final speedKb = (speed / 1024).toStringAsFixed(0);
-        final pctBusca = (0.10 + (tentativa / 180.0) * 0.40 + (totalPeers > 0 ? 0.12 : 0.0) + (seeds > 0 ? 0.13 : 0.0)).clamp(0.10, 0.72);
+        final pctBusca = (0.10 +
+                (tentativa / 180.0) * 0.40 +
+                (totalPeers > 0 ? 0.12 : 0.0) +
+                (seeds > 0 ? 0.13 : 0.0))
+            .clamp(0.10, 0.72);
         onProgress?.call(pctBusca);
         final estadoTxt = statStr.isNotEmpty ? statStr : 'Buscando metadados P2P';
-        onStatus?.call(
-          '$estadoTxt...\nPeers: $peers/$totalPeers • Seeds: $seeds • Vel: $speedKb KB/s',
-        );
+        onStatus?.call('$estadoTxt...\nPeers: $peers/$totalPeers • Seeds: $seeds • Vel: $speedKb KB/s');
 
         if (rawStats is List && rawStats.isNotEmpty) {
           Map<String, dynamic>? melhorArquivo;
@@ -359,7 +383,7 @@ class TorrServerService {
       await Future.delayed(const Duration(milliseconds: 500));
     }
 
-    ultimoErro = 'Timeout P2P (90s) | Estado: $ultimoStat ert{} Peers:$ultimoPeers | Seeds: $ultimoSeeds ert{} Hash:$hash';
+    ultimoErro = 'Timeout P2P (90s) | Estado: $ultimoStat | Peers: $ultimoPeers | Seeds: $ultimoSeeds | Hash: $hash';
     return null;
   }
 }

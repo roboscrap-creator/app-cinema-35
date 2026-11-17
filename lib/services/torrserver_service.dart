@@ -153,7 +153,7 @@ class TorrServerService {
     if (lower.contains('Sample') || lower.contains('sample')) return false;
     return lower.endsWith('.mp4') ||
         lower.endsWith('.mkv') ||
-        lower.endsWith('.avi) ||
+        lower.endsWith('.avi') ||
         lower.endsWith('.mov') ||
         lower.endsWith('.webm') ||
         lower.endsWith('.ts') ||
@@ -227,7 +227,7 @@ class TorrServerService {
             for (final item in rawStats) {
               if (item is Map<String, dynamic>) {
                 final tamanho = (item['length'] as num?)?.toInt() ?? 0;
-                if (tamanho > maiorTamanho) k
+                if (tamanho > maiorTamanho) {
                   maiorTamanho = tamanho;
                   melhorArquivo = item;
                 }

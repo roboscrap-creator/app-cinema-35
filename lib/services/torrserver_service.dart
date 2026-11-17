@@ -165,6 +165,32 @@ class TorrServerService {
         lower.endsWith('.m4v');
   }
 
+  static const List<String> _trackersPublicos = [
+    'udp://tracker.opentrackr.org:1337/announce',
+    'udp://open.stealth.si:80/announce',
+    'udp://tracker.torrent.eu.org:451/announce',
+    'udp://tracker.bittor.pw:1337/announce',
+    'udp://public.popcorn-tracker.org:6969/announce',
+    'udp://tracker.dler.org:6969/announce',
+    'udp://exodus.desync.com:6969/announce',
+    'udp://open.demonii.com:1337/announce',
+    'http://tracker.opentrackr.org:1337/announce',
+  ];
+
+  static String _enriquecerMagnetComTrackers(String magnet) {
+    final clean = magnet.trim();
+    if (!clean.toLowerCase().startsWith('magnet:?')) return clean;
+    final lower = clean.toLowerCase();
+    final sb = StringBuffer(clean);
+    for (final tr in _trackersPublicos) {
+      final encoded = Uri.encodeComponent(tr);
+      if (!lower.contains(encoded.toLowerCase()) && !lower.contains(tr.toLowerCase())) {
+        sb.write('&tr=$encoded');
+      }
+    }
+    return sb.toString();
+  }
+
   static Future<TorrentStreamInfo?> prepararMagnet(
     String magnetUrl, {
     void Function(String statusTelemetria)? onStatus,
@@ -173,15 +199,19 @@ class TorrServerService {
     final ativo = await garantirAtivo();
     if (!ativo) return null;
 
-    final cleanMagnet = magnetUrl.trim();
-    onStatus?.call('Adicionando magnet ao TorrServer...');
+    final cleanMagnet = _enriquecerMagnetComTrackers(magnetUrl);
+    final hashPrevio = _extrairHashDoMagnet(cleanMagnet);
+    if (hashPrevio != null && hashPrevio.isNotEmpty) {
+      await _postJson('/torrents', {'action': 'rem', 'hash': hashPrevio});
+    }
+    onStatus?.call('Conectando aos trackers P2P...');
 
     final addResp = await _postJson('/torrents', {
       'action': 'add',
       'link': cleanMagnet,
       'title': 'Cinema Stream',
       'poster': '',
-      'save_to_db': true,
+      'save_to_db': false,
     });
 
     String hash = '';
@@ -197,7 +227,7 @@ class TorrServerService {
       return null;
     }
 
-    for (int tentativa = 0; tentativa < 90; tentativa++) {
+    for (int tentativa = 0; tentativa < 180; tentativa++) {
       if (cancelado != null && cancelado()) return null;
 
       final info = await _postJson('/torrents', {
@@ -280,7 +310,7 @@ class TorrServerService {
       await Future.delayed(const Duration(milliseconds: 500));
     }
 
-    ultimoErro = 'Timeout aguardando peers/metadados do torrent (45s).';
+    ultimoErro = 'Nenhum seeder ativo encontrado para este torrent (90s).';
     return null;
   }
 }

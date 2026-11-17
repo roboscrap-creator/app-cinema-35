@@ -274,12 +274,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (_telaFechada || !mounted) return;
 
       if (torrentInfo == null) {
-        setState(() {
-          _carregando = false;
-          _erro = TorrServerService.ultimoErro.isNotEmpty
-              ? TorrServerService.ultimoErro
-              : 'Motor TorrServer integrado não respondeu em 127.0.0.1:8090.';
-        });
+        final msgErro = TorrServerService.ultimoErro.isNotEmpty
+            ? TorrServerService.ultimoErro
+            : 'Motor TorrServer integrado não respondeu em 127.0.0.1:8090.';
+        _tentarProximoServidorOuFalhar(msgErro);
         return;
       }
 

@@ -206,14 +206,29 @@ class TorrServerService {
       await _postJson('/torrents', {'action': 'rem', 'hash': hashPrevio});
     }
     onProgress?.call(0.08);
-    onStatus?.call('Conectando aos trackers P2P...');
+    onStatus?.call('Ativando DHT/P2P e trackers...');
+
+    // Garante DHT, PEX e Retrackers habilitados no motor TorrServer
+    await _postJson('/settings', {
+      'action': 'set',
+      'sets': {
+        'EnableDHT': true,
+        'DisablePEX': false,
+        'DisableUTP': false,
+        'DisableUPNP': false,
+        'EnableIPv6': false,
+        'RetrackersMode': 1,
+        'TorrentDisconnectTimeout': 60,
+        'ConnectionsLimit': 120,
+      },
+    });
 
     final addResp = await _postJson('/torrents', {
       'action': 'add',
       'link': cleanMagnet,
       'title': 'Cinema Stream',
       'poster': '',
-      'save_to_db': false,
+      'save_to_db': true,
     });
 
     String hash = '';
@@ -229,6 +244,19 @@ class TorrServerService {
       return null;
     }
 
+    // Desperta o download ativo de metadados no TorrServer (evita ficar em idle)
+    unawaited(() async {
+      final c = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+      try {
+        final r = await c.getUrl(Uri.parse('$baseUrl/stream?link=$hash&index=1&preload'));
+        final resp = await r.close().timeout(const Duration(seconds: 12));
+        await resp.drain();
+      } catch (_) {
+      } finally {
+        c.close(force: true);
+      }
+    }());
+
     for (int tentativa = 0; tentativa < 180; tentativa++) {
       if (cancelado != null && cancelado()) return null;
 
@@ -243,11 +271,14 @@ class TorrServerService {
         final speed = (info['download_speed'] as num?)?.toDouble() ?? 0.0;
         final rawStats = info['file_stats'];
 
+        final statStr = (info['stat_string'] ?? '').toString().trim();
+        final totalPeers = (info['total_peers'] as num?)?.toInt() ?? peers;
         final speedKb = (speed / 1024).toStringAsFixed(0);
-        final pctBusca = (0.10 + (tentativa / 180.0) * 0.40 + (peers > 0 ? 0.12 : 0.0) + (seeds > 0 ? 0.13 : 0.0)).clamp(0.10, 0.72);
+        final pctBusca = (0.10 + (tentativa / 180.0) * 0.40 + (totalPeers > 0 ? 0.12 : 0.0) + (seeds > 0 ? 0.13 : 0.0)).clamp(0.10, 0.72);
         onProgress?.call(pctBusca);
+        final estadoTxt = statStr.isNotEmpty ? statStr : 'Buscando metadados P2P';
         onStatus?.call(
-          'Buscando metadados P2P...\nPeers: $peers • Seeds: $seeds • Vel: $speedKb KB/s',
+          '$estadoTxt...\nPeers: $peers/$totalPeers • Seeds: $seeds • Vel: $speedKb KB/s',
         );
 
         if (rawStats is List && rawStats.isNotEmpty) {

@@ -281,10 +281,10 @@ class TorrServerService {
         final rawStats = info['file_stats'];
 
         final statStr = (info['stat_string'] ?? '').toString().trim();
+        final totalPeers = (info['total_peers'] as num?)?.toInt() ?? peers;
         if (statStr.isNotEmpty) ultimoStat = statStr;
         ultimoPeers = totalPeers;
         ultimoSeeds = seeds;
-        final totalPeers = (info['total_peers'] as num?)?.toInt() ?? peers;
         final speedKb = (speed / 1024).toStringAsFixed(0);
         final pctBusca = (0.10 + (tentativa / 180.0) * 0.40 + (totalPeers > 0 ? 0.12 : 0.0) + (seeds > 0 ? 0.13 : 0.0)).clamp(0.10, 0.72);
         onProgress?.call(pctBusca);

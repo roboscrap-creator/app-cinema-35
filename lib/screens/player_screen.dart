@@ -68,8 +68,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _bufferingSub = _player.stream.buffering.listen((buf) {
       if (!buf && _carregando && !_modoWeb && _erro == null) {
-        final buf = _controller.value.isBuffering;
-      if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
+        if (mounted) setState(() => _carregando = false);
       }
     });
 
@@ -85,7 +84,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _player.seek(pos);
         }
         if (_carregando && mounted) {
-          setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
+          setState(() => _carregando = false);
         }
       }
     });
@@ -192,8 +191,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
-            final buf = _controller.value.isBuffering;
-      if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
+            if (mounted) setState(() => _carregando = false);
           },
           onWebResourceError: (err) {
             if (err.isForMainFrame == true) {
@@ -221,8 +219,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
-            final buf = _controller.value.isBuffering;
-      if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
+            if (mounted) setState(() => _carregando = false);
           },
           onWebResourceError: (err) {
             if (err.isForMainFrame == true) {
@@ -316,7 +313,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
       await Future.delayed(const Duration(seconds: 1));
       if (mounted && _carregando) {
-        setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
+        setState(() => _carregando = false);
       }
     } catch (e) {
       _tentarProximoServidorOuFalhar('Falha ao iniciar stream: $e');

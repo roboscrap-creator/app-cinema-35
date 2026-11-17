@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:media_kit/media_kit.dart';
 import 'models/midia_model.dart';
 import 'services/supabase_service.dart';
 import 'screens/detalhe_obra_screen.dart';
@@ -6,6 +7,7 @@ import 'screens/aba_categoria_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
   runApp(const CinemaApp());
 }
 

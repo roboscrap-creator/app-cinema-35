@@ -78,9 +78,20 @@ class TorrServerService {
         await dataDir.create(recursive: true);
       }
 
+      final configFile = File('${dataDir.path}/config.yaml');
+      await configFile.writeAsString(
+        'port: 8090\n'
+        'http_port: 8090\n'
+        'listen: "127.0.0.1:8090"\n'
+        'path: "${dataDir.path}"\n'
+        'cache_path: "${dataDir.path}"\n'
+        'use_disk: false\n'
+        'rdb: true\n',
+      );
+
       final tentativasArgs = <List<String>>[
-        ['--port', '8090', '--path', dataDir.path, '--rdb'],
-        ['-p', '8090', '-d', dataDir.path],
+        ['-c', configFile.path],
+        <String>[],
       ];
 
       final logs = <String>[];

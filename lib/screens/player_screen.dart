@@ -68,7 +68,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _bufferingSub = _player.stream.buffering.listen((buf) {
       if (!buf && _carregando && !_modoWeb && _erro == null) {
-        if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
+        final buf = _controller.value.isBuffering;
+      if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
       }
     });
 
@@ -191,7 +192,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
-            if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
+            final buf = _controller.value.isBuffering;
+      if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
           },
           onWebResourceError: (err) {
             if (err.isForMainFrame == true) {
@@ -219,7 +221,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
-            if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
+            final buf = _controller.value.isBuffering;
+      if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
           },
           onWebResourceError: (err) {
             if (err.isForMainFrame == true) {

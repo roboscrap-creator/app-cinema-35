@@ -68,7 +68,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _bufferingSub = _player.stream.buffering.listen((buf) {
       if (!buf && _carregando && !_modoWeb && _erro == null) {
-        if (mounted) setState(() => _carregando = false);
+        if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
       }
     });
 
@@ -84,7 +84,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _player.seek(pos);
         }
         if (_carregando && mounted) {
-          setState(() => _carregando = false);
+          setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
         }
       }
     });
@@ -161,7 +161,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         l.contains('dood') ||
         l.contains('mixdrop') ||
         l.contains('filemoon') ||
-        l.contains('vidsrc');
+        l.contains('vidsrc') || l.contains('dailymotion.com/video/') || l.contains('geo.dailymotion.com') || l.contains('dai.ly/');
   }
 
   void _abrirYoutubeNoWebView(String videoId) {
@@ -191,7 +191,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
-            if (mounted) setState(() => _carregando = false);
+            if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
           },
           onWebResourceError: (err) {
             if (err.isForMainFrame == true) {
@@ -219,7 +219,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
-            if (mounted) setState(() => _carregando = false);
+            if (mounted) setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
           },
           onWebResourceError: (err) {
             if (err.isForMainFrame == true) {
@@ -311,9 +311,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         Media(streamUrlFinal, httpHeaders: headers),
         play: true,
       );
-      await Future.delayed(const Duration(seconds: 2));
+      await Future.delayed(const Duration(seconds: 1));
       if (mounted && _carregando) {
-        setState(() => _carregando = false);
+        setState(() { _carregando = buf; if (buf && _badgeTorrent.isNotEmpty) _mensagemCarregamento = 'Carregando buffer P2P...\n$_badgeTorrent'; });
       }
     } catch (e) {
       _tentarProximoServidorOuFalhar('Falha ao iniciar stream: $e');

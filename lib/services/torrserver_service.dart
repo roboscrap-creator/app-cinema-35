@@ -78,19 +78,9 @@ class TorrServerService {
         await dataDir.create(recursive: true);
       }
 
-      final configFile = File('${dataDir.path}/config.yaml');
-      await configFile.writeAsString(
-        'port: 8090\n'
-        'http_port: 8090\n'
-        'listen: "127.0.0.1:8090"\n'
-        'path: "${dataDir.path}"\n'
-        'cache_path: "${dataDir.path}"\n'
-        'use_disk: false\n'
-        'rdb: true\n',
-      );
-
       final tentativasArgs = <List<String>>[
-        ['-c', configFile.path],
+        ['-p', '8090', '-d', dataDir.path],
+        ['--port', '8090', '--path', dataDir.path],
         <String>[],
       ];
 
@@ -132,7 +122,7 @@ class TorrServerService {
       }
 
       ultimoErro = logs.isNotEmpty
-          ? 'TorrServer encerrou: ${logs.join(" | ") }'
+          ? 'TorrServer encerrou: ${logs.join(" | ")}'
           : 'Timeout na porta 8090 ($binPath).';
       return false;
     } catch (e) {
@@ -141,7 +131,7 @@ class TorrServerService {
     }
   }
 
-  static Future<Map<String, dynamic>?> _postJson(String endpoint, Map<String, dynamic> body) async {
+  static Future<dynamic> _postJson(String endpoint, Map<String, dynamic> body) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
     try {
       final req = await client.postUrl(Uri.parse('$baseUrl$endpoint'));
@@ -150,8 +140,7 @@ class TorrServerService {
       final res = await req.close().timeout(const Duration(seconds: 8));
       final raw = await res.transform(utf8.decoder).join();
       if (raw.trim().isEmpty) return null;
-      final decoded = jsonDecode(raw);
-      return decoded is Map<String, dynamic> ? decoded : null;
+      return jsonDecode(raw);
     } catch (_) {
       return null;
     } finally {
@@ -159,9 +148,14 @@ class TorrServerService {
     }
   }
 
+  static String? _extrairHashDoMagnet(String magnet) {
+    final m = RegExp(r'btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})', caseSensitive: false).firstMatch(magnet);
+    return m?.group(1)?.toLowerCase();
+  }
+
   static bool _ehArquivoVideo(String path) {
     final lower = path.toLowerCase();
-    if (lower.contains('Sample') || lower.contains('sample')) return false;
+    if (lower.contains('sample')) return false;
     return lower.endsWith('.mp4') ||
         lower.endsWith('.mkv') ||
         lower.endsWith('.avi') ||
@@ -179,25 +173,28 @@ class TorrServerService {
     final ativo = await garantirAtivo();
     if (!ativo) return null;
 
+    final cleanMagnet = magnetUrl.trim();
     onStatus?.call('Adicionando magnet ao TorrServer...');
+
     final addResp = await _postJson('/torrents', {
       'action': 'add',
-      'link': magnetUrl.trim(),
+      'link': cleanMagnet,
       'title': 'Cinema Stream',
-      'save_to_db': false,
+      'poster': '',
+      'save_to_db': true,
     });
 
-    final hash = (addResp?['hash'] ?? '').toString().trim();
+    String hash = '';
+    if (addResp is Map<String, dynamic>) {
+      hash = (addResp['hash'] ?? '').toString().trim().toLowerCase();
+    }
     if (hash.isEmpty) {
-      final encoded = Uri.encodeComponent(magnetUrl.trim());
-      return TorrentStreamInfo(
-        playUrl: '$baseUrl/stream?link=$encoded&index=1&play',
-        fileName: 'Stream P2P',
-        fileSizeBytes: 0,
-        activePeers: 0,
-        totalSeeds: 0,
-        downloadSpeedBytes: 0,
-      );
+      hash = _extrairHashDoMagnet(cleanMagnet) ?? '';
+    }
+
+    if (hash.isEmpty) {
+      ultimoErro = 'Não foi possível extrair o hash do magnet link.';
+      return null;
     }
 
     for (int tentativa = 0; tentativa < 90; tentativa++) {
@@ -208,7 +205,7 @@ class TorrServerService {
         'hash': hash,
       });
 
-      if (info != null) {
+      if (info is Map<String, dynamic>) {
         final peers = (info['active_peers'] as num?)?.toInt() ?? 0;
         final seeds = (info['connected_seeders'] as num?)?.toInt() ?? 0;
         final speed = (info['download_speed'] as num?)?.toDouble() ?? 0.0;
@@ -250,12 +247,13 @@ class TorrServerService {
             final fileIndex = (melhorArquivo['id'] as num?)?.toInt() ?? 1;
             final fileName = (melhorArquivo['path'] ?? 'Vídeo P2P').toString().split('/').last;
 
-            final preloadClient = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+            onStatus?.call('Fazendo pré-buffer de $fileName...');
+            final preloadClient = HttpClient()..connectionTimeout = const Duration(seconds: 6);
             try {
               final preloadReq = await preloadClient.getUrl(
                 Uri.parse('$baseUrl/stream?link=$hash&index=$fileIndex&preload'),
               );
-              final preloadRes = await preloadReq.close().timeout(const Duration(seconds: 4));
+              final preloadRes = await preloadReq.close().timeout(const Duration(seconds: 10));
               await preloadRes.drain();
             } catch (_) {
             } finally {

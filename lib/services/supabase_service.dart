@@ -197,7 +197,7 @@ class SupabaseService {
   }
 
   static Future<List<dynamic>> _fetchLote(String key, String filtroQuery, int limite) async {
-    const cols = 'id,tmdb_id,titulo,serie_nome,categoria,genero,sinopse,capa_url,banner_url,ano,temporada,episodio,url_stream,url_stream_backup,formato,tipo_audio,resolucao,em_destaque,ordem_destaque';
+    const cols = 'id,tmdb_id,titulo,serie_nome,categoria,genero,sinopse,capa_url,banner_url,ano,temporada,episodio,url_stream,url_stream_backup,headers_customizados,formato,tipo_audio,resolucao,em_destaque,ordem_destaque';
     const filtroAtivos = '&url_stream=not.ilike.*STANIPTV*&url_stream=not.ilike.*ntcdn.us*&url_stream=not.ilike.*vstreaming.net*&url_stream=not.ilike.*popfilmeshd.net*&url_stream=not.ilike.*themediafire.club*&url_stream=not.ilike.*cdnv12.ec.cx*&url_stream=not.ilike.*cdnv18.ec.cx*';
     final uri = Uri.parse('$baseUrl/rest/v1/catalogo_midia?select=$cols$filtroAtivos$filtroQuery&order=ordem_destaque.asc,criado_em.desc');
     final resp = await http.get(uri, headers: {

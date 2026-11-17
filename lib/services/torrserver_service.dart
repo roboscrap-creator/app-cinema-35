@@ -36,7 +36,6 @@ class TorrentStreamInfo {
     return '${mb.toStringAsFixed(0)} MB';
   }
 }
-EOFcat << 'EOF' >> lib/services/torrserver_service.dart
 
 class TorrServerService {
   static const MethodChannel _channel = MethodChannel('com.chiavegatti.cinema/torrserver');
@@ -56,74 +55,92 @@ class TorrServerService {
 
   static Future<bool> garantirAtivo() async {
     if (await _portaAberta()) return true;
+
     try {
       final paths = await _channel.invokeMapMethod<String, String>('getPaths');
       final nativeLibDir = paths?['nativeLibDir'] ?? '';
       final filesDir = paths?['filesDir'] ?? '';
+
       if (nativeLibDir.isEmpty || filesDir.isEmpty) {
         ultimoErro = 'Caminhos nativos vazios (nativeLibDir/filesDir).';
         return false;
       }
+
       final binPath = '$nativeLibDir/libtorrserver.so';
-      if (!await File(binPath).exists()) {
+      final binFile = File(binPath);
+      if (!await binFile.exists()) {
         ultimoErro = 'Binário não encontrado em: $binPath';
         return false;
       }
-      final dataDir = Directory('$filesDir/torrserver');
-      if (!await dataDir.exists()) await dataDir.create(recursive: true);
 
-      final tentativas = [
+      final dataDir = Directory('$filesDir/torrserver');
+      if (!await dataDir.exists()) {
+        await dataDir.create(recursive: true);
+      }
+
+      final tentativasArgs = <List<String>>[
         ['--port', '8090', '--path', dataDir.path, '--rdb'],
         ['-p', '8090', '-d', dataDir.path],
       ];
+
       final logs = <String>[];
-      for (final args in tentativas) {
-        _process?.kill();
-        _process = null;
+
+      for (final args in tentativasArgs) {
+        if (_process != null) {
+          _process!.kill();
+          _process = null;
+        }
         logs.clear();
-        int? exitCode;
+
+        int? exitCodeCapturado;
         _process = await Process.start(
           binPath,
           args,
           workingDirectory: dataDir.path,
           environment: {'HOME': filesDir, 'TMPDIR': dataDir.path},
         );
+
         _process!.stdout.transform(utf8.decoder).listen((d) {
-          if (d.trim().isNotEmpty && logs.length < 12) logs.add(d.trim());
+          final line = d.trim();
+          if (line.isNotEmpty && logs.length < 15) logs.add(line);
         });
         _process!.stderr.transform(utf8.decoder).listen((d) {
-          if (d.trim().isNotEmpty && logs.length < 12) logs.add(d.trim());
+          final line = d.trim();
+          if (line.isNotEmpty && logs.length < 15) logs.add(line);
         });
-        _process!.exitCode.then((c) => exitCode = c);
+        _process!.exitCode.then((code) => exitCodeCapturado = code);
+
         for (int i = 0; i < 16; i++) {
           await Future.delayed(const Duration(milliseconds: 250));
           if (await _portaAberta()) {
             ultimoErro = '';
             return true;
           }
-          if (exitCode != null) break;
+          if (exitCodeCapturado != null) break;
         }
       }
-      ultimoErro = logs.isNotEmpty ? 'TorrServer: ${logs.join(" | ")}' : 'Timeout porta 8090 ($binPath)';
+
+      ultimoErro = logs.isNotEmpty
+          ? 'TorrServer encerrou: ${logs.join(" | ") }'
+          : 'Timeout na porta 8090 ($binPath).';
       return false;
     } catch (e) {
-      ultimoErro = 'Falha processo: $e';
+      ultimoErro = 'Falha ao iniciar processo: $e';
       return false;
     }
   }
-EOFcat << 'EOF' >> lib/services/torrserver_service.dart
 
-  static Future?> _postJson(String ep, Map<String, dynamic> body) async {
+  static Future<Map<String, dynamic>?> _postJson(String endpoint, Map<String, dynamic> body) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
     try {
-      final req = await client.postUrl(Uri.parse('$baseUrl$ep'));
+      final req = await client.postUrl(Uri.parse('$baseUrl$endpoint'));
       req.headers.contentType = ContentType.json;
       req.write(jsonEncode(body));
       final res = await req.close().timeout(const Duration(seconds: 8));
       final raw = await res.transform(utf8.decoder).join();
       if (raw.trim().isEmpty) return null;
-      final d = jsonDecode(raw);
-      return d is Map<String, dynamic> ? d : null;
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic> ? decoded : null;
     } catch (_) {
       return null;
     } finally {
@@ -131,18 +148,26 @@ EOFcat << 'EOF' >> lib/services/torrserver_service.dart
     }
   }
 
-  static bool _ehVideo(String p) {
-    final l = p.toLowerCase();
-    if (l.contains('sample')) return false;
-    return l.endsWith('.mp4') || l.endsWith('.mkv') || l.endsWith('.avi') || l.endsWith('.mov') || l.endsWith('.webm') || l.endsWith('.ts') || l.endsWith('.m4v');
+  static bool _ehArquivoVideo(String path) {
+    final lower = path.toLowerCase();
+    if (lower.contains('Sample') || lower.contains('sample')) return false;
+    return lower.endsWith('.mp4') ||
+        lower.endsWith('.mkv') ||
+        lower.endsWith('.avi) ||
+        lower.endsWith('.mov') ||
+        lower.endsWith('.webm') ||
+        lower.endsWith('.ts') ||
+        lower.endsWith('.m4v');
   }
 
   static Future<TorrentStreamInfo?> prepararMagnet(
     String magnetUrl, {
-    void Function(String status)? onStatus,
+    void Function(String statusTelemetria)? onStatus,
     bool Function()? cancelado,
   }) async {
-    if (!await garantirAtivo()) return null;
+    final ativo = await garantirAtivo();
+    if (!ativo) return null;
+
     onStatus?.call('Adicionando magnet ao TorrServer...');
     final addResp = await _postJson('/torrents', {
       'action': 'add',
@@ -150,11 +175,12 @@ EOFcat << 'EOF' >> lib/services/torrserver_service.dart
       'title': 'Cinema Stream',
       'save_to_db': false,
     });
+
     final hash = (addResp?['hash'] ?? '').toString().trim();
     if (hash.isEmpty) {
-      final enc = Uri.encodeComponent(magnetUrl.trim());
+      final encoded = Uri.encodeComponent(magnetUrl.trim());
       return TorrentStreamInfo(
-        playUrl: '$baseUrl/stream?link=$enc&index=1&play',
+        playUrl: '$baseUrl/stream?link=$encoded&index=1&play',
         fileName: 'Stream P2P',
         fileSizeBytes: 0,
         activePeers: 0,
@@ -163,68 +189,89 @@ EOFcat << 'EOF' >> lib/services/torrserver_service.dart
       );
     }
 
-    for (int t = 0; t < 90; t++) {
+    for (int tentativa = 0; tentativa < 90; tentativa++) {
       if (cancelado != null && cancelado()) return null;
-      final info = await _postJson('/torrents', {'action': 'get', 'hash': hash});
+
+      final info = await _postJson('/torrents', {
+        'action': 'get',
+        'hash': hash,
+      });
+
       if (info != null) {
         final peers = (info['active_peers'] as num?)?.toInt() ?? 0;
         final seeds = (info['connected_seeders'] as num?)?.toInt() ?? 0;
         final speed = (info['download_speed'] as num?)?.toDouble() ?? 0.0;
-        final stats = info['file_stats'];
-        onStatus?.call('Buscando metadados P2P...\nPeers: $peers • Seeds: $seeds • Vel: ${(speed / 1024).toStringAsFixed(0)} KB/s');
+        final rawStats = info['file_stats'];
 
-        if (stats is List && stats.isNotEmpty) {
-          Map<String, dynamic>? melhor;
-          int maior = -1;
-          for (final item in stats) {
+        final speedKb = (speed / 1024).toStringAsFixed(0);
+        onStatus?.call(
+          'Buscando metadados P2P...\nPeers: $peers • Seeds: $seeds • Vel: $speedKb KB/s',
+        );
+
+        if (rawStats is List && rawStats.isNotEmpty) {
+          Map<String, dynamic>? melhorArquivo;
+          int maiorTamanho = -1;
+
+          for (final item in rawStats) {
             if (item is Map<String, dynamic>) {
               final nome = (item['path'] ?? '').toString();
-              final tam = (item['length'] as num?)?.toInt() ?? 0;
-              if (_ehVideo(nome) && tam > maior) {
-                maior = tam;
-                melhor = item;
+              final tamanho = (item['length'] as num?)?.toInt() ?? 0;
+              if (_ehArquivoVideo(nome) && tamanho > maiorTamanho) {
+                maiorTamanho = tamanho;
+                melhorArquivo = item;
               }
             }
           }
-          if (melhor == null) {
-            for (final item in stats) {
+
+          if (melhorArquivo == null) {
+            for (final item in rawStats) {
               if (item is Map<String, dynamic>) {
-                final tam = (item['length'] as num?)?.toInt() ?? 0;
-                if (tam > maior) {
-                  maior = tam;
-                  melhor = item;
+                final tamanho = (item['length'] as num?)?.toInt() ?? 0;
+                if (tamanho > maiorTamanho) k
+                  maiorTamanho = tamanho;
+                  melhorArquivo = item;
                 }
               }
             }
           }
-          if (melhor != null) {
-            final fid = (melhor['id'] as num?)?.toInt() ?? 1;
-            final fname = (melhor['path'] ?? 'Vídeo P2P').toString().split('/').last;
-            final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+
+          if (melhorArquivo != null) {
+            final fileIndex = (melhorArquivo['id'] as num?)?.toInt() ?? 1;
+            final fileName = (melhorArquivo['path'] ?? 'Vídeo P2P').toString().split('/').last;
+
+            final preloadClient = HttpClient()..connectionTimeout = const Duration(seconds: 4);
             try {
-              final req = await c.getUrl(Uri.parse('$baseUrl/stream?link=$hash&index=$fid&preload'));
-              final res = await req.close().timeout(const Duration(seconds: 4));
-              await res.drain();
+              final preloadReq = await preloadClient.getUrl(
+                Uri.parse('$baseUrl/stream?link=$hash&index=$fileIndex&preload'),
+              );
+              final preloadRes = await preloadReq.close().timeout(const Duration(seconds: 4));
+              await preloadRes.drain();
             } catch (_) {
             } finally {
-              c.close(force: true);
+              preloadClient.close(force: true);
             }
-            final si = TorrentStreamInfo(
-              playUrl: '$baseUrl/stream?link=$hash&index=$fid&play',
-              fileName: fname,
-              fileSizeBytes: maior > 0 ? maior : 0,
+
+            final streamInfo = TorrentStreamInfo(
+              playUrl: '$baseUrl/stream?link=$hash&index=$fileIndex&play',
+              fileName: fileName,
+              fileSizeBytes: maiorTamanho > 0 ? maiorTamanho : 0,
               activePeers: peers,
               totalSeeds: seeds,
               downloadSpeedBytes: speed,
             );
-            onStatus?.call('Iniciando ${si.fileName} (${si.tamanhoFormatado})\nPeers: $peers • Seeds: $seeds • ${si.velocidadeFormatada}');
-            return si;
+
+            onStatus?.call(
+              'Iniciando ${streamInfo.fileName} (${streamInfo.tamanhoFormatado})\nPeers: $peers • Seeds: $seeds • ${streamInfo.velocidadeFormatada}',
+            );
+            return streamInfo;
           }
         }
       }
+
       await Future.delayed(const Duration(milliseconds: 500));
     }
-    ultimoErro = 'Timeout aguardando peers/metadados (45s).';
+
+    ultimoErro = 'Timeout aguardando peers/metadados do torrent (45s).';
     return null;
   }
 }

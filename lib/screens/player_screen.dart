@@ -33,6 +33,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   StreamSubscription<Duration>? _durationSub;
 
   bool _carregando = true;
+  double _progressoCarregamento = 0.0;
+  Timer? _timerProgresso;
   String _mensagemCarregamento = '';
   String _badgeTorrent = '';
   bool _modoWeb = false;
@@ -41,6 +43,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String? _erro;
   Duration? _posicaoPendente;
   final Set<String> _urlsJaTestadas = {};
+
+  void _iniciarTimerProgresso({required bool isMagnet}) {
+    _timerProgresso?.cancel();
+    _timerProgresso = Timer.periodic(const Duration(milliseconds: 250), (t) {
+      if (!mounted || !_carregando) {
+        t.cancel();
+        return;
+      }
+      setState(() {
+        final teto = isMagnet ? 0.92 : 0.94;
+        if (_progressoCarregamento < teto) {
+          final passo = isMagnet ? 0.004 : 0.035;
+          _progressoCarregamento = (_progressoCarregamento + passo).clamp(0.0, teto);
+        }
+      });
+    });
+  }
 
   @override
   void initState() {
@@ -247,6 +266,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     setState(() {
       _carregando = true;
+      _progressoCarregamento = 0.03;
       _badgeTorrent = '';
       _mensagemCarregamento = isMagnet
           ? 'Iniciando motor TorrServer integrado...'
@@ -258,6 +278,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _posicaoPendente = posicaoRetomar;
     });
 
+    _iniciarTimerProgresso(isMagnet: isMagnet);
     await _player.stop();
 
     String streamUrlFinal = cleanUrl;
@@ -266,6 +287,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final torrentInfo = await TorrServerService.prepararMagnet(
         cleanUrl,
         cancelado: () => _telaFechada || !mounted,
+        onProgress: (p) {
+          if (mounted && p > _progressoCarregamento) {
+            setState(() => _progressoCarregamento = p.clamp(0.0, 0.98));
+          }
+        },
         onStatus: (status) {
           if (mounted) setState(() => _mensagemCarregamento = status);
         },
@@ -475,6 +501,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    _timerProgresso?.cancel();
     _telaFechada = true;
     _erroSub?.cancel();
     _bufferingSub?.cancel();
@@ -546,8 +573,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const CircularProgressIndicator(
-                        color: Color(0xFF2196F3),
+                      SizedBox(
+                        width: 76,
+                        height: 76,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            SizedBox(
+                              width: 76,
+                              height: 76,
+                              child: CircularProgressIndicator(
+                                value: _progressoCarregamento > 0.01 ? _progressoCarregamento : null,
+                                strokeWidth: 5.5,
+                                backgroundColor: Colors.white12,
+                                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF2196F3)),
+                              ),
+                            ),
+                            Text(
+                              '${(_progressoCarregamento * 100).round().clamp(0, 100)}%',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 14),
                       Text(

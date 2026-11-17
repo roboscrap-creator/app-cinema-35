@@ -194,6 +194,7 @@ class TorrServerService {
   static Future<TorrentStreamInfo?> prepararMagnet(
     String magnetUrl, {
     void Function(String statusTelemetria)? onStatus,
+    void Function(double progresso)? onProgress,
     bool Function()? cancelado,
   }) async {
     final ativo = await garantirAtivo();
@@ -204,6 +205,7 @@ class TorrServerService {
     if (hashPrevio != null && hashPrevio.isNotEmpty) {
       await _postJson('/torrents', {'action': 'rem', 'hash': hashPrevio});
     }
+    onProgress?.call(0.08);
     onStatus?.call('Conectando aos trackers P2P...');
 
     final addResp = await _postJson('/torrents', {
@@ -242,6 +244,8 @@ class TorrServerService {
         final rawStats = info['file_stats'];
 
         final speedKb = (speed / 1024).toStringAsFixed(0);
+        final pctBusca = (0.10 + (tentativa / 180.0) * 0.40 + (peers > 0 ? 0.12 : 0.0) + (seeds > 0 ? 0.13 : 0.0)).clamp(0.10, 0.72);
+        onProgress?.call(pctBusca);
         onStatus?.call(
           'Buscando metadados P2P...\nPeers: $peers • Seeds: $seeds • Vel: $speedKb KB/s',
         );
@@ -277,6 +281,7 @@ class TorrServerService {
             final fileIndex = (melhorArquivo['id'] as num?)?.toInt() ?? 1;
             final fileName = (melhorArquivo['path'] ?? 'Vídeo P2P').toString().split('/').last;
 
+            onProgress?.call(0.80);
             onStatus?.call('Fazendo pré-buffer de $fileName...');
             final preloadClient = HttpClient()..connectionTimeout = const Duration(seconds: 6);
             try {
@@ -299,6 +304,7 @@ class TorrServerService {
               downloadSpeedBytes: speed,
             );
 
+            onProgress?.call(0.95);
             onStatus?.call(
               'Iniciando ${streamInfo.fileName} (${streamInfo.tamanhoFormatado})\nPeers: $peers • Seeds: $seeds • ${streamInfo.velocidadeFormatada}',
             );

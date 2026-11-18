@@ -27,6 +27,7 @@ class TorrServerService {
   static const MethodChannel _channel = MethodChannel('com.chiavegatti.cinema/torrserver');
   static const String baseUrl = 'http://127.0.0.1:8090';
   static Process? _process;
+  static bool _configurado = false;
   static String ultimoErro = '';
 
   static Future<bool> _portaAberta() async {
@@ -39,8 +40,39 @@ class TorrServerService {
     }
   }
 
+  static Future<void> _aplicarConfiguracoes() async {
+    if (_configurado) return;
+    try {
+      await _postJson('/settings', {
+        'action': 'set',
+        'sets': {
+          'CacheSize': 67108864,
+          'ReaderReadAHead': 95,
+          'PreloadCache': 15,
+          'UseDisk': false,
+          'ForceEncrypt': false,
+          'RetrackersMode': 1,
+          'TorrentDisconnectTimeout': 30,
+          'EnableIPv6': true,
+          'DisableTCP': false,
+          'DisableUTP': false,
+          'DisableUPNP': false,
+          'DisableDHT': false,
+          'DisablePEX': false,
+          'DisableUpload': false,
+          'ConnectionsLimit': 120,
+          'PeersListenPort': 0,
+        },
+      });
+      _configurado = true;
+    } catch (_) {}
+  }
+
   static Future<bool> garantirAtivo() async {
-    if (await _portaAberta()) return true;
+    if (await _portaAberta()) {
+      await _aplicarConfiguracoes();
+      return true;
+    }
     try {
       final paths = await _channel.invokeMapMethod('getPaths');
       final nativeLibDir = (paths?['nativeLibDir'] ?? '').toString();
@@ -71,6 +103,7 @@ class TorrServerService {
           await Future.delayed(const Duration(milliseconds: 200));
           if (await _portaAberta()) {
             ultimoErro = '';
+            await _aplicarConfiguracoes();
             return true;
           }
         }
@@ -96,6 +129,57 @@ class TorrServerService {
       c.close(force: true);
     }
     return null;
+  }
+
+  static Future<List<int>?> _baixarTorrentCache(String hashHex) async {
+    final hUpper = hashHex.toUpperCase();
+    final urls = [
+      'https://itorrents.org/torrent/$hUpper.torrent',
+      'https://torrage.info/torrent.php?h=$hUpper',
+      'https://btcache.me/torrent/$hUpper',
+    ];
+    for (final u in urls) {
+      final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+      try {
+        final req = await c.getUrl(Uri.parse(u));
+        req.headers.set('User-Agent', 'Mozilla/5.0');
+        final res = await req.close().timeout(const Duration(seconds: 5));
+        if (res.statusCode == 200) {
+          final bytes = await res.fold<List<int>>([], (prev, el) => prev..addAll(el));
+          if (bytes.length > 100 && bytes.first == 100) {
+            return bytes;
+          }
+        } else {
+          await res.drain();
+        }
+      } catch (_) {} finally {
+        c.close(force: true);
+      }
+    }
+    return null;
+  }
+
+  static Future<bool> _uploadTorrentParaServidor(List<int> bytes, String hashHex) async {
+    final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    try {
+      const boundary = '----TorrServerBoundary7MA4YWxkTrZu0gW';
+      final req = await c.postUrl(Uri.parse('$baseUrl/torrent/upload'));
+      req.headers.set('Content-Type', 'multipart/form-data; boundary=$boundary');
+      final header = '--$boundary\r\n'
+          'Content-Disposition: form-data; name="file"; filename="$hashHex.torrent"\r\n'
+          'Content-Type: application/x-bittorrent\r\n\r\n';
+      const footer = '\r\n--$boundary--\r\n';
+      req.add(utf8.encode(header));
+      req.add(bytes);
+      req.add(utf8.encode(footer));
+      final res = await req.close().timeout(const Duration(seconds: 5));
+      await res.drain();
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (_) {
+      return false;
+    } finally {
+      c.close(force: true);
+    }
   }
 
   static String _base32ParaHex(String b32) {
@@ -156,17 +240,29 @@ class TorrServerService {
   }) async {
     final cleanMagnet = _enriquecerMagnet(magnetUrl);
     final hash = _extrairHash(cleanMagnet);
-    onProgress?.call(0.20);
+    onProgress?.call(0.15);
     onStatus?.call('Iniciando motor TorrServer...');
     if (!await garantirAtivo()) return null;
     if (cancelado != null && cancelado()) return null;
 
-    await _postJson('/torrents', {
-      'action': 'add',
-      'link': cleanMagnet,
-      'title': 'Stream',
-      'save_to_db': false,
-    });
+    onProgress?.call(0.28);
+    onStatus?.call('Buscando arquivo .torrent em cache web...');
+    bool subiuTorrent = false;
+    if (hash.length == 40) {
+      final torrentBytes = await _baixarTorrentCache(hash);
+      if (torrentBytes != null) {
+        subiuTorrent = await _uploadTorrentParaServidor(torrentBytes, hash);
+      }
+    }
+
+    if (!subiuTorrent) {
+      await _postJson('/torrents', {
+        'action': 'add',
+        'link': cleanMagnet,
+        'title': 'Stream',
+        'save_to_db': false,
+      });
+    }
 
     int fileId = 1;
     String fileName = 'video.mkv';
@@ -176,7 +272,7 @@ class TorrServerService {
     for (int i = 0; i < 40; i++) {
       if (cancelado != null && cancelado()) return null;
       await Future.delayed(const Duration(milliseconds: 500));
-      onProgress?.call((0.25 + (i * 0.015)).clamp(0.25, 0.85));
+      onProgress?.call((0.35 + (i * 0.014)).clamp(0.35, 0.88));
       final info = await _postJson('/torrents', {'action': 'get', 'hash': hash});
       final files = info is Map ? info['file_stats'] : null;
       if (files is List && files.isNotEmpty) {
@@ -198,11 +294,13 @@ class TorrServerService {
         break;
       }
       final peers = info is Map ? (info['active_peers'] ?? 0) : 0;
-      onStatus?.call('Buscando metadados do torrent (peers: $peers)...');
+      onStatus?.call(subiuTorrent
+          ? 'Carregando metadados do .torrent...'
+          : 'Buscando metadados via P2P (peers: $peers)...');
     }
 
     if (!encontrouArquivo) {
-      ultimoErro = 'Torrent sem peers para baixar metadados no momento.';
+      ultimoErro = 'Torrent sem seeds ou metadados indisponiveis no momento.';
       return null;
     }
 

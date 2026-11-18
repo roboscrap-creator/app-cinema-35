@@ -242,7 +242,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _abrirYoutubeNoWebView(String videoId) {
     _cancelarTimers();
-    final html = '''
+    final html = """
 <!DOCTYPE html>
 <html>
 <head>
@@ -260,7 +260,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 </iframe>
 </body>
 </html>
-''';
+""";
 
     final wc = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -312,8 +312,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _erro = null;
       _carregando = false;
     });
-  }
-
   }
 
   Future<void> _iniciarStream(String url, {Duration? posicaoRetomar}) async {
@@ -542,6 +540,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _player.dispose();
     super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(

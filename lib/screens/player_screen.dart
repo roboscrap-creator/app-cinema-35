@@ -36,6 +36,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _carregando = true;
   double _progressoCarregamento = 0.0;
   Timer? _timerProgresso;
+  Timer? _timeoutStream;
   String _mensagemCarregamento = '';
   String _badgeTorrent = '';
   bool _modoWeb = false;
@@ -45,8 +46,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration? _posicaoPendente;
   final Set<String> _urlsJaTestadas = {};
 
-  void _finalizarCarregamento() {
+  void _cancelarTimers() {
     _timerProgresso?.cancel();
+    _timeoutStream?.cancel();
+  }
+
+  void _finalizarCarregamento() {
+    _cancelarTimers();
     if (!mounted) return;
     setState(() {
       _progressoCarregamento = 1.0;
@@ -55,19 +61,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _iniciarTimerProgresso({required bool isMagnet}) {
-    _timerProgresso?.cancel();
-    _timerProgresso = Timer.periodic(const Duration(milliseconds: 250), (t) {
+    _cancelarTimers();
+    _timerProgresso = Timer.periodic(const Duration(milliseconds: 300), (t) {
       if (!mounted || !_carregando) {
         t.cancel();
         return;
       }
       setState(() {
-        final teto = isMagnet ? 0.92 : 0.94;
+        final teto = isMagnet ? 0.90 : 0.94;
         if (_progressoCarregamento < teto) {
-          final passo = isMagnet ? 0.004 : 0.035;
+          final passo = isMagnet ? 0.008 : 0.04;
           _progressoCarregamento = (_progressoCarregamento + passo).clamp(0.0, teto);
         }
       });
+    });
+
+    _timeoutStream = Timer(Duration(seconds: isMagnet ? 45 : 20), () {
+      if (mounted && _carregando && !_modoWeb && _erro == null) {
+        _tentarProximoServidorOuFalhar(
+          isMagnet
+              ? 'Torrent sem seeds ativos no momento (45s). Tente outra fonte.'
+              : 'Servidor demorou para responder (20s).',
+        );
+      }
     });
   }
 
@@ -83,7 +99,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _player = Player(
       configuration: const PlayerConfiguration(
-        bufferSize: 32 * 1024 * 1024,
+        bufferSize: 24 * 1024 * 1024,
         logLevel: MPVLogLevel.warn,
       ),
     );
@@ -91,7 +107,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _erroSub = _player.stream.error.listen((err) {
       if (_responderErroPlayer(err)) {
-        _tentarProximoServidorOuFalhar('Falha no player (libmpv): $err');
+        _tentarProximoServidorOuFalhar('Falha no player: $err');
       }
     });
 
@@ -132,7 +148,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _tentarProximoServidorOuFalhar(String motivo) {
-    _timerProgresso?.cancel();
+    _cancelarTimers();
     final backup = _fonteAtual.urlStreamBackup.trim();
     if (backup.isNotEmpty && !_urlsJaTestadas.contains(backup)) {
       _iniciarStream(backup);
@@ -204,28 +220,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
         l.contains('dai.ly/');
   }
 
-  Future<Map<String, dynamic>> _resolverUrlHttp(String url, Map<String, String> headers) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+  Future> _resolverUrlHttp(String url, Map<String, String> headers) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     try {
       final req = await client.getUrl(Uri.parse(url));
       headers.forEach((k, v) => req.headers.set(k, v));
       req.followRedirects = true;
       req.maxRedirects = 5;
-      final res = await req.close().timeout(const Duration(seconds: 7));
+      final res = await req.close().timeout(const Duration(seconds: 6));
       final finalUrl = res.redirects.isNotEmpty ? res.redirects.last.location.toString() : url;
       final contentType = (res.headers.contentType?.mimeType ?? '').toLowerCase();
       await res.drain();
       final isHtml = contentType.contains('text/html') || contentType.contains('application/xhtml');
-      return {'url': finalUrl, 'isHtml': isHtml, 'status': res.statusCode};
-    } catch (_) {
-      return {'url': url, 'isHtml': false, 'status': 0};
+      return {'url': finalUrl, 'isHtml': isHtml, 'status': res.statusCode, 'ok': true};
+    } catch (e) {
+      return {'url': url, 'isHtml': false, 'status': 0, 'ok': false, 'erro': e.toString()};
     } finally {
       client.close(force: true);
     }
   }
 
   void _abrirYoutubeNoWebView(String videoId) {
-    _timerProgresso?.cancel();
+    _cancelarTimers();
     final html = '''
 <!DOCTYPE html>
 <html>
@@ -272,7 +288,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _abrirUrlNoWebView(String url) {
-    _timerProgresso?.cancel();
+    _cancelarTimers();
     final wc = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
@@ -281,7 +297,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           onPageFinished: (_) => _finalizarCarregamento(),
           onWebResourceError: (err) {
             if (err.isForMainFrame == true) {
-              _tentarProximoServidorOuFalhar('Erro web HTTP ${err.errorCode}.');
+              _tentarProximoServidorOuFalhar('Servidor web indisponivel (HTTP ${err.errorCode}).');
             }
           },
         ),
@@ -305,10 +321,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     setState(() {
       _carregando = true;
-      _progressoCarregamento = 0.03;
+      _progressoCarregamento = 0.05;
       _badgeTorrent = '';
       _mensagemCarregamento = isMagnet
-          ? 'Iniciando motor TorrServer integrado...'
+          ? 'Conectando motor P2P e buscando peers...'
           : 'Carregando ${widget.obra.titulo} (${_fonteAtual.badgeResumo})...';
       _modoWeb = false;
       _webController = null;
@@ -334,7 +350,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         cancelado: () => _telaFechada || !mounted,
         onProgress: (p) {
           if (mounted && p > _progressoCarregamento) {
-            setState(() => _progressoCarregamento = p.clamp(0.0, 0.98));
+            setState(() => _progressoCarregamento = p.clamp(0.0, 0.95));
           }
         },
         onStatus: (status) {
@@ -347,7 +363,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (torrentInfo == null) {
         final msgErro = TorrServerService.ultimoErro.isNotEmpty
             ? TorrServerService.ultimoErro
-            : 'Motor TorrServer integrado não respondeu em 127.0.0.1:8090.';
+            : 'Motor TorrServer integrado nao respondeu.';
         _tentarProximoServidorOuFalhar(msgErro);
         return;
       }
@@ -355,8 +371,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       streamUrlFinal = torrentInfo.playUrl;
       if (mounted) {
         setState(() {
-          _badgeTorrent =
-              'P2P • ${torrentInfo.tamanhoFormatado} • ${torrentInfo.velocidadeFormatada}';
+          _badgeTorrent = torrentInfo.viaCloudCache ? 'CLOUD CDN • INSTANTANEO' : 'P2P • TORRSERVER';
         });
       }
     } else {
@@ -365,13 +380,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _abrirYoutubeNoWebView(ytId);
         return;
       }
-      if (_ehPaginaWebEmbed(cleanUrl)) {
-        _abrirUrlNoWebView(cleanUrl);
-        return;
-      }
       if (cleanUrl.startsWith('http')) {
         final res = await _resolverUrlHttp(cleanUrl, headers);
         if (_telaFechada || !mounted) return;
+        if (res['ok'] != true) {
+          _tentarProximoServidorOuFalhar('Link offline ou dominio expirado.');
+          return;
+        }
         final resolved = (res['url'] ?? cleanUrl).toString();
         final isHtml = res['isHtml'] == true;
         if (isHtml || _ehPaginaWebEmbed(resolved)) {
@@ -379,6 +394,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
           return;
         }
         streamUrlFinal = resolved;
+      } else if (_ehPaginaWebEmbed(cleanUrl)) {
+        _abrirUrlNoWebView(cleanUrl);
+        return;
       }
     }
 
@@ -430,7 +448,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               children: [
                 if (audioTracks.isNotEmpty) ...[
                   const Text(
-                    'Faixa de Áudio (libmpv)',
+                    'Faixa de Audio (libmpv)',
                     style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
@@ -479,7 +497,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   const Divider(color: Colors.white12),
                 ],
                 const Text(
-                  'Servidores e Resolução',
+                  'Servidores e Resolucao',
                   style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
@@ -494,7 +512,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                     title: Text('${f.tipoAudio} • ${f.resolucao}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
                     subtitle: Text(
-                      isTor ? 'TORRENT P2P (TorrServer)' : 'Formato: ${f.formato.toUpperCase()}',
+                      isTor ? 'TORRENT P2P / CLOUD' : 'Formato: ${f.formato.toUpperCase()}',
                       style: const TextStyle(color: Colors.white54, fontSize: 12),
                     ),
                     onTap: () {
@@ -513,7 +531,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
-    _timerProgresso?.cancel();
+    _cancelarTimers();
     _telaFechada = true;
     _erroSub?.cancel();
     _bufferingSub?.cancel();

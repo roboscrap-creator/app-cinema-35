@@ -148,8 +148,8 @@ class TorrServerService {
     if (!await garantirAtivo()) return null;
     if (cancelado != null && cancelado()) return null;
 
-    unawaited(_postJson('/settings', {'action': 'set', 'sets': {'CacheSize': 67108864, 'ReaderReadAHead': 95, 'PreloadCache': 15, 'EnableDHT': true, 'EnableIPv6': false, 'RetrackersMode': 1, 'ConnectionsLimit': 150}}));
-    unawaited(_postJson('/torrents', {'action': 'add', 'link': cleanMagnet, 'title': 'Stream', 'save_to_db': false}));
+    _postJson('/settings', {'action': 'set', 'sets': {'CacheSize': 67108864, 'ReaderReadAHead': 95, 'PreloadCache': 15, 'EnableDHT': true, 'EnableIPv6': false, 'RetrackersMode': 1, 'ConnectionsLimit': 150}});
+    _postJson('/torrents', {'action': 'add', 'link': cleanMagnet, 'title': 'Stream', 'save_to_db': false});
 
     onProgress?.call(0.75);
     onStatus?.call('Buscando peers e pre-carregando video...');

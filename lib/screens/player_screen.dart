@@ -542,8 +542,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _player.dispose();
     super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(

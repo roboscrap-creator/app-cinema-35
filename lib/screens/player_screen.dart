@@ -314,6 +314,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
+  }
+
   Future<void> _iniciarStream(String url, {Duration? posicaoRetomar}) async {
     final cleanUrl = url.trim();
     _urlsJaTestadas.add(cleanUrl);

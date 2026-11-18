@@ -314,8 +314,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
-  }
-
   Future<void> _iniciarStream(String url, {Duration? posicaoRetomar}) async {
     final cleanUrl = url.trim();
     _urlsJaTestadas.add(cleanUrl);
@@ -542,8 +540,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _player.dispose();
     super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(

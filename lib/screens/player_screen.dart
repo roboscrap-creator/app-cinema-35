@@ -204,7 +204,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         l.contains('dai.ly/');
   }
 
-  Future> _resolverUrlHttp(String url, Map<String, String> headers) async {
+  Future<Map<String, dynamic>> _resolverUrlHttp(String url, Map<String, String> headers) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
     try {
       final req = await client.getUrl(Uri.parse(url));

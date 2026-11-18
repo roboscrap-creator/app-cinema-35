@@ -242,25 +242,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _abrirYoutubeNoWebView(String videoId) {
     _cancelarTimers();
-    final html = """
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<style>
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
-  iframe { width: 100%; height: 100%; border: 0; }
-</style>
-</head>
-<body>
-<iframe
-  src="https://www.youtube-nocookie.com/embed/$videoId?autoplay=1&playsinline=1&rel=0&modestbranding=1"
-  allow="autoplay; fullscreen; encrypted-media"
-  allowfullscreen>
-</iframe>
-</body>
-</html>
-""";
+    final html = '<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><style>html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}iframe{width:100%;height:100%;border:0}</style></head><body><iframe src="https://www.youtube-nocookie.com/embed/$videoId?autoplay=1&playsinline=1&rel=0&modestbranding=1" allow="autoplay; fullscreen; encrypted-media" allowfullscreen></iframe></body></html>';
 
     final wc = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)

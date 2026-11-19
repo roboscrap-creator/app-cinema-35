@@ -48,6 +48,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration? _posicaoPendente;
   final Set<String> _urlsJaTestadas = {};
 
+  // Controles Profissionais: Formato de Tela, Duplo Clique e Legendas
+  int _modoTelaIndex = 0;
+  final List> _modosTela = [
+    {'nome': 'Ajustar (Original)', 'fit': BoxFit.contain},
+    {'nome': 'Preencher (Zoom)', 'fit': BoxFit.cover},
+    {'nome': 'Esticar Tela', 'fit': BoxFit.fill},
+  ];
+  String? _feedbackCentro;
+  Timer? _timerFeedback;
+  String? _indicadorDuploToque; // 'left' ou 'right'
+  Timer? _timerDuploToque;
+
+  double _legendaTamanho = 22.0;
+  Color _legendaCor = Colors.white;
+  int _legendaFundoIndex = 1; // 0: Transparente+Sombra, 1: Semitransparente, 2: Solido
+  double _legendaAtraso = 0.0;
+  List> _legendasOnline = [];
+  bool _buscandoLegendas = false;
+  String _legendaAtivaNome = 'Padrão';
+
   void _cancelarTimers() {
     _timerProgresso?.cancel();
     _timeoutStream?.cancel();
@@ -557,8 +577,310 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  void _mostrarFeedbackCentro(String texto) {
+    _timerFeedback?.cancel();
+    if (!mounted) return;
+    setState(() => _feedbackCentro = texto);
+    _timerFeedback = Timer(const Duration(milliseconds: 1400), () {
+      if (mounted) setState(() => _feedbackCentro = null);
+    });
+  }
+
+  void _alternarFormatoTela() {
+    setState(() {
+      _modoTelaIndex = (_modoTelaIndex + 1) % _modosTela.length;
+    });
+    _mostrarFeedbackCentro('Tela: ${_modosTela[_modoTelaIndex]['nome']}');
+  }
+
+  void _executarDuploToque(bool avancar) {
+    final posAtual = _player.state.position;
+    final durTotal = _player.state.duration;
+    final delta = avancar ? const Duration(seconds: 10) : const Duration(seconds: -10);
+    var novaPos = posAtual + delta;
+    if (novaPos < Duration.zero) novaPos = Duration.zero;
+    if (durTotal > Duration.zero && novaPos > durTotal) novaPos = durTotal;
+    _player.seek(novaPos);
+
+    _timerDuploToque?.cancel();
+    if (!mounted) return;
+    setState(() => _indicadorDuploToque = avancar ? 'right' : 'left');
+    _timerDuploToque = Timer(const Duration(milliseconds: 650), () {
+      if (mounted) setState(() => _indicadorDuploToque = null);
+    });
+  }
+
+  Future<void> _ajustarAtrasoLegenda(double delta, StateSetter? setModalState) async {
+    final novoAtraso = double.parse((_legendaAtraso + delta).toStringAsFixed(1));
+    setState(() => _legendaAtraso = novoAtraso);
+    if (setModalState != null) setModalState(() {});
+    try {
+      await (_player.platform as dynamic).setProperty('sub-delay', novoAtraso.toString());
+    } catch (_) {}
+  }
+
+  Future<void> _buscarLegendasOnline(StateSetter setModalState) async {
+    setModalState(() => _buscandoLegendas = true);
+    try {
+      final uri = Uri.parse('https://roboscrap-backend-l9t8.onrender.com/legendas/buscar').replace(
+        queryParameters: {
+          'titulo': widget.obra.titulo,
+          'tmdb_id': '${widget.obra.tmdbId ?? ''}',
+          'tipo': widget.obra.categoria,
+          'temporada': '${_fonteAtual.temporada ?? 0}',
+          'episodio': '${_fonteAtual.episodio ?? 0}',
+        },
+      );
+      final resp = await http.get(uri).timeout(const Duration(seconds: 15));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+        final lista = (data['legendas'] as List? ?? []).cast>();
+        setModalState(() {
+          _legendasOnline = lista;
+          _buscandoLegendas = false;
+        });
+        return;
+      }
+    } catch (_) {}
+    setModalState(() => _buscandoLegendas = false);
+  }
+
+  Future<void> _aplicarLegendaOnline(Map<String, dynamic> item) async {
+    final rawUrl = (item['url'] ?? '').toString();
+    if (rawUrl.isEmpty) return;
+    final proxyVtt = Uri.parse('https://roboscrap-backend-l9t8.onrender.com/legendas/baixar')
+        .replace(queryParameters: {'url': rawUrl})
+        .toString();
+    await _player.setSubtitleTrack(
+      SubtitleTrack.uri(
+        proxyVtt,
+        title: item['nome'] ?? 'Online',
+        language: item['codigo'] ?? 'pt',
+      ),
+    );
+    if (mounted) {
+      setState(() => _legendaAtivaNome = item['nome'] ?? 'Legenda Online');
+      _mostrarFeedbackCentro('Legenda aplicada: $_legendaAtivaNome');
+    }
+  }
+
+  Color get _corFundoLegendaAtual {
+    if (_legendaFundoIndex == 0) return Colors.transparent;
+    if (_legendaFundoIndex == 1) return Colors.black.withOpacity(0.65);
+    return Colors.black;
+  }
+
+  void _abrirPainelLegendas() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF141820),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final faixasEmbutidas = _player.state.tracks.subtitle;
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.72,
+              maxChildSize: 0.92,
+              minChildSize: 0.45,
+              builder: (_, scrollCtrl) {
+                return ListView(
+                  controller: scrollCtrl,
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                      ),
+                    ),
+                    const Text('Configurações de Legenda',
+                        style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 14),
+
+                    // Sincronizacao de Tempo
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(10)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Sincronia (Delay)', style: TextStyle(color: Colors.white, fontSize: 13)),
+                          Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.remove_circle_outline, color: Color(0xFF64B5F6)),
+                                onPressed: () => _ajustarAtrasoLegenda(-0.5, setModalState),
+                              ),
+                              Text('${_legendaAtraso >= 0 ? '+' : ''}${_legendaAtraso}s',
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              IconButton(
+                                icon: const Icon(Icons.add_circle_outline, color: Color(0xFF64B5F6)),
+                                onPressed: () => _ajustarAtrasoLegenda(0.5, setModalState),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Tamanho da Fonte
+                    Row(
+                      children: [
+                        const Text('Tamanho:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                        Expanded(
+                          child: Slider(
+                            value: _legendaTamanho,
+                            min: 14,
+                            max: 40,
+                            divisions: 13,
+                            activeColor: const Color(0xFF2196F3),
+                            label: '${_legendaTamanho.round()}',
+                            onChanged: (v) {
+                              setState(() => _legendaTamanho = v);
+                              setModalState(() {});
+                            },
+                          ),
+                        ),
+                        Text('${_legendaTamanho.round()}px', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                      ],
+                    ),
+
+                    // Cor do Texto
+                    Row(
+                      children: [
+                        const Text('Cor:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                        const SizedBox(width: 12),
+                        for (final c in [Colors.white, const Color(0xFFFFEB3B), const Color(0xFF00E5FF), const Color(0xFF76FF03)])
+                          GestureDetector(
+                            onTap: () {
+                              setState(() => _legendaCor = c);
+                              setModalState(() {});
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.only(right: 10),
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                color: c,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: _legendaCor == c ? const Color(0xFF2196F3) : Colors.white24,
+                                  width: _legendaCor == c ? 3 : 1,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Estilo de Fundo
+                    Row(
+                      children: [
+                        const Text('Fundo:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                        const SizedBox(width: 10),
+                        for (final entry in [
+                          {'idx': 0, 'label': 'Sem Fundo'},
+                          {'idx': 1, 'label': 'Transparente'},
+                          {'idx': 2, 'label': 'Sólido'},
+                        ])
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text(entry['label'] as String, style: const TextStyle(fontSize: 12)),
+                              selected: _legendaFundoIndex == entry['idx'],
+                              selectedColor: const Color(0xFF2196F3),
+                              onSelected: (_) {
+                                setState(() => _legendaFundoIndex = entry['idx'] as int);
+                                setModalState(() {});
+                              },
+                            ),
+                          ),
+                      ],
+                    ),
+                    const Divider(color: Colors.white12, height: 24),
+
+                    // Buscar Online (OpenSubtitles)
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2196F3),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: _buscandoLegendas ? null : () => _buscarLegendasOnline(setModalState),
+                      icon: _buscandoLegendas
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.cloud_download, color: Colors.white),
+                      label: Text(
+                        _buscandoLegendas ? 'Buscando no OpenSubtitles...' : 'Buscar Legendas Online (OpenSubtitles)',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+
+                    if (_legendasOnline.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      const Text('Resultados Online (clique para baixar e ativar):',
+                          style: TextStyle(color: Color(0xFF64B5F6), fontSize: 12, fontWeight: FontWeight.w600)),
+                      for (final sub in _legendasOnline)
+                        ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.subtitles, color: Color(0xFF64B5F6), size: 20),
+                          title: Text(sub['nome'] ?? '', style: const TextStyle(color: Colors.white, fontSize: 13)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _aplicarLegendaOnline(sub);
+                          },
+                        ),
+                    ],
+
+                    const Divider(color: Colors.white12, height: 24),
+                    const Text('Faixas Embutidas no Vídeo:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.block, color: Colors.white54, size: 18),
+                      title: const Text('Desativar Legenda', style: TextStyle(color: Colors.white, fontSize: 13)),
+                      onTap: () {
+                        _player.setSubtitleTrack(SubtitleTrack.no());
+                        setState(() => _legendaAtivaNome = 'Desativada');
+                        Navigator.pop(ctx);
+                      },
+                    ),
+                    for (final track in faixasEmbutidas)
+                      if (track.id != 'no' && track.id != 'auto')
+                        ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.closed_caption, color: Colors.white70, size: 18),
+                          title: Text(
+                            track.title ?? track.language ?? 'Faixa ${track.id}',
+                            style: const TextStyle(color: Colors.white, fontSize: 13),
+                          ),
+                          onTap: () {
+                            _player.setSubtitleTrack(track);
+                            setState(() => _legendaAtivaNome = track.title ?? track.language ?? track.id);
+                            Navigator.pop(ctx);
+                          },
+                        ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
+    _timerFeedback?.cancel();
+    _timerDuploToque?.cancel();
     _cancelarTimers();
     _telaFechada = true;
     _erroSub?.cancel();
@@ -601,7 +923,73 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           ],
                         ),
                       )
-                    : Video(controller: _videoController),
+                    : Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Video(
+                            controller: _videoController,
+                            fit: _modosTela[_modoTelaIndex]['fit'] as BoxFit,
+                            subtitleViewConfiguration: SubtitleViewConfiguration(
+                              style: TextStyle(
+                                fontSize: _legendaTamanho,
+                                color: _legendaCor,
+                                backgroundColor: _corFundoLegendaAtual,
+                                fontWeight: FontWeight.w600,
+                                shadows: const [
+                                  Shadow(offset: Offset(1.2, 1.2), blurRadius: 3.0, color: Colors.black),
+                                ],
+                              ),
+                              padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.translucent,
+                                  onDoubleTap: () => _executarDuploToque(false),
+                                  child: const SizedBox.expand(),
+                                ),
+                              ),
+                              Expanded(
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.translucent,
+                                  onDoubleTap: () => _executarDuploToque(true),
+                                  child: const SizedBox.expand(),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_indicadorDuploToque != null)
+                            Align(
+                              alignment: _indicadorDuploToque == 'left' ? Alignment.centerLeft : Alignment.centerRight,
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 48),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(40)),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(_indicadorDuploToque == 'left' ? Icons.replay_10 : Icons.forward_10,
+                                        color: Colors.white, size: 36),
+                                    const SizedBox(height: 4),
+                                    Text(_indicadorDuploToque == 'left' ? '-10s' : '+10s',
+                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          if (_feedbackCentro != null)
+                            Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                                decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(10)),
+                                child: Text(_feedbackCentro!,
+                                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                        ],
+                      ),
           ),
           if (_carregando)
             Container(
@@ -673,9 +1061,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ],
                   ),
                 ),
+                IconButton(
+                  tooltip: 'Formato de Tela',
+                  icon: const Icon(Icons.aspect_ratio, color: Colors.white, size: 20),
+                  onPressed: _alternarFormatoTela,
+                ),
+                IconButton(
+                  tooltip: 'Legendas e Sincronia',
+                  icon: const Icon(Icons.closed_caption, color: Colors.white, size: 22),
+                  onPressed: _abrirPainelLegendas,
+                ),
                 TextButton.icon(
                   onPressed: _abrirSeletorFonteNoPlayer,
-                  icon: const Icon(Icons.subtitles, color: Colors.white, size: 18),
+                  icon: const Icon(Icons.tune, color: Colors.white, size: 18),
                   label: Text(_fonteAtual.badgeResumo, style: const TextStyle(color: Colors.white, fontSize: 12)),
                 ),
               ],

@@ -68,6 +68,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _buscandoLegendas = false;
   String _legendaAtivaNome = 'Padrão';
 
+  StreamSubscription<Duration>? _positionSub;
+  double _nivelBrilho = 1.0;
+  double _nivelVolume = 100.0;
+  String? _indicadorLateralTipo;
+  double _indicadorLateralValor = 1.0;
+  Timer? _timerLateral;
+  bool _mostrarProximoEpisodio = false;
+
   void _cancelarTimers() {
     _timerProgresso?.cancel();
     _timeoutStream?.cancel();
@@ -126,6 +134,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ),
     );
     _videoController = VideoController(_player);
+
+    _positionSub = _player.stream.position.listen((pos) {
+      final dur = _player.state.duration;
+      final prox = _obterProximoEpisodio();
+      final deveMostrar = prox != null &&
+          dur.inSeconds > 60 &&
+          (dur - pos).inSeconds <= 45 &&
+          (dur - pos).inSeconds >= 0;
+      if (deveMostrar != _mostrarProximoEpisodio && mounted) {
+        setState(() => _mostrarProximoEpisodio = deveMostrar);
+      }
+    });
 
     _erroSub = _player.stream.error.listen((err) {
       if (_responderErroPlayer(err)) {
@@ -877,8 +897,55 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  FonteMidia? _obterProximoEpisodio() {
+    if (_fonteAtual.temporada == null && _fonteAtual.episodio == null) return null;
+    final tempAtual = _fonteAtual.temporada ?? 1;
+    final epAtual = _fonteAtual.episodio ?? 0;
+    final epsTemp = widget.obra.episodiosDaTemporada(tempAtual);
+    for (final f in epsTemp) {
+      if ((f.episodio ?? 0) > epAtual) return f;
+    }
+    final temps = widget.obra.temporadasDisponiveis;
+    for (final t in temps) {
+      if (t > tempAtual) {
+        final proxTempEps = widget.obra.episodiosDaTemporada(t);
+        if (proxTempEps.isNotEmpty) return proxTempEps.first;
+      }
+    }
+    return null;
+  }
+
+  void _ajustarBrilhoVertical(double dy, double alturaTela) {
+    final delta = -dy / (alturaTela * 0.75);
+    _nivelBrilho = (_nivelBrilho + delta).clamp(0.15, 1.0);
+    _timerLateral?.cancel();
+    setState(() {
+      _indicadorLateralTipo = 'brilho';
+      _indicadorLateralValor = _nivelBrilho;
+    });
+    _timerLateral = Timer(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _indicadorLateralTipo = null);
+    });
+  }
+
+  void _ajustarVolumeVertical(double dy, double alturaTela) {
+    final delta = (-dy / (alturaTela * 0.75)) * 100.0;
+    _nivelVolume = (_nivelVolume + delta).clamp(0.0, 100.0);
+    _player.setVolume(_nivelVolume);
+    _timerLateral?.cancel();
+    setState(() {
+      _indicadorLateralTipo = 'volume';
+      _indicadorLateralValor = _nivelVolume / 100.0;
+    });
+    _timerLateral = Timer(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _indicadorLateralTipo = null);
+    });
+  }
+
   @override
   void dispose() {
+    _timerLateral?.cancel();
+    _positionSub?.cancel();
     _timerFeedback?.cancel();
     _timerDuploToque?.cancel();
     _cancelarTimers();
@@ -942,24 +1009,98 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
                             ),
                           ),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.translucent,
-                                  onDoubleTap: () => _executarDuploToque(false),
-                                  child: const SizedBox.expand(),
-                                ),
+                          if (_nivelBrilho < 0.99)
+                            IgnorePointer(
+                              child: Container(
+                                color: Colors.black.withOpacity((1.0 - _nivelBrilho) * 0.85),
                               ),
-                              Expanded(
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.translucent,
-                                  onDoubleTap: () => _executarDuploToque(true),
-                                  child: const SizedBox.expand(),
-                                ),
-                              ),
-                            ],
+                            ),
+                          LayoutBuilder(
+                            builder: (ctx, constraints) {
+                              final h = constraints.maxHeight > 0 ? constraints.maxHeight : 400.0;
+                              return Row(
+                                children: [
+                                  Expanded(
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.translucent,
+                                      onDoubleTap: () => _executarDuploToque(false),
+                                      onVerticalDragUpdate: (d) => _ajustarBrilhoVertical(d.delta.dy, h),
+                                      child: const SizedBox.expand(),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.translucent,
+                                      onDoubleTap: () => _executarDuploToque(true),
+                                      onVerticalDragUpdate: (d) => _ajustarVolumeVertical(d.delta.dy, h),
+                                      child: const SizedBox.expand(),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
                           ),
+                          if (_indicadorLateralTipo != null)
+                            Align(
+                              alignment: _indicadorLateralTipo == 'brilho' ? Alignment.centerRight : Alignment.centerLeft,
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 42),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                                decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(14)),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _indicadorLateralTipo == 'brilho' ? Icons.brightness_6 : Icons.volume_up,
+                                      color: const Color(0xFF64B5F6),
+                                      size: 26,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    SizedBox(
+                                      height: 90,
+                                      width: 6,
+                                      child: RotatedBox(
+                                        quarterTurns: -1,
+                                        child: LinearProgressIndicator(
+                                          value: _indicadorLateralValor,
+                                          backgroundColor: Colors.white24,
+                                          valueColor: const AlwaysStoppedAnimation(Color(0xFF2196F3)),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      '${(_indicadorLateralValor * 100).round()}%',
+                                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          if (_mostrarProximoEpisodio)
+                            Positioned(
+                              right: 24,
+                              bottom: 76,
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF2196F3),
+                                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                onPressed: () {
+                                  final prox = _obterProximoEpisodio();
+                                  if (prox != null) {
+                                    setState(() => _mostrarProximoEpisodio = false);
+                                    _trocarFonte(prox);
+                                  }
+                                },
+                                icon: const Icon(Icons.skip_next, color: Colors.white),
+                                label: Text(
+                                  'Próximo Episódio (${_obterProximoEpisodio()?.etiquetaEpisodio ?? ''})',
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ),
                           if (_indicadorDuploToque != null)
                             Align(
                               alignment: _indicadorDuploToque == 'left' ? Alignment.centerLeft : Alignment.centerRight,
@@ -992,45 +1133,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ),
           ),
           if (_carregando)
-            Container(
-              color: Colors.black54,
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 76,
-                        height: 76,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            SizedBox(
-                              width: 76,
-                              height: 76,
-                              child: CircularProgressIndicator(
-                                value: _progressoCarregamento > 0.01 ? _progressoCarregamento : null,
-                                strokeWidth: 5.5,
-                                backgroundColor: Colors.white12,
-                                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF2196F3)),
-                              ),
-                            ),
-                            Text(
-                              '${(_progressoCarregamento * 100).round().clamp(0, 100)}%',
-                              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        _mensagemCarregamento,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
-                      ),
-                    ],
-                  ),
+            const Center(
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3.5,
+                  valueColor: AlwaysStoppedAnimation(Color(0xFF2196F3)),
                 ),
               ),
             ),
@@ -1053,11 +1162,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (_badgeTorrent.isNotEmpty)
-                        Text(
-                          _badgeTorrent,
-                          style: const TextStyle(color: Color(0xFF64B5F6), fontSize: 11, fontWeight: FontWeight.w600),
-                        ),
                     ],
                   ),
                 ),

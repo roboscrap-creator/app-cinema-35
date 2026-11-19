@@ -79,15 +79,11 @@ class TorrServerService {
       final filesDir = (paths?['filesDir'] ?? '').toString();
       final binPath = '$nativeLibDir/libtorrserver.so';
       if (nativeLibDir.isEmpty || !await File(binPath).exists()) {
-        ultimoErro = 'Binario TorrServer nao encontrado em $binPath.';
+        ultimoErro = 'Binario TorrServer nao encontrado.';
         return false;
       }
       final dataDir = Directory('$filesDir/torrserver');
       if (!await dataDir.exists()) await dataDir.create(recursive: true);
-
-      try {
-        await File('${dataDir.path}/resolv.conf').writeAsString('nameserver 8.8.8.8\nnameserver 1.1.1.1\n');
-      } catch (_) {}
 
       final tentativas = [
         ['-p', '8090', '-d', dataDir.path],
@@ -101,12 +97,7 @@ class TorrServerService {
           binPath,
           args,
           workingDirectory: dataDir.path,
-          environment: {
-            'HOME': filesDir,
-            'TMPDIR': dataDir.path,
-            'RES_OPTIONS': 'ndots:0',
-            'GODEBUG': 'netdns=go',
-          },
+          environment: {'HOME': filesDir, 'TMPDIR': dataDir.path},
         );
         for (int i = 0; i < 16; i++) {
           await Future.delayed(const Duration(milliseconds: 200));
@@ -117,7 +108,7 @@ class TorrServerService {
           }
         }
       }
-      ultimoErro = 'Timeout ao subir TorrServer na porta 8090.';
+      ultimoErro = 'Timeout na porta 8090.';
       return false;
     } catch (e) {
       ultimoErro = 'Erro ao iniciar TorrServer: $e';
@@ -140,16 +131,14 @@ class TorrServerService {
     return null;
   }
 
-  static Future> _baixarTorrentCacheComDiag(String hashHex) async {
+  static Future<List<int>?> _baixarTorrentCache(String hashHex) async {
     final hUpper = hashHex.toUpperCase();
     final urls = [
       'https://itorrents.org/torrent/$hUpper.torrent',
       'https://torrage.info/torrent.php?h=$hUpper',
       'https://btcache.me/torrent/$hUpper',
     ];
-    final logs = <String>[];
     for (final u in urls) {
-      final host = Uri.parse(u).host;
       final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
       try {
         final req = await c.getUrl(Uri.parse(u));
@@ -158,20 +147,16 @@ class TorrServerService {
         if (res.statusCode == 200) {
           final bytes = await res.fold<List<int>>([], (prev, el) => prev..addAll(el));
           if (bytes.length > 100 && bytes.first == 100) {
-            return {'bytes': bytes, 'diag': '$host:200(${bytes.length}B)'};
+            return bytes;
           }
-          logs.add('$host:200(invalido)');
         } else {
           await res.drain();
-          logs.add('$host:${res.statusCode}');
         }
-      } catch (e) {
-        logs.add('$host:erro');
-      } finally {
+      } catch (_) {} finally {
         c.close(force: true);
       }
     }
-    return {'bytes': null, 'diag': logs.join(', ')};
+    return null;
   }
 
   static Future<bool> _uploadTorrentParaServidor(List<int> bytes, String hashHex) async {
@@ -222,7 +207,7 @@ class TorrServerService {
     return raw.length == 32 ? _base32ParaHex(raw) : raw.toLowerCase();
   }
 
-  static Future<String> _enriquecerMagnetComIps(String magnet) async {
+  static String _enriquecerMagnet(String magnet) {
     var clean = magnet.trim().replaceFirstMapped(
       RegExp(r'(btih:)([a-zA-Z2-7]{32})(?=&|$)', caseSensitive: false),
       (m) => '${m.group(1)}${_base32ParaHex(m.group(2)!)}',
@@ -237,24 +222,12 @@ class TorrServerService {
       'udp://93.158.213.92:1337/announce',
       'udp://open.stealth.si:80/announce',
       'udp://tracker.torrent.eu.org:451/announce',
-      'udp://tracker.bittor.pw:1337/announce',
-      'udp://exodus.desync.com:6969/announce',
     ];
     final sb = StringBuffer(clean);
     for (final tr in trackers) {
       if (!clean.toLowerCase().contains(Uri.encodeComponent(tr).toLowerCase())) {
         sb.write('&tr=${Uri.encodeComponent(tr)}');
       }
-      try {
-        final uri = Uri.parse(tr);
-        if (InternetAddress.tryParse(uri.host) == null) {
-          final ips = await InternetAddress.lookup(uri.host).timeout(const Duration(seconds: 2));
-          if (ips.isNotEmpty) {
-            final ipUrl = '${uri.scheme}://${ips.first.address}:${uri.port}${uri.path}';
-            sb.write('&tr=${Uri.encodeComponent(ipUrl)}');
-          }
-        }
-      } catch (_) {}
     }
     return sb.toString();
   }
@@ -265,24 +238,18 @@ class TorrServerService {
     void Function(double)? onProgress,
     bool Function()? cancelado,
   }) async {
-    onProgress?.call(0.12);
-    onStatus?.call('Resolvendo DNS dos trackers...');
-    final cleanMagnet = await _enriquecerMagnetComIps(magnetUrl);
+    final cleanMagnet = _enriquecerMagnet(magnetUrl);
     final hash = _extrairHash(cleanMagnet);
-
-    onProgress?.call(0.20);
+    onProgress?.call(0.15);
     onStatus?.call('Iniciando motor TorrServer...');
     if (!await garantirAtivo()) return null;
     if (cancelado != null && cancelado()) return null;
 
     onProgress?.call(0.28);
-    onStatus?.call('Consultando cache .torrent...');
+    onStatus?.call('Buscando arquivo .torrent em cache web...');
     bool subiuTorrent = false;
-    String diagCache = 'hash_invalido';
     if (hash.length == 40) {
-      final cacheRes = await _baixarTorrentCacheComDiag(hash);
-      diagCache = (cacheRes['diag'] ?? '').toString();
-      final torrentBytes = cacheRes['bytes'] as List<int>?;
+      final torrentBytes = await _baixarTorrentCache(hash);
       if (torrentBytes != null) {
         subiuTorrent = await _uploadTorrentParaServidor(torrentBytes, hash);
       }
@@ -301,22 +268,12 @@ class TorrServerService {
     String fileName = 'video.mkv';
     int fileSize = 0;
     bool encontrouArquivo = false;
-    String ultimoStat = 'sem_resposta';
-    int ultPeers = 0;
-    int ultSeeds = 0;
-    int ultTotal = 0;
 
     for (int i = 0; i < 40; i++) {
       if (cancelado != null && cancelado()) return null;
       await Future.delayed(const Duration(milliseconds: 500));
       onProgress?.call((0.35 + (i * 0.014)).clamp(0.35, 0.88));
       final info = await _postJson('/torrents', {'action': 'get', 'hash': hash});
-      if (info is Map) {
-        ultimoStat = (info['stat_string'] ?? info['stat'] ?? 'desconhecido').toString();
-        ultPeers = (info['active_peers'] is int) ? info['active_peers'] as int : 0;
-        ultSeeds = (info['connected_seeders'] is int) ? info['connected_seeders'] as int : 0;
-        ultTotal = (info['total_peers'] is int) ? info['total_peers'] as int : 0;
-      }
       final files = info is Map ? info['file_stats'] : null;
       if (files is List && files.isNotEmpty) {
         Map? maior;
@@ -336,11 +293,14 @@ class TorrServerService {
         encontrouArquivo = true;
         break;
       }
-      onStatus?.call('Buscando metadados ($ultimoStat • peers: $ultPeers/$ultTotal)...');
+      final peers = info is Map ? (info['active_peers'] ?? 0) : 0;
+      onStatus?.call(subiuTorrent
+          ? 'Carregando metadados do .torrent...'
+          : 'Buscando metadados via P2P (peers: $peers)...');
     }
 
     if (!encontrouArquivo) {
-      ultimoErro = 'Sem metadados/peers.\nCache: $diagCache\nMotor: $ultimoStat (peers: $ultPeers/$ultTotal, seeds: $ultSeeds)\nHash: $hash';
+      ultimoErro = 'Torrent sem seeds ou metadados indisponiveis no momento.';
       return null;
     }
 
@@ -350,10 +310,9 @@ class TorrServerService {
       playUrl: '$baseUrl/play/$hash/$fileId',
       fileName: fileName,
       fileSizeBytes: fileSize,
-      activePeers: ultPeers > 0 ? ultPeers : 1,
-      totalSeeds: ultSeeds > 0 ? ultSeeds : 1,
+      activePeers: 1,
+      totalSeeds: 1,
       downloadSpeedBytes: 0,
     );
   }
-}
 }

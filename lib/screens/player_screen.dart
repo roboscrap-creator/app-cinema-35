@@ -307,7 +307,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'magnet': magnet}),
           )
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 25));
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
         final url = (data['url'] ?? '').toString().trim();
@@ -396,11 +396,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
         streamUrlFinal = torrentInfo.playUrl;
-      }
-      if (mounted) {
-        setState(() {
-          _badgeTorrent = torrentInfo.viaCloudCache ? 'CLOUD CDN • INSTANTANEO' : 'P2P • TORRSERVER';
-        });
+        if (mounted) {
+          setState(() {
+            _badgeTorrent = torrentInfo.viaCloudCache ? 'CLOUD CDN • INSTANTANEO' : 'P2P • TORRSERVER';
+          });
+        }
       }
     } else {
       final ytId = _extrairYoutubeId(cleanUrl);

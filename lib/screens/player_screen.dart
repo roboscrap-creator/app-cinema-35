@@ -1,3 +1,5 @@
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -296,6 +298,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
+  
+  Future<String?> _resolverViaTorBoxCloud(String magnet) async {
+    try {
+      final resp = await http
+          .post(
+            Uri.parse('https://roboscrap-backend-l9t8.onrender.com/stream-torbox'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'magnet': magnet}),
+          )
+          .timeout(const Duration(seconds: 12));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+        final url = (data['url'] ?? '').toString().trim();
+        if (url.startsWith('http')) return url;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<void> _iniciarStream(String url, {Duration? posicaoRetomar}) async {
     final cleanUrl = url.trim();
     _urlsJaTestadas.add(cleanUrl);
@@ -327,7 +348,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
     };
 
     if (isMagnet) {
-      final torrentInfo = await TorrServerService.prepararMagnet(
+      if (mounted) {
+        setState(() {
+          _mensagemCarregamento = 'Conectando nuvem TorBox CDN...';
+          _progressoCarregamento = 0.25;
+        });
+      }
+      final torboxUrl = await _resolverViaTorBoxCloud(cleanUrl);
+      if (_telaFechada || !mounted) return;
+
+      if (torboxUrl != null) {
+        streamUrlFinal = torboxUrl;
+        if (mounted) {
+          setState(() {
+            _badgeTorrent = 'CLOUD CDN';
+            _progressoCarregamento = 0.85;
+            _mensagemCarregamento = 'Iniciando stream direto da nuvem...';
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _mensagemCarregamento = 'Buscando peers no motor P2P local...';
+          });
+        }
+        final torrentInfo = await TorrServerService.prepararMagnet(
         cleanUrl,
         cancelado: () => _telaFechada || !mounted,
         onProgress: (p) {
@@ -350,7 +395,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return;
       }
 
-      streamUrlFinal = torrentInfo.playUrl;
+        streamUrlFinal = torrentInfo.playUrl;
+      }
       if (mounted) {
         setState(() {
           _badgeTorrent = torrentInfo.viaCloudCache ? 'CLOUD CDN • INSTANTANEO' : 'P2P • TORRSERVER';

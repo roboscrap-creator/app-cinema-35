@@ -634,7 +634,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final resp = await http.get(uri).timeout(const Duration(seconds: 15));
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body);
-        final lista = (data['legendas'] as List? ?? []).cast>();
+        final lista = (data['legendas'] as List? ?? []).cast<Map<String, dynamic>>();
         setModalState(() {
           _legendasOnline = lista;
           _buscandoLegendas = false;

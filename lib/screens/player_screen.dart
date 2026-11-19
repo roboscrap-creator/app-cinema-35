@@ -50,7 +50,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Controles Profissionais: Formato de Tela, Duplo Clique e Legendas
   int _modoTelaIndex = 0;
-  final List> _modosTela = [
+  final List<Map<String, dynamic>> _modosTela = [
     {'nome': 'Ajustar (Original)', 'fit': BoxFit.contain},
     {'nome': 'Preencher (Zoom)', 'fit': BoxFit.cover},
     {'nome': 'Esticar Tela', 'fit': BoxFit.fill},
@@ -64,7 +64,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Color _legendaCor = Colors.white;
   int _legendaFundoIndex = 1; // 0: Transparente+Sombra, 1: Semitransparente, 2: Solido
   double _legendaAtraso = 0.0;
-  List> _legendasOnline = [];
+  List<Map<String, dynamic>> _legendasOnline = [];
   bool _buscandoLegendas = false;
   String _legendaAtivaNome = 'Padrão';
 

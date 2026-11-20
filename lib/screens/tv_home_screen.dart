@@ -191,8 +191,29 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       ),
       child: Row(
         children: [
-          const CinemaLogoWidget(height: 38, width: 134),
-          const SizedBox(width: 28),
+          const CinemaLogoWidget(height: 36, width: 124),
+          const SizedBox(width: 10),
+          InkWell(
+            onTap: widget.onAlternarModoMobile,
+            borderRadius: BorderRadius.circular(18),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A202C),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFF5B82E).withOpacity(0.6)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.phone_android, size: 15, color: Color(0xFFF5B82E)),
+                  SizedBox(width: 4),
+                  Text('Celular', style: TextStyle(color: Color(0xFFF5B82E), fontSize: 12, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
           ...List.generate(_abas.length, (i) {
             final ativo = _abaIndex == i;
             return Padding(

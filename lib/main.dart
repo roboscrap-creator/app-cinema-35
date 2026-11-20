@@ -127,10 +127,14 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
     }
 
     final size = MediaQuery.of(context).size;
-    final isTvAuto = size.width >= 760 && size.width > size.height;
+    final isTvAuto = size.shortestSide >= 650;
     final usarLayoutTv = _modoTvForcado ?? isTvAuto;
 
     if (usarLayoutTv) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
       return TvHomeScreen(
         catalogo: _catalogo,
         onRefresh: _recarregarCatalogo,
@@ -139,6 +143,9 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
       );
     }
 
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
     return MobileHomeScreen(
       catalogo: _catalogo,
       onRefresh: _recarregarCatalogo,

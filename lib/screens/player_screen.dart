@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
+import '../services/torrserver_service.dart';
 
 class CinemaPlayerScreen extends StatefulWidget {
   final ObraAgrupada obra;
@@ -105,11 +106,31 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   Future<void> _abrirMidia(String url) async {
     try {
+      String urlFinal = url.trim();
+      final lower = urlFinal.toLowerCase();
+      if (lower.startsWith('magnet:?') || lower.endsWith('.torrent')) {
+        final info = await TorrServerService.prepararMagnet(
+          urlFinal,
+          cancelado: () => !mounted,
+        );
+        if (!mounted) return;
+        if (info == null) {
+          setState(() {
+            _carregandoStream = false;
+            _erroPlayer = TorrServerService.ultimoErro.isNotEmpty
+                ? TorrServerService.ultimoErro
+                : 'Não foi possível carregar o stream P2P no momento.';
+          });
+          return;
+        }
+        urlFinal = info.playUrl;
+      }
+
       final headers = Map<String, String>.from(_fonteAtual.headers);
       if (!headers.containsKey('User-Agent')) {
         headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
       }
-      await _player.open(Media(url, httpHeaders: headers));
+      await _player.open(Media(urlFinal, httpHeaders: headers));
     } catch (e) {
       if (mounted) {
         setState(() {

@@ -97,7 +97,12 @@ class TorrServerService {
           binPath,
           args,
           workingDirectory: dataDir.path,
-          environment: {'HOME': filesDir, 'TMPDIR': dataDir.path},
+          environment: {
+            'HOME': filesDir,
+            'TMPDIR': dataDir.path,
+            'RES_OPTIONS': 'ndots:0',
+            'GODEBUG': 'netdns=go',
+          },
         );
         for (int i = 0; i < 16; i++) {
           await Future.delayed(const Duration(milliseconds: 200));
@@ -307,7 +312,7 @@ class TorrServerService {
     onProgress?.call(0.92);
     onStatus?.call('Iniciando reproducao de $fileName...');
     return TorrentStreamInfo(
-      playUrl: '$baseUrl/play/$hash/$fileId',
+      playUrl: '$baseUrl/play/$hash/$fileId?play',
       fileName: fileName,
       fileSizeBytes: fileSize,
       activePeers: 1,

@@ -57,7 +57,16 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       DeviceOrientation.landscapeRight,
     ]);
 
-    _player = Player();
+    _player = Player(
+      configuration: const PlayerConfiguration(
+        bufferSize: 32 * 1024 * 1024,
+      ),
+    );
+    if (_player.platform is NativePlayer) {
+      final np = _player.platform as NativePlayer;
+      np.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
+      np.setProperty('network-timeout', '30');
+    }
     _videoCtrl = VideoController(_player);
 
     _player.stream.position.listen((p) {

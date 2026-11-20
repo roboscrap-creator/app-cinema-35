@@ -86,6 +86,99 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
   Widget build(BuildContext context) {
     final emBusca = _ctrl.text.trim().isNotEmpty;
     final listaExibida = emBusca ? _resultados : _populares;
+    final isMobile = MediaQuery.of(context).size.width < 650;
+
+    if (isMobile) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0E141B),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          title: const Text('Pesquisar', style: TextStyle(fontWeight: FontWeight.w700)),
+        ),
+        body: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 6, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _ctrl,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                onChanged: (_) {
+                  setState(() {});
+                  _executarBusca();
+                },
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+                decoration: InputDecoration(
+                  hintText: 'Pesquise filmes, séries ou diretores...',
+                  hintStyle: const TextStyle(color: Colors.white54, fontSize: 14),
+                  prefixIcon: const Icon(Icons.search, color: Color(0xFFF5B82E)),
+                  suffixIcon: emBusca
+                      ? IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white70),
+                          onPressed: _limpar,
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Text(
+                    emBusca ? 'Resultados da busca' : 'Buscas populares',
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(width: 8),
+                  if (!emBusca)
+                    InkWell(
+                      onTap: _atualizarPopulares,
+                      child: const Icon(Icons.refresh, color: Color(0xFFF5B82E), size: 18),
+                    ),
+                  const Spacer(),
+                  Text(
+                    'Total: ${listaExibida.length}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (_buscando)
+                const Expanded(child: Center(child: CircularProgressIndicator(color: Color(0xFFF5B82E))))
+              else if (listaExibida.isEmpty)
+                const Expanded(
+                  child: Center(
+                    child: Text('Nenhum filme, série ou diretor encontrado.', style: TextStyle(color: Colors.white54, fontSize: 15)),
+                  ),
+                )
+              else
+                Expanded(
+                  child: GridView.builder(
+                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      childAspectRatio: 0.60,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                    ),
+                    itemCount: listaExibida.length,
+                    itemBuilder: (_, idx) => TvPosterCard(
+                      obra: listaExibida[idx],
+                      onTap: () => widget.onAbrirObra(listaExibida[idx]),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFF0E141B),

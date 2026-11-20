@@ -665,4 +665,9 @@ class SupabaseService {
 
     return ranking;
   }
+
+  static Future<Map<String, Map<String, dynamic>>> carregarProgressoAssistido() async { final prefs = await SharedPreferences.getInstance(); final raw = prefs.getString('cinema_progresso_v1'); if (raw == null || raw.isEmpty) return {}; try { final d = Map<String, dynamic>.from(jsonDecode(raw)); return d.map((k, v) => MapEntry(k, Map<String, dynamic>.from(v))); } catch (_) { return {}; } }
+  static Future<void> salvarProgressoAssistido({required String chaveGrupo, required String titulo, required String capaUrl, required int posicaoSegundos, required int duracaoSegundos, int? temporada, int? episodio}) async { final prefs = await SharedPreferences.getInstance(); final a = await carregarProgressoAssistido(); a[chaveGrupo] = {'chave': chaveGrupo, 'titulo': titulo, 'capa_url': capaUrl, 'posicao': posicaoSegundos, 'duracao': duracaoSegundos, 'temporada': temporada, 'episodio': episodio, 'atualizado_em': DateTime.now().millisecondsSinceEpoch}; await prefs.setString('cinema_progresso_v1', jsonEncode(a)); }
+  static Future<Set<String>> carregarFavoritos() async { final prefs = await SharedPreferences.getInstance(); return (prefs.getStringList('cinema_favoritos_v1') ?? []).toSet(); }
+  static Future<Set<String>> alternarFavorito(String chaveGrupo) async { final prefs = await SharedPreferences.getInstance(); final f = (prefs.getStringList('cinema_favoritos_v1') ?? []).toSet(); f.contains(chaveGrupo) ? f.remove(chaveGrupo) : f.add(chaveGrupo); await prefs.setStringList('cinema_favoritos_v1', f.toList()); return f; }
 }

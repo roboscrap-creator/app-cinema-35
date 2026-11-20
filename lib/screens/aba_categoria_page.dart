@@ -116,6 +116,8 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
     final cat = widget.nomeAba.toLowerCase();
     final isFilmes = cat.contains('filme');
     final isSeries = cat.contains('série') || cat.contains('serie');
+    final isInfantil = cat.contains('infantil');
+    final isAnime = cat.contains('anime');
     final isRecomenda = cat.contains('recomenda');
 
     final banners = lista.where((o) => o.emDestaque || _temTag(o, ['banner', 'destaque'])).toList();
@@ -233,6 +235,54 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
     ];
   }
 
+
+  bool _combina(ObraAgrupada o, List<String> termos) {
+    final tit = o.titulo.toLowerCase();
+    return _temTag(o, termos) || termos.any((k) => tit.contains(k.toLowerCase()));
+  }
+
+  List<Widget> _buildSecoesInfantil(List<ObraAgrupada> inf) {
+    final guiaPais = inf.where((o) => _temGenero(o, 'família') || _temTag(o, ['guia dos pais'])).toList();
+    final cantar = inf.where((o) => _temGenero(o, 'musical') || _temTag(o, ['cantar', 'dançar', 'musical'])).toList();
+    final seriesDesenho = inf.where((o) => o.categoria.toLowerCase().contains('série') || o.categoria.toLowerCase().contains('serie') || o.fontes.length > 1).toList();
+    final liveAction = inf.where((o) => _temTag(o, ['live-action', 'live action', 'remake'])).toList();
+    final animal = inf.where((o) => _temTag(o, ['animal', 'animais'])).toList();
+    final filmesAnim = inf.where((o) => o.categoria.toLowerCase().contains('filme') && o.fontes.length == 1).toList();
+
+    final franquias = [
+      ['Pixar', ['pixar']],
+      ['Kung Fu Panda', ['kung fu panda']],
+      ['Monstros', ['monstros', 'monsters']],
+      ['SpongeBob', ['spongebob', 'bob esponja', 'kamp coral']],
+      ['Disney 100', ['disney 100', 'disney']],
+      ['Garfield', ['garfield']],
+      ['Patrulha Canina', ['patrulha canina', 'paw patrol']],
+      ['Minions', ['minions', 'meu malvado favorito']],
+      ['Snoopy', ['snoopy', 'peanuts']],
+      ['Mickey', ['mickey']],
+      ['Madagascar', ['madagascar', 'pinguins']],
+      ['DreamWorks', ['dreamworks']],
+      ['Elsa', ['frozen', 'elsa']],
+      ['Bebê', ['bebê', 'bebe', 'baby']],
+      ['Barbie', ['barbie']],
+      ['Pony', ['pony', 'my little pony']],
+      ['Peppa Pig', ['peppa']],
+    ];
+
+    return [
+      _buildFileira('Todos', inf),
+      if (guiaPais.isNotEmpty) _buildFileira('Com a Família (Guia dos Pais)', guiaPais),
+      if (cantar.isNotEmpty) _buildFileira('Vamos Cantar e Dançar \ud83c\udfb6', cantar),
+      if (seriesDesenho.isNotEmpty) _buildFileira('Séries de Desenhos', seriesDesenho),
+      if (liveAction.isNotEmpty) _buildFileira('Live-action e Remakes', liveAction),
+      if (animal.isNotEmpty) _buildFileira('Animal Engraçado', animal),
+      if (guiaPais.isNotEmpty) _buildFileira('Diversão em Família', guiaPais),
+      if (filmesAnim.isNotEmpty) _buildFileira('Filmes de Animação', filmesAnim),
+      for (final f in franquias)
+        if (inf.any((o) => _combina(o, f[1] as List<String>)))
+          _buildFileira(f[0] as String, inf.where((o) => _combina(o, f[1] as List<String>)).toList()),
+    ];
+  }
 
   List<Widget> _buildSecoesAnime(List<ObraAgrupada> animes) {
     final filmesAnime = animes.where((o) => o.categoria.toLowerCase().contains('filme') || (o.fontes.length == 1 && (o.fontes.first.temporada ?? 0) == 0)).toList();

@@ -129,21 +129,45 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       String urlFinal = url.trim();
       final lower = urlFinal.toLowerCase();
       if (lower.startsWith('magnet:?') || lower.endsWith('.torrent')) {
-        final info = await TorrServerService.prepararMagnet(
-          urlFinal,
-          cancelado: () => !mounted,
-        );
-        if (!mounted) return;
-        if (info == null) {
-          setState(() {
-            _carregandoStream = false;
-            _erroPlayer = TorrServerService.ultimoErro.isNotEmpty
-                ? TorrServerService.ultimoErro
-                : 'Não foi possível carregar o stream P2P no momento.';
-          });
-          return;
+        String? urlCdn;
+        if (lower.startsWith('magnet:?')) {
+          try {
+            final resCdn = await http.post(
+              Uri.parse('https://roboscrap-backend-l9t8.onrender.com/stream-torbox'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'magnet': urlFinal}),
+            ).timeout(const Duration(seconds: 22));
+            if (resCdn.statusCode == 200) {
+              final dataCdn = jsonDecode(utf8.decode(resCdn.bodyBytes));
+              final u = (dataCdn is Map ? dataCdn['url'] : null)?.toString().trim() ?? '';
+              if (u.startsWith('http://') || u.startsWith('https://')) {
+                urlCdn = u;
+              }
+            }
+          } catch (_) {}
         }
-        urlFinal = info.playUrl;
+
+        if (!mounted) return;
+
+        if (urlCdn != null && urlCdn.isNotEmpty) {
+          urlFinal = urlCdn;
+        } else {
+          final info = await TorrServerService.prepararMagnet(
+            urlFinal,
+            cancelado: () => !mounted,
+          );
+          if (!mounted) return;
+          if (info == null) {
+            setState(() {
+              _carregandoStream = false;
+              _erroPlayer = TorrServerService.ultimoErro.isNotEmpty
+                  ? TorrServerService.ultimoErro
+                  : 'Não foi possível carregar o stream no momento.';
+            });
+            return;
+          }
+          urlFinal = info.playUrl;
+        }
       }
 
       final headers = Map<String, String>.from(_fonteAtual.headers);

@@ -233,6 +233,32 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
     ];
   }
 
+
+  List<Widget> _buildSecoesAnime(List<ObraAgrupada> animes) {
+    final filmesAnime = animes.where((o) => o.categoria.toLowerCase().contains('filme') || (o.fontes.length == 1 && (o.fontes.first.temporada ?? 0) == 0)).toList();
+
+    final franquias = [
+      ['One piece', ['one piece']],
+      ['Naruto', ['naruto', 'boruto']],
+      ['Dragon Ball', ['dragon ball']],
+      ['Ataque dos Titãs', ['ataque dos titãs', 'attack on titan']],
+      ['My Hero Academia', ['my hero academia', 'boku no hero']],
+      ['Pokémon', ['pokémon', 'pokemon', 'digimon']],
+      ['JoJo’s Bizarre Adventure', ['jojo']],
+      ['Bleach', ['bleach']],
+      ['Fairy Tail', ['fairy tail']],
+      ['Ghibli', ['ghibli', 'mononoke', 'arrietty', 'kokuriko']],
+    ];
+
+    return [
+      _buildFileira('Todos', animes),
+      if (filmesAnime.isNotEmpty) _buildFileira('Filmes de Anime', filmesAnime),
+      for (final f in franquias)
+        if (animes.any((o) => _combina(o, f[1] as List<String>)))
+          _buildFileira(f[0] as String, animes.where((o) => _combina(o, f[1] as List<String>)).toList()),
+    ];
+  }
+
   Widget _buildBanner(List<ObraAgrupada> items) {
     return SizedBox(
       height: 230,

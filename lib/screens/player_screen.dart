@@ -150,6 +150,15 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       if (!headers.containsKey('User-Agent')) {
         headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
       }
+      try {
+        final platform = _player.platform;
+        if (platform is NativePlayer) {
+          await platform.setProperty('network-timeout', '30');
+          await platform.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
+          await platform.setProperty('cache', 'yes');
+          await platform.setProperty('demuxer-max-bytes', '33554432');
+        }
+      } catch (_) {}
       await _player.open(Media(urlFinal, httpHeaders: headers), play: true);
       await _player.play();
     } catch (e) {
@@ -603,7 +612,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       backgroundColor: Colors.black,
       body: GestureDetector(
         onTap: () {
-          if (_controlesVisiveis) {
+          if (_controlesVisiveis && !_carregandoStream) {
             setState(() => _controlesVisiveis = false);
           } else {
             _reiniciarTimerControles();
@@ -662,7 +671,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                   label: Text('Pular Abertura (+${widget.obra.aberturaSegundos}s)', style: const TextStyle(fontWeight: FontWeight.w900)),
                 ),
               ),
-            if (_controlesVisiveis)
+            if (_controlesVisiveis && !_carregandoStream)
               Container(
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(

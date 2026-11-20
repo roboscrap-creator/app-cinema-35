@@ -13,44 +13,23 @@ class FonteMidia {
   final int? episodio;
 
   FonteMidia({
-    required this.id,
-    required this.titulo,
-    required this.categoria,
-    required this.urlStream,
-    required this.urlStreamBackup,
-    required this.formato,
-    required this.resolucao,
-    required this.tipoAudio,
-    required this.idiomasAudio,
-    required this.headers,
-    this.temporada,
-    this.episodio,
+    required this.id, required this.titulo, required this.categoria,
+    required this.urlStream, required this.urlStreamBackup, required this.formato,
+    required this.resolucao, required this.tipoAudio, required this.idiomasAudio,
+    required this.headers, this.temporada, this.episodio,
   });
 
-  String get badgeResumo {
-    final res = resolucao.isNotEmpty ? resolucao : 'HD';
-    final aud = tipoAudio.isNotEmpty ? tipoAudio : 'Dublado';
-    return '$res • $aud';
-  }
+  String get badgeResumo => '${resolucao.isNotEmpty ? resolucao : 'HD'} • ${tipoAudio.isNotEmpty ? tipoAudio : 'Dublado'}';
 
-  String get etiquetaEpisodio {
-    if (temporada != null && episodio != null) {
-      return 'T${temporada.toString().padLeft(2, '0')}:E${episodio.toString().padLeft(2, '0')}';
-    }
-    return '';
-  }
+  String get etiquetaEpisodio => (temporada != null && episodio != null) ? 'S$temporada - E$episodio' : '';
 
   factory FonteMidia.fromJson(Map<String, dynamic> json) {
     final rawHeaders = json['headers_customizados'];
     final Map<String, String> parsedHeaders = {};
     if (rawHeaders is Map) {
-      rawHeaders.forEach((k, v) {
-        if (k != null && v != null) parsedHeaders[k.toString()] = v.toString();
-      });
+      rawHeaders.forEach((k, v) { if (k != null && v != null) parsedHeaders[k.toString()] = v.toString(); });
     }
     final rawIdiomas = json['idiomas_audio'];
-    final List<String> idiomas = rawIdiomas is List ? rawIdiomas.map((e) => e.toString()).toList() : ['PT'];
-
     return FonteMidia(
       id: (json['id'] ?? '').toString(),
       titulo: (json['titulo'] ?? 'Sem Título').toString(),
@@ -60,7 +39,7 @@ class FonteMidia {
       formato: (json['formato'] ?? 'mp4').toString(),
       resolucao: (json['resolucao'] ?? '1080p').toString(),
       tipoAudio: (json['tipo_audio'] ?? 'Dublado').toString(),
-      idiomasAudio: idiomas,
+      idiomasAudio: rawIdiomas is List ? rawIdiomas.map((e) => e.toString()).toList() : ['PT'],
       headers: parsedHeaders,
       temporada: json['temporada'] is int ? json['temporada'] : int.tryParse('${json['temporada'] ?? ''}'),
       episodio: json['episodio'] is int ? json['episodio'] : int.tryParse('${json['episodio'] ?? ''}'),
@@ -80,44 +59,44 @@ class ObraAgrupada {
   final String ano;
   final bool emDestaque;
   final int ordemDestaque;
+  final List<String> tags;
+  final double notaImdb;
+  final int visualizacoes;
   final List<FonteMidia> fontes;
 
   ObraAgrupada({
-    required this.chaveGrupo,
-    this.tmdbId,
-    required this.titulo,
-    required this.categoria,
-    required this.genero,
-    required this.sinopse,
-    required this.capaUrl,
-    required this.bannerUrl,
-    required this.ano,
-    required this.emDestaque,
-    required this.ordemDestaque,
-    required this.fontes,
+    required this.chaveGrupo, this.tmdbId, required this.titulo, required this.categoria,
+    required this.genero, required this.sinopse, required this.capaUrl, required this.bannerUrl,
+    required this.ano, required this.emDestaque, required this.ordemDestaque,
+    this.tags = const [], this.notaImdb = 0.0, this.visualizacoes = 0, required this.fontes,
   });
+
+  double get scorePopularidade => (visualizacoes * 2.0) + (notaImdb * 10.0);
+
+  String get badgePoster {
+    if (categoria.toLowerCase().contains('filme')) return '';
+    final temps = temporadasDisponiveis;
+    if (temps.length > 1) return 'Temp.${temps.last}';
+    final eps = episodiosDaTemporada(temps.first);
+    if (eps.isNotEmpty && eps.last.episodio != null) return 'S${temps.first} - E${eps.last.episodio}';
+    return 'Temp.${temps.first}';
+  }
 
   List<String> get audiosDisponiveis {
     final set = <String>{};
-    for (final f in fontes) {
-      if (f.tipoAudio.isNotEmpty) set.add(f.tipoAudio);
-    }
+    for (final f in fontes) { if (f.tipoAudio.isNotEmpty) set.add(f.tipoAudio); }
     return set.isEmpty ? ['Dublado'] : set.toList();
   }
 
   List<String> get resolucoesDisponiveis {
     final set = <String>{};
-    for (final f in fontes) {
-      if (f.resolucao.isNotEmpty) set.add(f.resolucao);
-    }
+    for (final f in fontes) { if (f.resolucao.isNotEmpty) set.add(f.resolucao); }
     return set.isEmpty ? ['1080p'] : set.toList();
   }
 
   List<int> get temporadasDisponiveis {
     final set = <int>{};
-    for (final f in fontes) {
-      set.add(f.temporada ?? 1);
-    }
+    for (final f in fontes) { set.add(f.temporada ?? 1); }
     return set.toList()..sort();
   }
 

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import '../main.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
 import '../services/torrserver_service.dart';
@@ -47,9 +48,12 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   Color _corLegenda = Colors.white;
   String _legendaSelecionada = 'Nenhuma';
 
+  int _retryAutoCount = 0;
+
   @override
   void initState() {
     super.initState();
+    CinemaOrientation.emPlayer = true;
     _fonteAtual = widget.fonteInicial;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
@@ -83,6 +87,13 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     });
     _player.stream.error.listen((err) {
       if (!mounted) return;
+      if (_retryAutoCount < 1 && (_fonteAtual.urlStream.toLowerCase().startsWith('magnet:') || _fonteAtual.urlStream.toLowerCase().endsWith('.torrent'))) {
+        _retryAutoCount++;
+        Future.delayed(const Duration(milliseconds: 1400), () {
+          if (mounted) _abrirMidia(_fonteAtual.urlStream);
+        });
+        return;
+      }
       if (!_tentouBackup && _fonteAtual.urlStreamBackup.isNotEmpty) {
         _tentouBackup = true;
         _abrirMidia(_fonteAtual.urlStreamBackup);
@@ -139,7 +150,8 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       if (!headers.containsKey('User-Agent')) {
         headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
       }
-      await _player.open(Media(urlFinal, httpHeaders: headers));
+      await _player.open(Media(urlFinal, httpHeaders: headers), play: true);
+      await _player.play();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -194,6 +206,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   @override
   void dispose() {
+    CinemaOrientation.emPlayer = false;
     _salvarProgressoAtual();
     _hideTimer?.cancel();
     _saveProgressTimer?.cancel();
@@ -206,8 +219,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   void _abrirModalLegendas() {
     _reiniciarTimerControles();
     final buscaCtrl = TextEditingController(text: widget.obra.titulo);
-    List<Map<String, dynamic>> resultadosSub = [];
+    List> resultadosSub = [];
     bool carregandoSub = false;
+    bool jaBuscou = false;
 
     showModalBottomSheet(
       context: context,
@@ -215,36 +229,113 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) {
-          Future<void> buscarOpenSubtitles() async {
+          Future<void> buscarMultiBancos() async {
             final q = buscaCtrl.text.trim();
             if (q.isEmpty) return;
-            setModal(() => carregandoSub = true);
+            setModal(() {
+              carregandoSub = true;
+              jaBuscou = true;
+              resultadosSub = [];
+            });
+            final encontrados = >[];
+
+            // 1. OpenSubtitles V3 (Stremio / IMDb)
             try {
-              final uri = Uri.parse(
-                'https://rest.opensubtitles.org/search/query-${Uri.encodeComponent(q)}/sublanguageid-pob,por,eng,spa',
-              );
-              final resp = await http.get(uri, headers: {'User-Agent': 'TemporaryUserAgent'}).timeout(const Duration(seconds: 8));
-              if (resp.statusCode == 200) {
-                final list = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
-                setModal(() {
-                  resultadosSub = list.take(12).map((e) => Map<String, dynamic>.from(e)).toList();
-                });
+              final imdb = widget.obra.imdbId.trim();
+              if (imdb.startsWith('tt')) {
+                final tipo = widget.obra.isSerie ? 'series' : 'movie';
+                final idQuery = widget.obra.isSerie
+                    ? '$imdb:${_fonteAtual.temporada ?? 1}:${_fonteAtual.episodio ?? 1}'
+                    : imdb;
+                final uOs3 = Uri.parse('https://opensubtitles-v3.strem.io/subtitles/$tipo/$idQuery.json');
+                final rOs3 = await http.get(uOs3).timeout(const Duration(seconds: 6));
+                if (rOs3.statusCode == 200) {
+                  final data = jsonDecode(utf8.decode(rOs3.bodyBytes));
+                  final subs = (data is Map ? data['subtitles'] : null) as List<dynamic>? ?? [];
+                  for (final s in subs) {
+                    if (s is Map && (s['url'] ?? '').toString().isNotEmpty) {
+                      final lang = (s['lang'] ?? 'por').toString();
+                      encontrados.add({
+                        'SubFileName': '${widget.obra.titulo} ($lang) [OpenSubtitles]',
+                        'LanguageName': lang.toUpperCase(),
+                        'SubDownloadLink': s['url'].toString(),
+                        'Fonte': 'OpenSubtitles',
+                      });
+                    }
+                  }
+                }
               }
             } catch (_) {}
-            setModal(() => carregandoSub = false);
+
+            // 2. Podnapisi.NET (busca publica por titulo)
+            try {
+              final uPod = Uri.parse(
+                'https://www.podnapisi.net/subtitles/search/old?sXML=1&sK=${Uri.encodeComponent(q)}&sL=pb,pt,en,es',
+              );
+              final rPod = await http.get(uPod, headers: {'User-Agent': 'Mozilla/5.0'}).timeout(const Duration(seconds: 6));
+              if (rPod.statusCode == 200) {
+                final xml = utf8.decode(rPod.bodyBytes);
+                final regSub = RegExp(r'<subtitle>(.*?)</subtitle>', dotAll: true);
+                for (final m in regSub.allMatches(xml).take(10)) {
+                  final bloco = m.group(1) ?? '';
+                  final pid = RegExp(r'<pid>(.*?)</pid>').firstMatch(bloco)?.group(1) ?? '';
+                  final title = RegExp(r'<title>(.*?)</title>').firstMatch(bloco)?.group(1) ?? q;
+                  final lang = RegExp(r'<languageName>(.*?)</languageName>').firstMatch(bloco)?.group(1) ?? 'Português';
+                  if (pid.isNotEmpty) {
+                    encontrados.add({
+                      'SubFileName': '$title ($lang) [Podnapisi]',
+                      'LanguageName': lang,
+                      'SubDownloadLink': 'https://www.podnapisi.net/subtitles/$pid/download',
+                      'Fonte': 'Podnapisi',
+                    });
+                  }
+                }
+              }
+            } catch (_) {}
+
+            // 3. OpenSubtitles REST Legacy Mirror (fallback)
+            if (encontrados.isEmpty) {
+              try {
+                final uri = Uri.parse(
+                  'https://rest.opensubtitles.org/search/query-${Uri.encodeComponent(q)}/sublanguageid-pob,por,eng,spa',
+                );
+                final resp = await http.get(uri, headers: {'User-Agent': 'TemporaryUserAgent'}).timeout(const Duration(seconds: 6));
+                if (resp.statusCode == 200) {
+                  final list = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
+                  for (final e in list.take(10)) {
+                    if (e is Map) {
+                      final m = Map<String, dynamic>.from(e);
+                      m['Fonte'] = 'OpenSubtitles';
+                      encontrados.add(m);
+                    }
+                  }
+                }
+              } catch (_) {}
+            }
+
+            if (ctx.mounted) {
+              setModal(() {
+                resultadosSub = encontrados;
+                carregandoSub = false;
+              });
+            }
           }
 
           return Padding(
             padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
             child: SizedBox(
-              height: 360,
+              height: 380,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      const Text('Configurações de Legenda & OpenSubtitles', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
-                      const Spacer(),
+                      const Expanded(
+                        child: Text(
+                          'Legendas Online (OpenSubtitles & Podnapisi)',
+                          style: TextStyle(color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.w800),
+                        ),
+                      ),
                       Switch(
                         value: _legendaAtiva,
                         activeColor: const Color(0xFFF5B82E),
@@ -299,7 +390,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                           controller: buscaCtrl,
                           style: const TextStyle(color: Colors.white, fontSize: 13.5),
                           decoration: InputDecoration(
-                            hintText: 'Buscar legenda no OpenSubtitles...',
+                            hintText: 'Buscar legenda (OpenSubtitles, Podnapisi)...',
                             filled: true,
                             fillColor: Colors.white10,
                             isDense: true,
@@ -310,8 +401,8 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                       const SizedBox(width: 8),
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF5B82E), foregroundColor: Colors.black),
-                        onPressed: buscarOpenSubtitles,
-                        icon: const Icon(Icons.download, size: 18),
+                        onPressed: buscarMultiBancos,
+                        icon: const Icon(Icons.search, size: 18),
                         label: const Text('Buscar'),
                       ),
                     ],
@@ -322,36 +413,89 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         ? const Center(child: CircularProgressIndicator(color: Color(0xFFF5B82E)))
                         : resultadosSub.isEmpty
                             ? Center(
-                                child: Text(
-                                  'Legenda ativa: $_legendaSelecionada\nToque em "Buscar" para baixar legendas online.',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(color: Colors.white54, fontSize: 13),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (jaBuscou)
+                                      Container(
+                                        margin: const EdgeInsets.only(bottom: 10),
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.redAccent.withOpacity(0.16),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.subtitles_off, color: Colors.redAccent, size: 18),
+                                            SizedBox(width: 8),
+                                            Text(
+                                              'Legenda não encontrada para este título.',
+                                              style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700, fontSize: 13),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    Text(
+                                      'Legenda ativa: $_legendaSelecionada\nToque em "Buscar" para procurar legendas online.',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(color: Colors.white54, fontSize: 13),
+                                    ),
+                                  ],
                                 ),
                               )
-                            : ListView.builder(
-                                itemCount: resultadosSub.length,
-                                itemBuilder: (_, i) {
-                                  final item = resultadosSub[i];
-                                  final nome = (item['SubFileName'] ?? 'Legenda').toString();
-                                  final lang = (item['LanguageName'] ?? '').toString();
-                                  final dl = (item['SubDownloadLink'] ?? '').toString().replaceAll('.gz', '');
-                                  return ListTile(
-                                    dense: true,
-                                    leading: const Icon(Icons.subtitles, color: Color(0xFFF5B82E)),
-                                    title: Text(nome, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
-                                    subtitle: Text(lang, style: const TextStyle(color: Colors.white54)),
-                                    onTap: () async {
-                                      if (dl.isNotEmpty) {
-                                        await _player.setSubtitleTrack(SubtitleTrack.uri(dl, title: nome, language: lang));
-                                        setState(() {
-                                          _legendaAtiva = true;
-                                          _legendaSelecionada = nome;
-                                        });
-                                        if (ctx.mounted) Navigator.pop(ctx);
-                                      }
-                                    },
-                                  );
-                                },
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.greenAccent.withOpacity(0.14),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: Colors.greenAccent.withOpacity(0.5)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.check_circle, color: Colors.greenAccent, size: 17),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Legenda encontrada! (${resultadosSub.length} opções)',
+                                          style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.w700, fontSize: 12.5),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: ListView.builder(
+                                      itemCount: resultadosSub.length,
+                                      itemBuilder: (_, i) {
+                                        final item = resultadosSub[i];
+                                        final nome = (item['SubFileName'] ?? 'Legenda').toString();
+                                        final idioma = (item['LanguageName'] ?? '').toString();
+                                        final dl = (item['SubDownloadLink'] ?? '').toString();
+                                        return ListTile(
+                                          dense: true,
+                                          leading: const Icon(Icons.subtitles, color: Color(0xFFF5B82E)),
+                                          title: Text(nome, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                                          subtitle: Text(idioma, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                          onTap: () async {
+                                            if (dl.isNotEmpty) {
+                                              final urlLimpa = dl.replaceAll('.gz', '');
+                                              await _player.setSubtitleTrack(SubtitleTrack.uri(urlLimpa, title: nome, language: idioma));
+                                              setState(() {
+                                                _legendaAtiva = true;
+                                                _legendaSelecionada = nome;
+                                              });
+                                            }
+                                            if (ctx.mounted) Navigator.pop(ctx);
+                                          },
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ],
                               ),
                   ),
                 ],

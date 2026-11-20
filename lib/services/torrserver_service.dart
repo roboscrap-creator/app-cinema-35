@@ -60,7 +60,7 @@ class TorrServerService {
           'DisableDHT': false,
           'DisablePEX': false,
           'DisableUpload': false,
-          'ConnectionsLimit': 150,
+          'ConnectionsLimit': 120,
           'PeersListenPort': 0,
         },
       });
@@ -320,34 +320,4 @@ class TorrServerService {
       downloadSpeedBytes: 0,
     );
   }
-
-  Future<void> preAquecerStream(String magnetLink) async {
-    try {
-      await iniciar();
-      final uriAdd = Uri.parse('$_baseUrl/torrents');
-      await http.post(
-        uriAdd,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'action': 'add',
-          'link': magnetLink,
-          'title': 'AppCinemaStream',
-          'save_to_db': false,
-        }),
-      ).timeout(const Duration(seconds: 3));
-
-      for (int i = 0; i < 9; i++) {
-        await Future.delayed(const Duration(milliseconds: 300));
-        final r = await http.post(
-          uriAdd,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'action': 'get', 'link': magnetLink}),
-        ).timeout(const Duration(seconds: 2));
-        if (r.statusCode == 200 && (r.body.contains('"stat":3') || r.body.contains('"active_peers":'))) {
-          break;
-        }
-      }
-    } catch (_) {}
-  }
-
 }

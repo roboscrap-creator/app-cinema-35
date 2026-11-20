@@ -344,39 +344,8 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
                 ],
               ),
             ),
-          );
-
-          if (isMobile) {
-            return Column(
-              children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  color: Colors.black.withOpacity(0.28),
-                  child: Row(
-                    children: barraAbas.map((w) => w is SizedBox ? w : Expanded(child: w)).toList(),
-                  ),
-                ),
-                conteudoPrincipal,
-              ],
-            );
-          }
-
-          return Row(
-            children: [
-              Container(
-                width: 230,
-                padding: const EdgeInsets.symmetric(vertical: 20),
-                color: Colors.black.withOpacity(0.24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: barraAbas,
-                ),
-              ),
-              conteudoPrincipal,
-            ],
-          );
-        },
+          ),
+        ],
       ),
     );
   }
@@ -673,49 +642,53 @@ class _TvHistoricoFavoritosScreenState extends State<TvHistoricoFavoritosScreen>
         backgroundColor: Colors.transparent,
         title: Text(_abaLateral == 0 ? 'Histórico' : 'Meus Favoritos'),
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isMobile = constraints.maxWidth < 700;
-          final barraAbas = [
-            _itemMenuLateral(
-              titulo: 'Histórico',
-              ativo: _abaLateral == 0,
-              onTap: () => setState(() {
-                _abaLateral = 0;
-                _modoEdicao = false;
-                _selecionados.clear();
-              }),
+      body: Row(
+        children: [
+          Container(
+            width: MediaQuery.of(context).size.width < 700 ? 112 : 230,
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            color: Colors.black.withOpacity(0.24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _itemMenuLateral(
+                  titulo: 'Histórico',
+                  ativo: _abaLateral == 0,
+                  onTap: () => setState(() {
+                    _abaLateral = 0;
+                    _modoEdicao = false;
+                    _selecionados.clear();
+                  }),
+                ),
+                const SizedBox(height: 8),
+                _itemMenuLateral(
+                  titulo: 'Meus Favoritos',
+                  ativo: _abaLateral == 1,
+                  onTap: () => setState(() {
+                    _abaLateral = 1;
+                    _modoEdicao = false;
+                    _selecionados.clear();
+                  }),
+                ),
+              ],
             ),
-            const SizedBox(width: 8, height: 8),
-            _itemMenuLateral(
-              titulo: 'Meus Favoritos',
-              ativo: _abaLateral == 1,
-              onTap: () => setState(() {
-                _abaLateral = 1;
-                _modoEdicao = false;
-                _selecionados.clear();
-              }),
-            ),
-          ];
-
-          final conteudoPrincipal = Expanded(
+          ),
+          Expanded(
             child: Padding(
-              padding: EdgeInsets.fromLTRB(isMobile ? 14 : 24, 8, isMobile ? 14 : 24, 16),
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    crossAxisAlignment: WrapCrossAlignment.center,
+                  Row(
                     children: [
                       _pilulaTipo(label: 'Filmes', ativo: !_somenteSeries, onTap: () => setState(() => _somenteSeries = false)),
+                      const SizedBox(width: 12),
                       _pilulaTipo(label: 'Séries', ativo: _somenteSeries, onTap: () => setState(() => _somenteSeries = true)),
+                      const SizedBox(width: 24),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(20)),
                         child: Row(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
                               tooltip: 'Selecionar itens para remover',
@@ -733,19 +706,21 @@ class _TvHistoricoFavoritosScreenState extends State<TvHistoricoFavoritosScreen>
                           ],
                         ),
                       ),
-                      if (_modoEdicao && _selecionados.isNotEmpty)
+                      if (_modoEdicao && _selecionados.isNotEmpty) ...[
+                        const SizedBox(width: 12),
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
                           onPressed: _excluirSelecionados,
                           icon: const Icon(Icons.delete, size: 18),
                           label: Text('Remover (${_selecionados.length})'),
                         ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
+                      ],
+                      const Spacer(),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          Text('Filmes: $totalFilmes', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
-                          const SizedBox(width: 12),
-                          Text('Séries: $totalSeries', style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w700, fontSize: 13)),
+                          Text('Total de filmes  $totalFilmes', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                          Text('Total de séries  $totalSeries', style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w700)),
                         ],
                       ),
                     ],

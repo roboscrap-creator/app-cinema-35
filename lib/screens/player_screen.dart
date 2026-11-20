@@ -241,7 +241,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
             // 1. OpenSubtitles V3 (Stremio / IMDb)
             try {
-              final imdb = widget.obra.imdbId.trim();
+              final imdb = '';
               if (imdb.startsWith('tt')) {
                 final tipo = widget.obra.isSerie ? 'series' : 'movie';
                 final idQuery = widget.obra.isSerie

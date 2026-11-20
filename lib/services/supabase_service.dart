@@ -27,7 +27,7 @@ class SupabaseService {
     await prefs.setString('cinema_continuar_assistindo', jsonEncode(mapa));
   }
 
-  static Future>> carregarProgressoAssistido() async {
+  static Future<Map<String, Map<String, dynamic>>> carregarProgressoAssistido() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('cinema_continuar_assistindo') ?? '{}';
     final Map<String, dynamic> decoded = jsonDecode(raw);

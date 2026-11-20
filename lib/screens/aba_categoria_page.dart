@@ -76,14 +76,31 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
     Navigator.push(context, MaterialPageRoute(builder: (_) => GradeCompletaPage(titulo: titulo, obras: lista)));
   }
 
+  String _etiquetaSerie(ObraAgrupada o) {
+    final c = o.categoria.toLowerCase();
+    if (!c.contains('série') && !c.contains('serie') && !c.contains('anime') && o.fontes.length <= 1) return '';
+    int maxT = 0, maxE = 0;
+    for (final f in o.fontes) {
+      final t = f.temporada ?? 0;
+      final e = f.episodio ?? 0;
+      if (t > maxT) { maxT = t; maxE = e; }
+      else if (t == maxT && e > maxE) { maxE = e; }
+    }
+    if (maxT > 0 && maxE > 0) return 'S$maxT - E$maxE';
+    if (maxT > 0) return 'Temp.$maxT';
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     final lista = _filtrarPorAba();
     if (lista.isEmpty) {
       return Center(child: Text('Nenhum item em ${widget.categoria}', style: const TextStyle(color: Colors.white54)));
     }
-    final isFilmes = widget.categoria.toLowerCase().contains('filme');
-    final isRecomenda = widget.categoria.toLowerCase().contains('recomenda');
+    final cat = widget.categoria.toLowerCase();
+    final isFilmes = cat.contains('filme');
+    final isSeries = cat.contains('série') || cat.contains('serie');
+    final isRecomenda = cat.contains('recomenda');
 
     final banners = lista.where((o) => o.emDestaque || _temTag(o, ['banner', 'destaque'])).toList();
     if (banners.length < 4) {
@@ -103,7 +120,8 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
           if (top4.isNotEmpty) _buildBanner(top4),
           if (isRecomenda) ..._buildSecoesRecomendacoes(lista),
           if (isFilmes) ..._buildSecoesFilmes(lista),
-          if (!isRecomenda && !isFilmes) _buildFileira('Catálogo ${widget.categoria}', lista),
+          if (isSeries) ..._buildSecoesSeries(lista),
+          if (!isRecomenda && !isFilmes && !isSeries) _buildFileira('Catálogo ${widget.categoria}', lista),
         ],
       ),
     );
@@ -154,6 +172,52 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
       if (curta.isNotEmpty) _buildFileira('Curta', curta, horizontal: true),
       if (emBreve.isNotEmpty) _buildFileira('Em breve', emBreve),
       _buildFileira('Todos', filmes),
+    ];
+  }
+
+  List<Widget> _buildSecoesSeries(List<ObraAgrupada> series) {
+    final melhores = [...series]..sort((a, b) => b.notaImdb.compareTo(a.notaImdb));
+    final doramas = series.where((o) => _temGenero(o, 'dorama') || _temTag(o, ['dorama', 'corean'])).toList();
+    final turcas = series.where((o) => _temTag(o, ['turca', 'novelas turcas'])).toList();
+    final novelas = series.where((o) => _temGenero(o, 'novela') || _temTag(o, ['novela'])).toList();
+    final plataformas = [
+      ['Netflix', 'netflix'],
+      ['Disney+', 'disney'],
+      ['MAX', 'max'],
+      ['Apple TV+', 'apple'],
+      ['Paramount +', 'paramount'],
+      ['Prime Video', 'prime'],
+      ['Globo', 'globo'],
+      ['Hulu', 'hulu'],
+    ];
+    final nacionais = series.where((o) => _temTag(o, ['nacional', 'nacionais'])).toList();
+    final renovadas = series.where((o) => _temTag(o, ['renovada'])).toList();
+    final biblicas = series.where((o) => _temTag(o, ['bíblica', 'biblica'])).toList();
+    final latinas = series.where((o) => _temTag(o, ['latino'])).toList();
+    final britanicas = series.where((o) => _temTag(o, ['britânica', 'britanica'])).toList();
+    final generos = [
+      'Drama Médico', 'Drama', 'Família', 'Fantasia', 'Procedimento Policial',
+      'Aventura', 'Comédia', 'Ação', 'Suspense', 'Terror', 'Romance', 'Infantil', 'Esporte'
+    ];
+
+    return [
+      _buildFileira('Última Temporada e Episódio', series),
+      if (melhores.isNotEmpty) _buildFileira('Melhores Séries', melhores),
+      if (doramas.isNotEmpty) _buildFileira('Doramas', doramas),
+      if (turcas.isNotEmpty) _buildFileira('Novelas Turcas', turcas),
+      if (novelas.isNotEmpty) _buildFileira('Novelas', novelas),
+      for (final p in plataformas)
+        if (series.any((o) => _temTag(o, [p[1]])))
+          _buildFileira(p[0], series.where((o) => _temTag(o, [p[1]])).toList()),
+      if (nacionais.isNotEmpty) _buildFileira('Séries Nacionais', nacionais),
+      if (renovadas.isNotEmpty) _buildFileira('Séries Renovadas', renovadas),
+      if (biblicas.isNotEmpty) _buildFileira('Telenovelas Bíblicas', biblicas),
+      for (final g in generos)
+        if (series.any((o) => _temGenero(o, g)))
+          _buildFileira(g, series.where((o) => _temGenero(o, g)).toList()),
+      if (latinas.isNotEmpty) _buildFileira('Séries Latino-americanas', latinas),
+      if (britanicas.isNotEmpty) _buildFileira('Séries Britânicas', britanicas),
+      _buildFileira('Todas', series),
     ];
   }
 
@@ -233,6 +297,7 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
             itemBuilder: (_, i) {
               final o = amostra[i];
               final prog = _progresso[o.chaveGrupo];
+              final badgeEp = _etiquetaSerie(o);
               return GestureDetector(
                 onTap: () => _abrir(o),
                 child: Container(
@@ -253,6 +318,15 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
                             ),
                             if (ranking)
                               Positioned(top: 4, left: 4, child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: const Color(0xFFFFB800), borderRadius: BorderRadius.circular(4)), child: Text('#${i + 1}', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 11)))),
+                            if (!mostrarProgresso && !horizontal && badgeEp.isNotEmpty)
+                              Positioned(
+                                left: 0, right: 0, bottom: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+                                  decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black87])),
+                                  child: Text(badgeEp, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+                                ),
+                              ),
                             if (mostrarProgresso && prog != null)
                               Positioned(
                                 left: 0, right: 0, bottom: 0,

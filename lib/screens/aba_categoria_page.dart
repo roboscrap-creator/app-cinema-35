@@ -51,7 +51,7 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
     return o.genero.toLowerCase().contains(g.toLowerCase()) || _temTag(o, [g]);
   }
 
-  List<ObraAgrupada> widget.obras {
+  List<ObraAgrupada> _filtrarPorAba() {
     final cat = widget.nomeAba.toLowerCase();
     return widget.obras.where((o) {
       final c = o.categoria.toLowerCase();
@@ -136,7 +136,6 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
           if (isSeries) ..._buildSecoesSeries(lista),
           if (!isRecomenda && !isFilmes && !isSeries) _buildFileira('Catálogo ${widget.nomeAba}', lista),
         ],
-      ),
     );
   }
 

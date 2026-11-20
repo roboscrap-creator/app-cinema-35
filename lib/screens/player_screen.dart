@@ -220,8 +220,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _reiniciarTimerControles();
     final buscaCtrl = TextEditingController(text: widget.obra.titulo);
     List<Map<String, dynamic>> resultadosSub = [];
-    bool carregandoSub = false;
+    bool carregandoSub = true;
     bool jaBuscou = false;
+    bool iniciouAuto = false;
 
     showModalBottomSheet(
       context: context,
@@ -229,6 +230,27 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) {
+          Future<String?> descobrirImdbId(String titulo) async {
+            try {
+              final limpo = titulo.replaceAll(RegExp(r'\(\d{4}\)'), '').trim();
+              if (limpo.isEmpty) return null;
+              final firstChar = limpo[0].toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), 'x');
+              final u = Uri.parse('https://v3.sg.media-imdb.com/suggestion/$firstChar/${Uri.encodeComponent(limpo)}.json');
+              final r = await http.get(u, headers: {'User-Agent': 'Mozilla/5.0'}).timeout(const Duration(seconds: 5));
+              if (r.statusCode == 200) {
+                final data = jsonDecode(utf8.decode(r.bodyBytes));
+                final d = (data is Map ? data['d'] : null) as List<dynamic>? ?? [];
+                for (final item in d) {
+                  if (item is Map) {
+                    final id = (item['id'] ?? '').toString();
+                    if (id.startsWith('tt')) return id;
+                  }
+                }
+              }
+            } catch (_) {}
+            return null;
+          }
+
           Future<void> buscarMultiBancos() async {
             final q = buscaCtrl.text.trim();
             if (q.isEmpty) return;
@@ -239,14 +261,15 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
             });
             final encontrados = <Map<String, dynamic>>[];
 
-            // 1. OpenSubtitles V3 (Stremio / IMDb)
-            try {
-              final imdb = '';
-              if (imdb.startsWith('tt')) {
+            final imdbId = await descobrirImdbId(q);
+            final temp = _fonteAtual.temporada ?? 1;
+            final ep = _fonteAtual.episodio ?? 1;
+
+            // 1. OpenSubtitles V3 via IMDb ID (retorna .srt/.vtt diretos em PT/EN/ES)
+            if (imdbId != null && imdbId.startsWith('tt')) {
+              try {
                 final tipo = widget.obra.isSerie ? 'series' : 'movie';
-                final idQuery = widget.obra.isSerie
-                    ? '$imdb:${_fonteAtual.temporada ?? 1}:${_fonteAtual.episodio ?? 1}'
-                    : imdb;
+                final idQuery = widget.obra.isSerie ? '$imdbId:$temp:$ep' : imdbId;
                 final uOs3 = Uri.parse('https://opensubtitles-v3.strem.io/subtitles/$tipo/$idQuery.json');
                 final rOs3 = await http.get(uOs3).timeout(const Duration(seconds: 6));
                 if (rOs3.statusCode == 200) {
@@ -255,70 +278,60 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                   for (final s in subs) {
                     if (s is Map && (s['url'] ?? '').toString().isNotEmpty) {
                       final lang = (s['lang'] ?? 'por').toString();
-                      encontrados.add({
-                        'SubFileName': '${widget.obra.titulo} ($lang) [OpenSubtitles]',
-                        'LanguageName': lang.toUpperCase(),
-                        'SubDownloadLink': s['url'].toString(),
-                        'Fonte': 'OpenSubtitles',
-                      });
+                      final langLow = lang.toLowerCase();
+                      if (langLow.contains('por') || langLow.contains('pob') || langLow == 'pt' || langLow.contains('eng') || langLow.contains('spa')) {
+                        encontrados.add({
+                          'SubFileName': '${widget.obra.titulo} (${lang.toUpperCase()}) [OpenSubtitles]',
+                          'LanguageName': lang.toUpperCase(),
+                          'SubDownloadLink': s['url'].toString(),
+                          'Prioridade': (langLow.contains('por') || langLow.contains('pob') || langLow == 'pt') ? 0 : 1,
+                        });
+                      }
                     }
                   }
                 }
-              }
-            } catch (_) {}
+              } catch (_) {}
 
-            // 2. Podnapisi.NET (busca publica por titulo)
-            try {
-              final uPod = Uri.parse(
-                'https://www.podnapisi.net/subtitles/search/old?sXML=1&sK=${Uri.encodeComponent(q)}&sL=pb,pt,en,es',
-              );
-              final rPod = await http.get(uPod, headers: {'User-Agent': 'Mozilla/5.0'}).timeout(const Duration(seconds: 6));
-              if (rPod.statusCode == 200) {
-                final xml = utf8.decode(rPod.bodyBytes);
-                final regSub = RegExp(r'<subtitle>(.*?)</subtitle>', dotAll: true);
-                for (final m in regSub.allMatches(xml).take(10)) {
-                  final bloco = m.group(1) ?? '';
-                  final pid = RegExp(r'<pid>(.*?)</pid>').firstMatch(bloco)?.group(1) ?? '';
-                  final title = RegExp(r'<title>(.*?)</title>').firstMatch(bloco)?.group(1) ?? q;
-                  final lang = RegExp(r'<languageName>(.*?)</languageName>').firstMatch(bloco)?.group(1) ?? 'Português';
-                  if (pid.isNotEmpty) {
-                    encontrados.add({
-                      'SubFileName': '$title ($lang) [Podnapisi]',
-                      'LanguageName': lang,
-                      'SubDownloadLink': 'https://www.podnapisi.net/subtitles/$pid/download',
-                      'Fonte': 'Podnapisi',
-                    });
-                  }
-                }
-              }
-            } catch (_) {}
-
-            // 3. OpenSubtitles REST Legacy Mirror (fallback)
-            if (encontrados.isEmpty) {
+              // 2. Wyzie / SubSource API via IMDb ID (legendas SRT limpas)
               try {
-                final uri = Uri.parse(
-                  'https://rest.opensubtitles.org/search/query-${Uri.encodeComponent(q)}/sublanguageid-pob,por,eng,spa',
-                );
-                final resp = await http.get(uri, headers: {'User-Agent': 'TemporaryUserAgent'}).timeout(const Duration(seconds: 6));
-                if (resp.statusCode == 200) {
-                  final list = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
-                  for (final e in list.take(10)) {
-                    if (e is Map) {
-                      final m = Map<String, dynamic>.from(e);
-                      m['Fonte'] = 'OpenSubtitles';
-                      encontrados.add(m);
+                final uWy = widget.obra.isSerie
+                    ? Uri.parse('https://sub.wyzie.ru/search?id=$imdbId&season=$temp&episode=$ep')
+                    : Uri.parse('https://sub.wyzie.ru/search?id=$imdbId');
+                final rWy = await http.get(uWy).timeout(const Duration(seconds: 6));
+                if (rWy.statusCode == 200) {
+                  final list = jsonDecode(utf8.decode(rWy.bodyBytes));
+                  if (list is List) {
+                    for (final s in list) {
+                      if (s is Map && (s['url'] ?? '').toString().isNotEmpty) {
+                        final lang = (s['display'] ?? s['language'] ?? 'PT').toString();
+                        final langLow = lang.toLowerCase();
+                        encontrados.add({
+                          'SubFileName': '${s['release'] ?? widget.obra.titulo} ($lang) [SubSource]',
+                          'LanguageName': lang,
+                          'SubDownloadLink': s['url'].toString(),
+                          'Prioridade': (langLow.contains('portug') || langLow == 'pt' || langLow == 'pb') ? 0 : 1,
+                        });
+                      }
                     }
                   }
                 }
               } catch (_) {}
             }
 
+            // Ordena colocando Portugues no topo
+            encontrados.sort((a, b) => (a['Prioridade'] as int).compareTo(b['Prioridade'] as int));
+
             if (ctx.mounted) {
               setModal(() {
-                resultadosSub = encontrados;
+                resultadosSub = encontrados.take(15).toList();
                 carregandoSub = false;
               });
             }
+          }
+
+          if (!iniciouAuto) {
+            iniciouAuto = true;
+            Future.microtask(buscarMultiBancos);
           }
 
           return Padding(
@@ -332,7 +345,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                     children: [
                       const Expanded(
                         child: Text(
-                          'Legendas Online (OpenSubtitles & Podnapisi)',
+                          'Legendas Online (OpenSubtitles & SubSource)',
                           style: TextStyle(color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.w800),
                         ),
                       ),
@@ -390,7 +403,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                           controller: buscaCtrl,
                           style: const TextStyle(color: Colors.white, fontSize: 13.5),
                           decoration: InputDecoration(
-                            hintText: 'Buscar legenda (OpenSubtitles, Podnapisi)...',
+                            hintText: 'Título do filme ou série...',
                             filled: true,
                             fillColor: Colors.white10,
                             isDense: true,
@@ -410,7 +423,16 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                   const SizedBox(height: 10),
                   Expanded(
                     child: carregandoSub
-                        ? const Center(child: CircularProgressIndicator(color: Color(0xFFF5B82E)))
+                        ? const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(color: Color(0xFFF5B82E)),
+                                SizedBox(height: 10),
+                                Text('Buscando legendas em Português...', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                              ],
+                            ),
+                          )
                         : resultadosSub.isEmpty
                             ? Center(
                                 child: Column(
@@ -438,9 +460,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                         ),
                                       ),
                                     Text(
-                                      'Legenda ativa: $_legendaSelecionada\nToque em "Buscar" para procurar legendas online.',
+                                      'Legenda ativa: $_legendaSelecionada\nTente buscar pelo título original em inglês se necessário.',
                                       textAlign: TextAlign.center,
-                                      style: const TextStyle(color: Colors.white54, fontSize: 13),
+                                      style: const TextStyle(color: Colors.white54, fontSize: 12.5),
                                     ),
                                   ],
                                 ),
@@ -482,8 +504,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                           subtitle: Text(idioma, style: const TextStyle(color: Colors.white54, fontSize: 11)),
                                           onTap: () async {
                                             if (dl.isNotEmpty) {
-                                              final urlLimpa = dl.replaceAll('.gz', '');
-                                              await _player.setSubtitleTrack(SubtitleTrack.uri(urlLimpa, title: nome, language: idioma));
+                                              await _player.setSubtitleTrack(SubtitleTrack.uri(dl, title: nome, language: idioma));
                                               setState(() {
                                                 _legendaAtiva = true;
                                                 _legendaSelecionada = nome;

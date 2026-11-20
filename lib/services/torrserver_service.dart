@@ -48,7 +48,7 @@ class TorrServerService {
         'sets': {
           'CacheSize': 67108864,
           'ReaderReadAHead': 95,
-          'PreloadCache': 15,
+          'PreloadCache': 4,
           'UseDisk': false,
           'ForceEncrypt': false,
           'RetrackersMode': 1,

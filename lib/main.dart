@@ -10,6 +10,10 @@ import 'screens/tv_home_screen.dart';
 import 'screens/tv_aux_screens.dart';
 import 'screens/detalhe_obra_screen.dart';
 
+class CinemaOrientation {
+  static bool emPlayer = false;
+}
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
@@ -143,9 +147,11 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
       );
     }
 
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-    ]);
+    if (!CinemaOrientation.emPlayer) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]);
+    }
     return MobileHomeScreen(
       catalogo: _catalogo,
       onRefresh: _recarregarCatalogo,

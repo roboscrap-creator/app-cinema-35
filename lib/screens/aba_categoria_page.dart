@@ -2,14 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
-import 'detalhes_midia_page.dart';
-import 'grade_completa_page.dart';
 
 class AbaCategoriaPage extends StatefulWidget {
-  final String categoria;
-  final List<ObraAgrupada> todasObras;
-  final Future<void> Function() onRefresh;
-  const AbaCategoriaPage({super.key, required this.categoria, required this.todasObras, required this.onRefresh});
+  final String nomeAba;
+  final List<ObraAgrupada> obras;
+  final Function(ObraAgrupada) onAbrirObra;
+  const AbaCategoriaPage({super.key, required this.nomeAba, required this.obras, required this.onAbrirObra});
   @override
   State<AbaCategoriaPage> createState() => _AbaCategoriaPageState();
 }
@@ -53,9 +51,9 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
     return o.genero.toLowerCase().contains(g.toLowerCase()) || _temTag(o, [g]);
   }
 
-  List<ObraAgrupada> _filtrarPorAba() {
-    final cat = widget.categoria.toLowerCase();
-    return widget.todasObras.where((o) {
+  List<ObraAgrupada> widget.obras {
+    final cat = widget.nomeAba.toLowerCase();
+    return widget.obras.where((o) {
       final c = o.categoria.toLowerCase();
       final g = o.genero.toLowerCase();
       if (cat.contains('recomenda')) return true;
@@ -67,13 +65,31 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
     }).toList();
   }
 
-  void _abrir(ObraAgrupada o) async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => DetalhesMidiaPage(obra: o)));
-    _carregarProgresso();
+  void _abrir(ObraAgrupada o) {
+    widget.onAbrirObra(o);
   }
 
   void _verTodos(String titulo, List<ObraAgrupada> lista) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => GradeCompletaPage(titulo: titulo, obras: lista)));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(backgroundColor: Colors.black, title: Text(titulo, style: const TextStyle(color: Colors.white))),
+      body: GridView.builder(
+        padding: const EdgeInsets.all(12),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, childAspectRatio: 0.62, crossAxisSpacing: 10, mainAxisSpacing: 12),
+        itemCount: lista.length,
+        itemBuilder: (_, i) {
+          final o = lista[i];
+          return GestureDetector(
+            onTap: () { Navigator.pop(context); _abrir(o); },
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(8), child: o.capaUrl.isNotEmpty ? Image.network(o.capaUrl, fit: BoxFit.cover, width: double.infinity) : Container(color: Colors.grey[900]))),
+              const SizedBox(height: 4),
+              Text(o.titulo, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            ]),
+          );
+        },
+      ),
+    )));
   }
 
   String _etiquetaSerie(ObraAgrupada o) {
@@ -93,11 +109,11 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
 
   @override
   Widget build(BuildContext context) {
-    final lista = _filtrarPorAba();
+    final lista = widget.obras;
     if (lista.isEmpty) {
-      return Center(child: Text('Nenhum item em ${widget.categoria}', style: const TextStyle(color: Colors.white54)));
+      return Center(child: Text('Nenhum item em ${widget.nomeAba}', style: const TextStyle(color: Colors.white54)));
     }
-    final cat = widget.categoria.toLowerCase();
+    final cat = widget.nomeAba.toLowerCase();
     final isFilmes = cat.contains('filme');
     final isSeries = cat.contains('série') || cat.contains('serie');
     final isRecomenda = cat.contains('recomenda');
@@ -111,25 +127,22 @@ class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
     }
     final top4 = banners.take(4).toList();
 
-    return RefreshIndicator(
-      color: const Color(0xFFFFB800),
-      onRefresh: widget.onRefresh,
-      child: ListView(
+    return ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
           if (top4.isNotEmpty) _buildBanner(top4),
           if (isRecomenda) ..._buildSecoesRecomendacoes(lista),
           if (isFilmes) ..._buildSecoesFilmes(lista),
           if (isSeries) ..._buildSecoesSeries(lista),
-          if (!isRecomenda && !isFilmes && !isSeries) _buildFileira('Catálogo ${widget.categoria}', lista),
+          if (!isRecomenda && !isFilmes && !isSeries) _buildFileira('Catálogo ${widget.nomeAba}', lista),
         ],
       ),
     );
   }
 
   List<Widget> _buildSecoesRecomendacoes(List<ObraAgrupada> lista) {
-    final live = widget.todasObras.where((o) => o.categoria.toLowerCase().contains('tv') || _temTag(o, ['live', 'tv'])).toList();
-    final cont = widget.todasObras.where((o) => _progresso.containsKey(o.chaveGrupo)).toList();
+    final live = widget.obras.where((o) => o.categoria.toLowerCase().contains('tv') || _temTag(o, ['live', 'tv'])).toList();
+    final cont = widget.obras.where((o) => _progresso.containsKey(o.chaveGrupo)).toList();
     final topFilmes = [...lista.where((o) => o.categoria.toLowerCase().contains('filme'))]..sort((a, b) => b.visualizacoes.compareTo(a.visualizacoes));
     final topSeries = [...lista.where((o) => o.categoria.toLowerCase().contains('série') || o.categoria.toLowerCase().contains('serie'))]..sort((a, b) => b.visualizacoes.compareTo(a.visualizacoes));
     return [

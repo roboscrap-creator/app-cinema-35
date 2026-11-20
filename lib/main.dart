@@ -391,7 +391,7 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
               separatorBuilder: (_, __) => const SizedBox(width: 10),
               itemBuilder: (_, idx) => TvPosterCard(
                 obra: itens[idx],
-                largura: 132,
+                width: 132,
                 onTap: () => widget.onAbrirObra(itens[idx]),
               ),
             ),

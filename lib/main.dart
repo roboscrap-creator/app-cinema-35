@@ -1,144 +1,403 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'models/midia_model.dart';
 import 'services/supabase_service.dart';
+import 'widgets/cinema_widgets.dart';
+import 'screens/tv_home_screen.dart';
+import 'screens/tv_aux_screens.dart';
 import 'screens/detalhe_obra_screen.dart';
-import 'screens/aba_categoria_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  runApp(const CinemaApp());
+  runApp(const AppCinema());
 }
 
-class CinemaApp extends StatelessWidget {
-  const CinemaApp({super.key});
+class AppCinema extends StatelessWidget {
+  const AppCinema({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Cinema',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0B0C10),
-        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF0B0C10), elevation: 0),
+    return Shortcuts(
+      shortcuts: <LogicalKeySet, Intent>{
+        LogicalKeySet(LogicalKeyboardKey.select): const ActivateIntent(),
+      },
+      child: MaterialApp(
+        title: 'Cinema',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark().copyWith(
+          scaffoldBackgroundColor: const Color(0xFF0A0C10),
+          primaryColor: const Color(0xFFF5B82E),
+          colorScheme: const ColorScheme.dark(
+            primary: Color(0xFFF5B82E),
+            secondary: Color(0xFFF5B82E),
+            surface: Color(0xFF141822),
+          ),
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            centerTitle: false,
+          ),
+        ),
+        home: const CinemaBootstrapScreen(),
       ),
-      home: const HomeCinemaPage(),
     );
   }
 }
 
-class HomeCinemaPage extends StatefulWidget {
-  const HomeCinemaPage({super.key});
+class CinemaBootstrapScreen extends StatefulWidget {
+  const CinemaBootstrapScreen({super.key});
+
   @override
-  State<HomeCinemaPage> createState() => _HomeCinemaPageState();
+  State<CinemaBootstrapScreen> createState() => _CinemaBootstrapScreenState();
 }
 
-class _HomeCinemaPageState extends State<HomeCinemaPage> with SingleTickerProviderStateMixin {
-  late TabController _tabCtrl;
-  List<ObraAgrupada> _todas = [];
+class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
+  List<ObraAgrupada> _catalogo = [];
   bool _carregando = true;
-  String? _erro;
-  int _navIndex = 0;
-  static const List<String> _abas = ['Recomendações', 'Filmes', 'Séries', 'Infantil', 'Anime'];
-  static const Color _corDourado = Color(0xFFF5B82E);
+  bool? _modoTvForcado;
 
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: _abas.length, vsync: this);
-    _carregar();
+    _inicializar();
   }
 
-  @override
-  void dispose() { _tabCtrl.dispose(); super.dispose(); }
-
-  Future<void> _carregar({bool forcar = false}) async {
-    setState(() { _carregando = true; _erro = null; });
-    try {
-      final lista = await SupabaseService.carregarCatalogoAgrupado(forcarRefresh: forcar);
-      setState(() => _todas = lista);
-    } catch (e) { setState(() => _erro = e.toString()); }
-    finally { if (mounted) setState(() => _carregando = false); }
+  Future<void> _inicializar() async {
+    final prefs = await SharedPreferences.getInstance();
+    final modoSalvo = prefs.getBool('modo_tv_forcado');
+    final obras = await SupabaseService.carregarCatalogoAgrupado();
+    if (mounted) {
+      setState(() {
+        _modoTvForcado = modoSalvo;
+        _catalogo = obras;
+        _carregando = false;
+      });
+    }
   }
 
-  List<ObraAgrupada> _filtrarAba(String aba) {
-    if (aba == 'Recomendações') return _todas;
-    return _todas.where((o) {
-      final c = o.categoria.toLowerCase(), g = o.genero.toLowerCase();
-      final tags = o.tags.map((t) => t.toLowerCase()).toList();
-      if (aba == 'Filmes') return c.contains('filme') && !c.contains('série') && !c.contains('serie');
-      if (aba == 'Séries') return c.contains('série') || c.contains('serie');
-      if (aba == 'Infantil') return c.contains('infantil') || g.contains('infantil') || g.contains('animação') || g.contains('animacao') || tags.contains('infantil');
-      if (aba == 'Anime') return c.contains('anime') || g.contains('anime') || tags.contains('anime');
-      return true;
-    }).toList();
+  Future<void> _recarregarCatalogo() async {
+    setState(() => _carregando = true);
+    final obras = await SupabaseService.carregarCatalogoAgrupado(forcarRefresh: true);
+    if (mounted) {
+      setState(() {
+        _catalogo = obras;
+        _carregando = false;
+      });
+    }
+  }
+
+  Future<void> _alternarModo(bool paraTv) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('modo_tv_forcado', paraTv);
+    setState(() => _modoTvForcado = paraTv);
   }
 
   void _abrirObra(ObraAgrupada obra) {
-    if (obra.fontes.isEmpty) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => DetalheObraScreen(obra: obra)));
-  }
-
-  void _configurarKey() async {
-    final ctrl = TextEditingController();
-    await showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Supabase Anon Key'),
-      content: TextField(controller: ctrl, decoration: const InputDecoration(hintText: 'Cole sua anon_key')),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-        ElevatedButton(onPressed: () async { await SupabaseService.salvarAnonKey(ctrl.text); if (ctx.mounted) Navigator.pop(ctx); _carregar(forcar: true); }, child: const Text('Salvar')),
-      ],
-    ));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DetalheObraScreen(
+          obra: obra,
+          catalogoCompleto: _catalogo,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        centerTitle: true,
-        title: const Text('Cinema', style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
-        actions: [IconButton(icon: const Icon(Icons.search, size: 25), onPressed: () => showSearch(context: context, delegate: _BuscaObraDelegate(_todas, _abrirObra)))],
-        bottom: _navIndex == 0 ? TabBar(
-          controller: _tabCtrl, isScrollable: true, tabAlignment: TabAlignment.start,
-          dividerColor: Colors.transparent, indicatorColor: Colors.transparent,
-          labelColor: _corDourado, unselectedLabelColor: Colors.white,
-          labelStyle: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.bold),
-          tabs: _abas.map((a) => Tab(text: a)).toList(),
-        ) : null,
-      ),
-      body: _navIndex == 0
-          ? (_carregando ? const Center(child: CircularProgressIndicator(color: _corDourado))
-              : _erro != null ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Text('$_erro', style: const TextStyle(color: Colors.redAccent)), ElevatedButton(onPressed: _configurarKey, child: const Text('Configurar Key'))]))
-              : RefreshIndicator(color: _corDourado, onRefresh: () => _carregar(forcar: true), child: TabBarView(controller: _tabCtrl, children: _abas.map((a) => AbaCategoriaPage(nomeAba: a, obras: _filtrarAba(a), onAbrirObra: _abrirObra)).toList())))
-          : ListView(padding: const EdgeInsets.all(16), children: [
-              ListTile(leading: const Icon(Icons.refresh, color: _corDourado), title: const Text('Atualizar Catálogo Agora'), onTap: () { setState(() => _navIndex = 0); _carregar(forcar: true); }),
-              ListTile(leading: const Icon(Icons.vpn_key, color: _corDourado), title: const Text('Configurar Chave Supabase'), onTap: _configurarKey),
-            ]),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _navIndex, onTap: (i) => setState(() => _navIndex = i),
-        backgroundColor: const Color(0xFF0B0C10), type: BottomNavigationBarType.fixed,
-        selectedItemColor: _corDourado, unselectedItemColor: Colors.white60,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home_filled), label: 'VOD'),
-          BottomNavigationBarItem(icon: Icon(Icons.play_circle_outline), label: 'Shorts'),
-          BottomNavigationBarItem(icon: Icon(Icons.live_tv_outlined), label: 'Previsão'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
-        ],
-      ),
+    if (_carregando) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF0A0C10),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CinemaLogoWidget(height: 64, width: 220),
+              SizedBox(height: 24),
+              CircularProgressIndicator(color: Color(0xFFF5B82E)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final size = MediaQuery.of(context).size;
+    final isTvAuto = size.width >= 760 && size.width > size.height;
+    final usarLayoutTv = _modoTvForcado ?? isTvAuto;
+
+    if (usarLayoutTv) {
+      return TvHomeScreen(
+        catalogo: _catalogo,
+        onRefresh: _recarregarCatalogo,
+        onAbrirObra: _abrirObra,
+        onAlternarModoMobile: () => _alternarModo(false),
+      );
+    }
+
+    return MobileHomeScreen(
+      catalogo: _catalogo,
+      onRefresh: _recarregarCatalogo,
+      onAbrirObra: _abrirObra,
+      onAlternarModoTv: () => _alternarModo(true),
     );
   }
 }
 
-class _BuscaObraDelegate extends SearchDelegate {
-  final List<ObraAgrupada> obras; final Function(ObraAgrupada) onAbrir;
-  _BuscaObraDelegate(this.obras, this.onAbrir);
-  @override List<Widget> buildActions(BuildContext c) => [IconButton(icon: const Icon(Icons.clear), onPressed: () => query = '')];
-  @override Widget? buildLeading(BuildContext c) => IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => close(c, null));
-  @override Widget buildResults(BuildContext c) => _res();
-  @override Widget buildSuggestions(BuildContext c) => _res();
-  Widget _res() {
-    final q = query.toLowerCase().trim();
-    final f = q.isEmpty ? obras.take(20).toList() : obras.where((o) => o.titulo.toLowerCase().contains(q)).toList();
-    return ListView.builder(itemCount: f.length, itemBuilder: (c, i) => ListTile(leading: f[i].capaUrl.isNotEmpty ? Image.network(f[i].capaUrl, width: 40, height: 58, fit: BoxFit.cover) : const Icon(Icons.movie), title: Text(f[i].titulo), subtitle: Text(f[i].categoria), onTap: () { close(c, null); onAbrir(f[i]); }));
+class MobileHomeScreen extends StatefulWidget {
+  final List<ObraAgrupada> catalogo;
+  final Future<void> Function() onRefresh;
+  final void Function(ObraAgrupada) onAbrirObra;
+  final VoidCallback onAlternarModoTv;
+
+  const MobileHomeScreen({
+    super.key,
+    required this.catalogo,
+    required this.onRefresh,
+    required this.onAbrirObra,
+    required this.onAlternarModoTv,
+  });
+
+  @override
+  State<MobileHomeScreen> createState() => _MobileHomeScreenState();
+}
+
+class _MobileHomeScreenState extends State<MobileHomeScreen> {
+  int _abaIndex = 0;
+  static const List<String> _abas = ['Início', 'Filmes', 'Séries', 'Kids', 'Anime'];
+
+  List<ObraAgrupada> get _listaAba {
+    if (_abaIndex == 0) return widget.catalogo;
+    if (_abaIndex == 1) {
+      return widget.catalogo.where((o) => o.categoria.toLowerCase().contains('filme') && !o.isSerie).toList();
+    }
+    if (_abaIndex == 2) {
+      return widget.catalogo.where((o) => o.isSerie).toList();
+    }
+    if (_abaIndex == 3) {
+      return widget.catalogo.where((o) {
+        final c = SupabaseService.normalizarTexto(o.categoria);
+        final g = SupabaseService.normalizarTexto(o.genero);
+        return c.contains('kids') || c.contains('infantil') || g.contains('animacao');
+      }).toList();
+    }
+    return widget.catalogo.where((o) {
+      final c = SupabaseService.normalizarTexto(o.categoria);
+      final g = SupabaseService.normalizarTexto(o.genero);
+      return c.contains('anime') || g.contains('anime');
+    }).toList();
+  }
+
+  List<ObraAgrupada> _porGenero(List<ObraAgrupada> base, String termo) {
+    final q = SupabaseService.normalizarTexto(termo);
+    return base.where((o) {
+      final g = SupabaseService.normalizarTexto(o.genero);
+      final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
+      return g.contains(q) || t.any((x) => x.contains(q));
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = _listaAba;
+    final destaques = base.where((o) => o.emDestaque).take(6).toList();
+    if (destaques.isEmpty && base.isNotEmpty) {
+      destaques.addAll(base.take(5));
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF0A0C10),
+      appBar: AppBar(
+        title: const CinemaLogoWidget(height: 34, width: 120),
+        actions: [
+          IconButton(
+            tooltip: 'Buscar',
+            icon: const Icon(Icons.search),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => TvBuscaScreen(catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Filtro Avançado',
+            icon: const Icon(Icons.filter_alt_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => TvFiltroScreen(catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Meus Favoritos e Histórico',
+            icon: const Icon(Icons.history),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => TvHistoricoFavoritosScreen(catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Modo TV Box',
+            icon: const Icon(Icons.tv, color: Color(0xFFF5B82E)),
+            onPressed: widget.onAlternarModoTv,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          SizedBox(
+            height: 44,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              scrollDirection: Axis.horizontal,
+              itemCount: _abas.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, idx) {
+                final ativo = idx == _abaIndex;
+                return ChoiceChip(
+                  label: Text(_abas[idx]),
+                  selected: ativo,
+                  selectedColor: const Color(0xFFF5B82E),
+                  labelStyle: TextStyle(color: ativo ? Colors.black : Colors.white, fontWeight: FontWeight.w800),
+                  onSelected: (_) => setState(() => _abaIndex = idx),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: RefreshIndicator(
+              color: const Color(0xFFF5B82E),
+              onRefresh: widget.onRefresh,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(14, 6, 14, 24),
+                children: [
+                  if (destaques.isNotEmpty)
+                    SizedBox(
+                      height: 190,
+                      child: PageView.builder(
+                        itemCount: destaques.length,
+                        itemBuilder: (_, idx) {
+                          final o = destaques[idx];
+                          final img = o.bannerUrl.isNotEmpty ? o.bannerUrl : o.capaUrl;
+                          return GestureDetector(
+                            onTap: () => widget.onAbrirObra(o),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  if (img.isNotEmpty)
+                                    CachedNetworkImage(imageUrl: img, fit: BoxFit.cover)
+                                  else
+                                    Container(color: const Color(0xFF161B26)),
+                                  Container(
+                                    decoration: const BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [Colors.transparent, Colors.black87],
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    left: 14,
+                                    right: 14,
+                                    bottom: 12,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(o.titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                                        Text('${o.ano} • ${o.genero}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF5B82E), foregroundColor: Colors.black),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => TvTop100RankingScreen(fonte: 'imdb', catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra),
+                            ),
+                          ),
+                          icon: const Icon(Icons.emoji_events, size: 18),
+                          label: const Text('Top 100 IMDb', style: TextStyle(fontWeight: FontWeight.w900)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF181E2B), foregroundColor: const Color(0xFFF5B82E)),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => TvTop100RankingScreen(fonte: 'tmdb', catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra),
+                            ),
+                          ),
+                          icon: const Icon(Icons.star_rate_rounded, size: 18),
+                          label: const Text('Top 100 TMDB', style: TextStyle(fontWeight: FontWeight.w900)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  _buildShelfMobile('Adicionados Recentemente', base.take(20).toList()),
+                  _buildShelfMobile('Ação', _porGenero(base, 'Ação')),
+                  _buildShelfMobile('Suspense e Mistério', _porGenero(base, 'Suspense')),
+                  _buildShelfMobile('Drama', _porGenero(base, 'Drama')),
+                  _buildShelfMobile('Comédia', _porGenero(base, 'Comédia')),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShelfMobile(String titulo, List<ObraAgrupada> itens) {
+    if (itens.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(titulo, style: const TextStyle(color: Colors.white, fontSize: 16.5, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 235,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: itens.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (_, idx) => TvPosterCard(
+                obra: itens[idx],
+                largura: 132,
+                onTap: () => widget.onAbrirObra(itens[idx]),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

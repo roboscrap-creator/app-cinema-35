@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
+import '../services/cdn_stream_service.dart';
 import '../widgets/cinema_widgets.dart';
 import 'player_screen.dart';
 
@@ -40,6 +41,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
       _resolucaoSelecionada = _obraAtual.resolucoesDisponiveis.first;
     }
     _carregarDetalhesExtras();
+    CdnStreamService.preAquecerMagnet(_escolherMelhorFonte()?.urlStream);
   }
 
   Future<void> _carregarDetalhesExtras() async {
@@ -50,6 +52,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
     final enriquecido = await SupabaseService.enriquecerComTmdb(_obraAtual);
     if (mounted) {
       setState(() => _obraAtual = enriquecido);
+      CdnStreamService.preAquecerMagnet(_escolherMelhorFonte()?.urlStream);
     }
   }
 

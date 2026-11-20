@@ -645,7 +645,7 @@ class _TvHistoricoFavoritosScreenState extends State<TvHistoricoFavoritosScreen>
       body: Row(
         children: [
           Container(
-            width: MediaQuery.of(context).size.width < 700 ? 112 : 230,
+            width: MediaQuery.of(context).size.width < 420 ? 96 : (MediaQuery.of(context).size.width < 700 ? 112 : 230),
             padding: const EdgeInsets.symmetric(vertical: 20),
             color: Colors.black.withOpacity(0.24),
             child: Column(

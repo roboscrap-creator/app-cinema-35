@@ -9,6 +9,7 @@ import '../main.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
 import '../services/torrserver_service.dart';
+import '../services/cdn_stream_service.dart';
 
 class CinemaPlayerScreen extends StatefulWidget {
   final ObraAgrupada obra;
@@ -129,33 +130,22 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       String urlFinal = url.trim();
       final lower = urlFinal.toLowerCase();
       if (lower.startsWith('magnet:?') || lower.endsWith('.torrent')) {
-        String? urlCdn;
+        CdnResolucaoInfo? cdnInfo;
         if (lower.startsWith('magnet:?')) {
-          try {
-            final resCdn = await http.post(
-              Uri.parse('https://roboscrap-backend-l9t8.onrender.com/stream-torbox'),
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({'magnet': urlFinal}),
-            ).timeout(const Duration(seconds: 22));
-            if (resCdn.statusCode == 200) {
-              final dataCdn = jsonDecode(utf8.decode(resCdn.bodyBytes));
-              final u = (dataCdn is Map ? dataCdn['url'] : null)?.toString().trim() ?? '';
-              if (u.startsWith('http://') || u.startsWith('https://')) {
-                urlCdn = u;
-              }
-            }
-          } catch (_) {}
+          cdnInfo = await CdnStreamService.resolverMagnet(urlFinal);
         }
 
         if (!mounted) return;
 
-        if (urlCdn != null && urlCdn.isNotEmpty) {
-          urlFinal = urlCdn;
+        if (cdnInfo != null && cdnInfo.url.isNotEmpty) {
+          urlFinal = cdnInfo.url;
         } else {
+          final swP2p = Stopwatch()..start();
           final info = await TorrServerService.prepararMagnet(
             urlFinal,
             cancelado: () => !mounted,
           );
+          swP2p.stop();
           if (!mounted) return;
           if (info == null) {
             setState(() {
@@ -166,6 +156,8 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
             });
             return;
           }
+          CdnStreamService.ultimoDiagnostico =
+              'Origem: P2P Local (TorrServer) | ${swP2p.elapsedMilliseconds}ms';
           urlFinal = info.playUrl;
         }
       }

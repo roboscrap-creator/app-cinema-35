@@ -219,7 +219,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   void _abrirModalLegendas() {
     _reiniciarTimerControles();
     final buscaCtrl = TextEditingController(text: widget.obra.titulo);
-    List> resultadosSub = [];
+    List<Map<String, dynamic>> resultadosSub = [];
     bool carregandoSub = false;
     bool jaBuscou = false;
 
@@ -237,7 +237,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
               jaBuscou = true;
               resultadosSub = [];
             });
-            final encontrados = >[];
+            final encontrados = <Map<String, dynamic>>[];
 
             // 1. OpenSubtitles V3 (Stremio / IMDb)
             try {

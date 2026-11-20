@@ -2,210 +2,281 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
+import 'detalhes_midia_page.dart';
+import 'grade_completa_page.dart';
 
 class AbaCategoriaPage extends StatefulWidget {
-  final String nomeAba;
-  final List<ObraAgrupada> obras;
-  final Function(ObraAgrupada) onAbrirObra;
-  const AbaCategoriaPage({super.key, required this.nomeAba, required this.obras, required this.onAbrirObra});
+  final String categoria;
+  final List<ObraAgrupada> todasObras;
+  final Future<void> Function() onRefresh;
+  const AbaCategoriaPage({super.key, required this.categoria, required this.todasObras, required this.onRefresh});
   @override
   State<AbaCategoriaPage> createState() => _AbaCategoriaPageState();
 }
 
 class _AbaCategoriaPageState extends State<AbaCategoriaPage> {
   final PageController _bannerCtrl = PageController();
-  int _bannerAtual = 0;
-  Timer? _timerBanner;
-  Map<String, Map<String, dynamic>> _progressoMap = {};
-
-  static const List<String> _ordemFileirasManuais = [
-    'Livestream', 'No Cinema', 'Última Temporada e Episódio', 'Lançamentos de Filmes',
-    'Nacional', 'Séries Turcas', 'Doramas', 'Netflix', 'Prime Video', 'MAX',
-    'Disney+', 'Paramount+', 'Hulu', 'Apple TV', 'Globoplay', 'Pedidos da Semana',
-    'Em breve no Cinema', 'Ação', 'Aventura', 'Drama', 'Comédia', 'Terror',
-    'Ficção Científica', 'Romance', 'Suspense',
-  ];
+  Timer? _timer;
+  int _bannerIdx = 0;
+  Map<String, Map<String, dynamic>> _progresso = {};
 
   @override
   void initState() {
     super.initState();
     _carregarProgresso();
-    _timerBanner = Timer.periodic(const Duration(seconds: 5), (_) {
-      final total = _obterDestaquesBanner().length;
-      if (total > 1 && _bannerCtrl.hasClients) {
-        _bannerCtrl.animateToPage((_bannerAtual + 1) % total, duration: const Duration(milliseconds: 450), curve: Curves.easeInOut);
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_bannerCtrl.hasClients) {
+        final next = (_bannerIdx + 1) % 4;
+        _bannerCtrl.animateToPage(next, duration: const Duration(milliseconds: 450), curve: Curves.easeInOut);
       }
     });
   }
 
   Future<void> _carregarProgresso() async {
     final p = await SupabaseService.carregarProgressoAssistido();
-    if (mounted) setState(() => _progressoMap = p);
+    if (mounted) setState(() => _progresso = p);
   }
 
   @override
-  void dispose() { _timerBanner?.cancel(); _bannerCtrl.dispose(); super.dispose(); }
-
-  List<ObraAgrupada> _obterDestaquesBanner() {
-    final marcados = widget.obras.where((o) => o.tags.any((t) => t.toLowerCase() == 'banner principal') || o.emDestaque).toList();
-    if (marcados.isNotEmpty) return marcados.take(4).toList();
-    return widget.obras.where((o) => o.bannerUrl.isNotEmpty || o.capaUrl.isNotEmpty).take(4).toList();
+  void dispose() {
+    _timer?.cancel();
+    _bannerCtrl.dispose();
+    super.dispose();
   }
 
-  List<ObraAgrupada> _filtrarPorTagOuGenero(String nomeSecao) {
-    final alvo = nomeSecao.toLowerCase().trim();
-    if (alvo.contains('em breve')) return widget.obras.where((o) => o.tags.any((t) => t.toLowerCase().contains('em breve'))).toList();
-    if (alvo == 'livestream') return widget.obras.where((o) => o.tags.any((t) => t.toLowerCase() == 'livestream') || o.categoria.toLowerCase().contains('tv')).toList();
-    return widget.obras.where((o) => o.tags.any((t) => t.toLowerCase().trim() == alvo) || o.genero.toLowerCase().contains(alvo)).toList();
+  bool _temTag(ObraAgrupada o, List<String> chaves) {
+    final tgs = o.tags.map((e) => e.toLowerCase()).toList();
+    return chaves.any((c) => tgs.any((t) => t.contains(c.toLowerCase())));
   }
 
-  void _abrirComProgresso(ObraAgrupada obra) async {
-    await SupabaseService.salvarProgressoAssistido(chaveGrupo: obra.chaveGrupo, progresso: 0.35, etiquetaEp: obra.badgePoster);
-    widget.onAbrirObra(obra);
+  bool _temGenero(ObraAgrupada o, String g) {
+    return o.genero.toLowerCase().contains(g.toLowerCase()) || _temTag(o, [g]);
+  }
+
+  List<ObraAgrupada> _filtrarPorAba() {
+    final cat = widget.categoria.toLowerCase();
+    return widget.todasObras.where((o) {
+      final c = o.categoria.toLowerCase();
+      final g = o.genero.toLowerCase();
+      if (cat.contains('recomenda')) return true;
+      if (cat.contains('filme')) return c.contains('filme') && !c.contains('tv');
+      if (cat.contains('série') || cat.contains('serie')) return c.contains('série') || c.contains('serie');
+      if (cat.contains('infantil')) return c.contains('infantil') || g.contains('infantil') || g.contains('anima');
+      if (cat.contains('anime')) return c.contains('anime') || g.contains('anime');
+      return true;
+    }).toList();
+  }
+
+  void _abrir(ObraAgrupada o) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => DetalhesMidiaPage(obra: o)));
     _carregarProgresso();
+  }
+
+  void _verTodos(String titulo, List<ObraAgrupada> lista) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => GradeCompletaPage(titulo: titulo, obras: lista)));
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.nomeAba != 'Recomendações') {
-      if (widget.obras.isEmpty) return const Center(child: Text('Nenhum conteúdo nesta aba ainda.', style: TextStyle(color: Colors.white54)));
-      return GridView.builder(
-        padding: const EdgeInsets.all(12),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, childAspectRatio: 0.56, crossAxisSpacing: 10, mainAxisSpacing: 12),
-        itemCount: widget.obras.length,
-        itemBuilder: (_, i) => _buildCardPoster(widget.obras[i]),
-      );
+    final lista = _filtrarPorAba();
+    if (lista.isEmpty) {
+      return Center(child: Text('Nenhum item em ${widget.categoria}', style: const TextStyle(color: Colors.white54)));
     }
+    final isFilmes = widget.categoria.toLowerCase().contains('filme');
+    final isRecomenda = widget.categoria.toLowerCase().contains('recomenda');
 
-    final banners = _obterDestaquesBanner();
-    final continuarLista = widget.obras.where((o) => _progressoMap.containsKey(o.chaveGrupo)).toList()
-      ..sort((a, b) => ((_progressoMap[b.chaveGrupo]?['ts'] ?? 0) as int).compareTo((_progressoMap[a.chaveGrupo]?['ts'] ?? 0) as int));
-    final filmesEmAlta = widget.obras.where((o) => o.categoria.toLowerCase().contains('filme')).toList()
-      ..sort((a, b) => b.scorePopularidade.compareTo(a.scorePopularidade));
-    final seriesMaisAssistidas = widget.obras.where((o) => o.categoria.toLowerCase().contains('série') || o.categoria.toLowerCase().contains('serie')).toList()
-      ..sort((a, b) => b.scorePopularidade.compareTo(a.scorePopularidade));
-    final animesBombando = widget.obras.where((o) => o.categoria.toLowerCase().contains('anime') || o.genero.toLowerCase().contains('anime') || o.tags.any((t) => t.toLowerCase() == 'anime')).toList()
-      ..sort((a, b) => b.scorePopularidade.compareTo(a.scorePopularidade));
-
-    final Set<String> extras = {};
-    for (final o in widget.obras) {
-      for (final t in o.tags) {
-        final l = t.toLowerCase();
-        if (l == 'banner principal' || l == 'em breve' || l == 'anime') continue;
-        if (!_ordemFileirasManuais.any((p) => p.toLowerCase() == l)) extras.add(t);
+    final banners = lista.where((o) => o.emDestaque || _temTag(o, ['banner', 'destaque'])).toList();
+    if (banners.length < 4) {
+      for (final o in lista) {
+        if (!banners.contains(o) && (o.bannerUrl.isNotEmpty || o.capaUrl.isNotEmpty)) banners.add(o);
+        if (banners.length == 4) break;
       }
     }
+    final top4 = banners.take(4).toList();
 
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
-      children: [
-        if (banners.isNotEmpty) _buildBannerPrincipal(banners),
-        if (_filtrarPorTagOuGenero('Livestream').isNotEmpty) _buildFileiraHorizontal(titulo: 'Livestream', itens: _filtrarPorTagOuGenero('Livestream'), isLivestream: true),
-        if (continuarLista.isNotEmpty) _buildFileiraHorizontal(titulo: 'Continuar Assistindo', itens: continuarLista, mostrarProgresso: true),
-        if (filmesEmAlta.isNotEmpty) _buildFileiraHorizontal(titulo: 'Filmes em Alta', itens: filmesEmAlta),
-        if (seriesMaisAssistidas.isNotEmpty) _buildFileiraHorizontal(titulo: 'Séries Mais Assistidas', itens: seriesMaisAssistidas),
-        if (animesBombando.isNotEmpty) _buildFileiraHorizontal(titulo: 'Animes Bombando', itens: animesBombando),
-        ...[..._ordemFileirasManuais, ...extras].where((s) => s != 'Livestream').map((secao) {
-          final itens = _filtrarPorTagOuGenero(secao);
-          return itens.isEmpty ? const SizedBox.shrink() : _buildFileiraHorizontal(titulo: secao, itens: itens);
-        }),
-      ],
+    return RefreshIndicator(
+      color: const Color(0xFFFFB800),
+      onRefresh: widget.onRefresh,
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
+          if (top4.isNotEmpty) _buildBanner(top4),
+          if (isRecomenda) ..._buildSecoesRecomendacoes(lista),
+          if (isFilmes) ..._buildSecoesFilmes(lista),
+          if (!isRecomenda && !isFilmes) _buildFileira('Catálogo ${widget.categoria}', lista),
+        ],
+      ),
     );
   }
 
-  Widget _buildBannerPrincipal(List<ObraAgrupada> banners) {
+  List<Widget> _buildSecoesRecomendacoes(List<ObraAgrupada> lista) {
+    final live = widget.todasObras.where((o) => o.categoria.toLowerCase().contains('tv') || _temTag(o, ['live', 'tv'])).toList();
+    final cont = widget.todasObras.where((o) => _progresso.containsKey(o.chaveGrupo)).toList();
+    final topFilmes = [...lista.where((o) => o.categoria.toLowerCase().contains('filme'))]..sort((a, b) => b.visualizacoes.compareTo(a.visualizacoes));
+    final topSeries = [...lista.where((o) => o.categoria.toLowerCase().contains('série') || o.categoria.toLowerCase().contains('serie'))]..sort((a, b) => b.visualizacoes.compareTo(a.visualizacoes));
+    return [
+      if (live.isNotEmpty) _buildFileira('Livestream', live, horizontal: true, iconeLive: true),
+      if (cont.isNotEmpty) _buildFileira('Continuar Assistindo', cont, mostrarProgresso: true),
+      if (topFilmes.isNotEmpty) _buildFileira('Top Filmes', topFilmes, ranking: true),
+      if (topSeries.isNotEmpty) _buildFileira('Top Séries', topSeries, ranking: true),
+      _buildFileira('Adicionados Recentemente', lista),
+    ];
+  }
+
+  List<Widget> _buildSecoesFilmes(List<ObraAgrupada> filmes) {
+    final noCinema = filmes.where((o) => _temTag(o, ['no cinema', 'cinema'])).toList();
+    final lancamentos = [...filmes]..sort((a, b) => b.ano.compareTo(a.ano));
+    final dublados = filmes.where((o) => o.fontes.any((f) => f.tipoAudio.toLowerCase().contains('dub') || f.tipoAudio.toLowerCase().contains('dual'))).toList();
+    final netflix = filmes.where((o) => _temTag(o, ['netflix'])).toList();
+    final especiais = filmes.where((o) => _temTag(o, ['especiais', 'especial'])).toList();
+    final disney = filmes.where((o) => _temTag(o, ['disney'])).toList();
+    final nacional = filmes.where((o) => _temTag(o, ['nacional']) || _temGenero(o, 'nacional')).toList();
+    final curta = filmes.where((o) => _temTag(o, ['curta']) || _temGenero(o, 'curta')).toList();
+    final emBreve = filmes.where((o) => _temTag(o, ['em breve', 'trailer']) || o.titulo.toLowerCase().contains('(trailer)')).toList();
+
+    final generos = [
+      'Ação', 'Aventura', 'Romance', 'Mistério', 'Crime', 'Comédia', 'Drama',
+      'Família', 'Fantasia', 'Ficção Científica', 'Terror', 'Suspense', 'Musical',
+      'Guerra', 'Faroeste', 'Documentário', 'História'
+    ];
+
+    return [
+      if (noCinema.isNotEmpty) _buildFileira('No Cinema', noCinema),
+      if (lancamentos.isNotEmpty) _buildFileira('Lançamentos', lancamentos),
+      if (dublados.isNotEmpty) _buildFileira('Dublado', dublados),
+      if (netflix.isNotEmpty) _buildFileira('Netflix Filmes', netflix),
+      if (especiais.isNotEmpty) _buildFileira('Especiais', especiais, horizontal: true),
+      if (disney.isNotEmpty) _buildFileira('Disney+ Filmes', disney),
+      if (nacional.isNotEmpty) _buildFileira('Nacional', nacional),
+      for (final g in generos)
+        if (filmes.any((o) => _temGenero(o, g)))
+          _buildFileira(g, filmes.where((o) => _temGenero(o, g)).toList()),
+      if (curta.isNotEmpty) _buildFileira('Curta', curta, horizontal: true),
+      if (emBreve.isNotEmpty) _buildFileira('Em breve', emBreve),
+      _buildFileira('Todos', filmes),
+    ];
+  }
+
+  Widget _buildBanner(List<ObraAgrupada> items) {
     return SizedBox(
-      height: 215,
-      child: Stack(children: [
-        PageView.builder(
-          controller: _bannerCtrl,
-          itemCount: banners.length,
-          onPageChanged: (i) => setState(() => _bannerAtual = i),
-          itemBuilder: (_, i) {
-            final obra = banners[i];
-            final img = obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl;
-            return GestureDetector(
-              onTap: () => _abrirComProgresso(obra),
-              child: Stack(fit: StackFit.expand, children: [
-                if (img.isNotEmpty) Image.network(img, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: const Color(0xFF1A1C24))),
-                Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black87], stops: [0.45, 1.0]))),
-                Positioned(left: 16, bottom: 18, right: 85, child: Text(obra.titulo.toUpperCase(), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white))),
-              ]),
-            );
-          },
-        ),
-        Positioned(right: 14, bottom: 16, child: Row(children: List.generate(banners.length, (idx) => Container(margin: const EdgeInsets.symmetric(horizontal: 3), width: idx == _bannerAtual ? 9 : 7, height: idx == _bannerAtual ? 9 : 7, decoration: BoxDecoration(shape: BoxShape.circle, color: idx == _bannerAtual ? Colors.white : Colors.white38))))),
-      ]),
-    );
-  }
-
-  Widget _buildFileiraHorizontal({required String titulo, required List<ObraAgrupada> itens, bool isLivestream = false, bool mostrarProgresso = false}) {
-    final top10 = itens.take(10).toList();
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      InkWell(
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
-          backgroundColor: const Color(0xFF0B0C10),
-          appBar: AppBar(backgroundColor: const Color(0xFF0B0C10), title: Text('$titulo (${itens.length})')),
-          body: GridView.builder(
-            padding: const EdgeInsets.all(12),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, childAspectRatio: 0.56, crossAxisSpacing: 10, mainAxisSpacing: 12),
-            itemCount: itens.length,
-            itemBuilder: (_, i) => _buildCardPoster(itens[i]),
+      height: 230,
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: _bannerCtrl,
+            itemCount: items.length,
+            onPageChanged: (i) => setState(() => _bannerIdx = i),
+            itemBuilder: (_, i) {
+              final o = items[i];
+              final img = o.bannerUrl.isNotEmpty ? o.bannerUrl : o.capaUrl;
+              return GestureDetector(
+                onTap: () => _abrir(o),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (img.isNotEmpty) Image.network(img, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: Colors.grey[900])),
+                    Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black87]))),
+                    Positioned(
+                      left: 16, right: 80, bottom: 18,
+                      child: Text(o.titulo.toUpperCase(), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
-        ))),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 18, 14, 10),
-          child: Row(children: [
-            Text(titulo, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-            if (isLivestream) ...[const SizedBox(width: 8), const Icon(Icons.equalizer, color: Color(0xFFF5B82E), size: 18)],
-            const Spacer(),
-            const Icon(Icons.chevron_right, color: Colors.white70, size: 22),
-          ]),
-        ),
+          Positioned(
+            right: 16, bottom: 20,
+            child: Row(
+              children: List.generate(items.length, (i) => Container(
+                margin: const EdgeInsets.only(left: 5),
+                width: 8, height: 8,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: _bannerIdx == i ? Colors.white : Colors.white38),
+              )),
+            ),
+          ),
+        ],
       ),
-      SizedBox(
-        height: isLivestream ? 132 : 205,
-        child: ListView.separated(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          scrollDirection: Axis.horizontal,
-          itemCount: top10.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 10),
-          itemBuilder: (_, i) => isLivestream ? _buildCardLivestream(top10[i]) : _buildCardPoster(top10[i], mostrarProgresso: mostrarProgresso),
-        ),
-      ),
-    ]);
-  }
-
-  Widget _buildCardLivestream(ObraAgrupada obra) {
-    final img = obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl;
-    return GestureDetector(
-      onTap: () => _abrirComProgresso(obra),
-      child: SizedBox(width: 175, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        ClipRRect(borderRadius: BorderRadius.circular(8), child: SizedBox(height: 100, width: 175, child: img.isNotEmpty ? Image.network(img, fit: BoxFit.cover) : Container(color: const Color(0xFF1E202B)))),
-        const SizedBox(height: 6),
-        Text(obra.titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, color: Colors.white)),
-      ])),
     );
   }
 
-  Widget _buildCardPoster(ObraAgrupada obra, {bool mostrarProgresso = false}) {
-    final progData = _progressoMap[obra.chaveGrupo];
-    final double progVal = (progData?['progresso'] is num) ? (progData!['progresso'] as num).toDouble() : 0.0;
-    final String badge = (progData?['etiqueta']?.toString().isNotEmpty == true) ? progData!['etiqueta'].toString() : obra.badgePoster;
-    return GestureDetector(
-      onTap: () => _abrirComProgresso(obra),
-      child: SizedBox(width: 112, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(7),
-          child: SizedBox(height: 162, width: 112, child: Stack(fit: StackFit.expand, children: [
-            if (obra.capaUrl.isNotEmpty) Image.network(obra.capaUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: const Color(0xFF1E202B))) else Container(color: const Color(0xFF1E202B)),
-            if (badge.isNotEmpty) Positioned(left: 0, right: 0, bottom: mostrarProgresso ? 4 : 0, child: Container(padding: const EdgeInsets.symmetric(vertical: 4), color: Colors.black54, child: Text(badge, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white)))),
-            if (mostrarProgresso) Positioned(left: 0, right: 0, bottom: 0, child: LinearProgressIndicator(value: progVal > 0 ? progVal : 0.35, minHeight: 3, backgroundColor: Colors.white24, valueColor: const AlwaysStoppedAnimation<Color>(Colors.white))),
-          ])),
+  Widget _buildFileira(String titulo, List<ObraAgrupada> lista, {bool horizontal = false, bool iconeLive = false, bool mostrarProgresso = false, bool ranking = false}) {
+    final amostra = lista.take(10).toList();
+    final cardW = horizontal ? 165.0 : 112.0;
+    final cardH = horizontal ? 96.0 : 162.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 18, 8, 10),
+          child: Row(
+            children: [
+              Text(titulo, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+              if (iconeLive) const Padding(padding: EdgeInsets.only(left: 8), child: Icon(Icons.equalizer, color: Color(0xFFFFB800), size: 18)),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.chevron_right, color: Colors.white70),
+                onPressed: () => _verTodos(titulo, lista),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 5),
-        Text(obra.titulo, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, color: Colors.white, height: 1.15)),
-      ])),
+        SizedBox(
+          height: cardH + 42,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: amostra.length,
+            itemBuilder: (_, i) {
+              final o = amostra[i];
+              final prog = _progresso[o.chaveGrupo];
+              return GestureDetector(
+                onTap: () => _abrir(o),
+                child: Container(
+                  width: cardW,
+                  margin: const EdgeInsets.only(right: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Stack(
+                          children: [
+                            Container(
+                              width: cardW, height: cardH, color: const Color(0xFF1A1A1A),
+                              child: o.capaUrl.isNotEmpty
+                                  ? Image.network(o.capaUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.movie, color: Colors.white24))
+                                  : const Icon(Icons.movie, color: Colors.white24),
+                            ),
+                            if (ranking)
+                              Positioned(top: 4, left: 4, child: Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: const Color(0xFFFFB800), borderRadius: BorderRadius.circular(4)), child: Text('#${i + 1}', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 11)))),
+                            if (mostrarProgresso && prog != null)
+                              Positioned(
+                                left: 0, right: 0, bottom: 0,
+                                child: Column(
+                                  children: [
+                                    if ((prog['etiqueta'] ?? '').toString().isNotEmpty)
+                                      Container(color: Colors.black54, padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1), child: Text(prog['etiqueta'], style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold))),
+                                    LinearProgressIndicator(value: (prog['progresso'] as num?)?.toDouble() ?? 0.2, minHeight: 3, backgroundColor: Colors.white24, valueColor: const AlwaysStoppedAnimation(Color(0xFFFFB800))),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(o.titulo, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.2)),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

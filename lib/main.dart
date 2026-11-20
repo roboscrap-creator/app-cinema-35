@@ -1,5 +1,4 @@
 import 'package:http/http.dart' as http;
-import 'services/torrserver_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -19,7 +18,6 @@ class CinemaOrientation {
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  TorrServerService.instance.iniciar();
   http.get(Uri.parse('https://roboscrap-backend-l9t8.onrender.com/docs')).catchError((_) => http.Response('', 500));
   runApp(const AppCinema());
 }

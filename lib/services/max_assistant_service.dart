@@ -219,7 +219,7 @@ class MaxAssistantService extends ChangeNotifier {
     return null;
   }
 
-  Future?> _confirmarTituloTmdb(String termo) async {
+  Future<Map<String, String>?> _confirmarTituloTmdb(String termo) async {
     try {
       final uri = Uri.parse(
         'https://api.themoviedb.org/3/search/multi?api_key=${SupabaseService.tmdbApiKey}&language=pt-BR&query=${Uri.encodeQueryComponent(termo.trim())}',

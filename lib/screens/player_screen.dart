@@ -51,6 +51,10 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   String _legendaSelecionada = 'Nenhuma';
 
   int _retryAutoCount = 0;
+  String? _osdTexto;
+  IconData? _osdIcone;
+  Timer? _osdTimer;
+  final FocusNode _playerRootFocus = FocusNode();
 
   @override
   void initState() {
@@ -200,6 +204,8 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   void _reiniciarTimerControles() {
     _hideTimer?.cancel();
+    _osdTimer?.cancel();
+    _playerRootFocus.dispose();
     setState(() => _controlesVisiveis = true);
     _hideTimer = Timer(const Duration(seconds: 5), () {
       if (mounted && _tocando) {
@@ -618,45 +624,105 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     );
   }
 
+  void _mostrarOsd(IconData icone, String texto) {
+    _osdTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _osdIcone = icone;
+      _osdTexto = texto;
+    });
+    _osdTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) {
+        setState(() {
+          _osdTexto = null;
+          _osdIcone = null;
+        });
+      }
+    });
+  }
+
+  void _alternarPlayPause() {
+    _player.playOrPause();
+    final vaiPausar = _tocando;
+    _mostrarOsd(vaiPausar ? Icons.pause_circle_filled : Icons.play_circle_filled, vaiPausar ? 'Pausado' : 'Reproduzindo');
+    _reiniciarTimerControles();
+  }
+
+  void _buscarRelativo(int segundos) {
+    final alvo = _posicao + Duration(seconds: segundos);
+    final clamped = alvo < Duration.zero
+        ? Duration.zero
+        : (_duracao > Duration.zero && alvo > _duracao ? _duracao : alvo);
+    _player.seek(clamped);
+    _mostrarOsd(
+      segundos < 0 ? Icons.replay_10 : Icons.forward_10,
+      segundos < 0 ? '${segundos}s' : '+${segundos}s',
+    );
+    _reiniciarTimerControles();
+  }
+
+  bool _isConfirmKey(LogicalKeyboardKey k) {
+    return k == LogicalKeyboardKey.select ||
+        k == LogicalKeyboardKey.enter ||
+        k == LogicalKeyboardKey.numpadEnter ||
+        k == LogicalKeyboardKey.accept ||
+        k == LogicalKeyboardKey.gameButtonA ||
+        k == LogicalKeyboardKey.space ||
+        k == LogicalKeyboardKey.mediaPlayPause;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final prox = _proximoEpisodio;
-    final podePularAbertura = widget.obra.isSerie &&
+    final podePularAbertura = widget.obra.aberturaSegundos > 0 &&
         _posicao.inSeconds >= 5 &&
         _posicao.inSeconds <= (widget.obra.aberturaSegundos + 45);
+    final prox = _proximoEpisodio;
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: Focus(
+        focusNode: _playerRootFocus,
         autofocus: true,
         onKeyEvent: (node, event) {
           if (event is! KeyDownEvent) return KeyEventResult.ignored;
           final k = event.logicalKey;
+
           if (k == LogicalKeyboardKey.mediaPlayPause ||
               k == LogicalKeyboardKey.mediaPlay ||
               k == LogicalKeyboardKey.mediaPause) {
-            _player.playOrPause();
-            _reiniciarTimerControles();
+            _alternarPlayPause();
             return KeyEventResult.handled;
           }
-          if (!_controlesVisiveis && !_carregandoStream) {
-            if (k == LogicalKeyboardKey.select ||
-                k == LogicalKeyboardKey.enter ||
-                k == LogicalKeyboardKey.numpadEnter ||
-                k == LogicalKeyboardKey.space ||
-                k == LogicalKeyboardKey.gameButtonA) {
-              _player.playOrPause();
-              _reiniciarTimerControles();
+          if (k == LogicalKeyboardKey.mediaFastForward) {
+            _buscarRelativo(10);
+            return KeyEventResult.handled;
+          }
+          if (k == LogicalKeyboardKey.mediaRewind) {
+            _buscarRelativo(-10);
+            return KeyEventResult.handled;
+          }
+
+          if (k == LogicalKeyboardKey.escape || k == LogicalKeyboardKey.goBack) {
+            if (_controlesVisiveis && !_carregandoStream) {
+              setState(() => _controlesVisiveis = false);
+              _playerRootFocus.requestFocus();
               return KeyEventResult.handled;
             }
-            if (k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.mediaFastForward) {
-              _player.seek(_posicao + const Duration(seconds: 10));
-              _reiniciarTimerControles();
+            Navigator.pop(context);
+            return KeyEventResult.handled;
+          }
+
+          if (!_controlesVisiveis) {
+            if (_isConfirmKey(k)) {
+              _alternarPlayPause();
               return KeyEventResult.handled;
             }
-            if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.mediaRewind) {
-              _player.seek(_posicao - const Duration(seconds: 10));
-              _reiniciarTimerControles();
+            if (k == LogicalKeyboardKey.arrowRight) {
+              _buscarRelativo(10);
+              return KeyEventResult.handled;
+            }
+            if (k == LogicalKeyboardKey.arrowLeft) {
+              _buscarRelativo(-10);
               return KeyEventResult.handled;
             }
             if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.arrowDown) {
@@ -665,218 +731,318 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
             }
           } else {
             _reiniciarTimerControles();
-            if (k == LogicalKeyboardKey.escape || k == LogicalKeyboardKey.goBack) {
-              setState(() => _controlesVisiveis = false);
-              return KeyEventResult.handled;
+            if (_playerRootFocus.hasPrimaryFocus) {
+              if (_isConfirmKey(k)) {
+                _alternarPlayPause();
+                return KeyEventResult.handled;
+              }
+              if (k == LogicalKeyboardKey.arrowRight) {
+                _buscarRelativo(10);
+                return KeyEventResult.handled;
+              }
+              if (k == LogicalKeyboardKey.arrowLeft) {
+                _buscarRelativo(-10);
+                return KeyEventResult.handled;
+              }
+              if (k == LogicalKeyboardKey.arrowDown || k == LogicalKeyboardKey.arrowUp) {
+                FocusScope.of(context).nextFocus();
+                return KeyEventResult.handled;
+              }
             }
           }
           return KeyEventResult.ignored;
         },
         child: GestureDetector(
-        onTap: () {
-          if (_controlesVisiveis && !_carregandoStream) {
-            setState(() => _controlesVisiveis = false);
-          } else {
-            _reiniciarTimerControles();
-          }
-        },
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Video(
-              controller: _videoCtrl,
-              controls: NoVideoControls,
-              subtitleViewConfiguration: SubtitleViewConfiguration(
-                visible: _legendaAtiva,
-                style: TextStyle(
-                  fontSize: _tamanhoLegenda,
-                  color: _corLegenda,
-                  fontWeight: FontWeight.w700,
-                  backgroundColor: Colors.black54,
+          onTap: () {
+            if (_controlesVisiveis && !_carregandoStream) {
+              setState(() => _controlesVisiveis = false);
+              _playerRootFocus.requestFocus();
+            } else {
+              _reiniciarTimerControles();
+            }
+          },
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Video(
+                controller: _videoCtrl,
+                controls: NoVideoControls,
+                subtitleViewConfiguration: SubtitleViewConfiguration(
+                  visible: _legendaAtiva,
+                  style: TextStyle(
+                    fontSize: _tamanhoLegenda,
+                    color: _corLegenda,
+                    fontWeight: FontWeight.w700,
+                    backgroundColor: Colors.black54,
+                  ),
                 ),
               ),
-            ),
-            if (_carregandoStream)
-              const Center(child: CircularProgressIndicator(color: Color(0xFFF5B82E))),
-            if (_erroPlayer != null)
-              Center(
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(12)),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.error_outline, color: Colors.redAccent, size: 42),
-                      const SizedBox(height: 10),
-                      Text(_erroPlayer!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
-                      const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: () => _iniciarFonte(_fonteAtual),
-                        child: const Text('Tentar novamente'),
+              if (_carregandoStream)
+                const Center(child: CircularProgressIndicator(color: Color(0xFFF5B82E))),
+              if (_osdTexto != null && !_carregandoStream)
+                Center(
+                  child: IgnorePointer(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.78),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFF5B82E), width: 1.5),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-            if (podePularAbertura)
-              Positioned(
-                right: 28,
-                bottom: 92,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFF5B82E),
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  ),
-                  onPressed: _pularAbertura,
-                  icon: const Icon(Icons.fast_forward),
-                  label: Text('Pular Abertura (+${widget.obra.aberturaSegundos}s)', style: const TextStyle(fontWeight: FontWeight.w900)),
-                ),
-              ),
-            if (_controlesVisiveis && !_carregandoStream)
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.black87, Colors.transparent, Colors.transparent, Colors.black87],
-                  ),
-                ),
-                child: Column(
-                  children: [
-                    // Barra Superior
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
                       child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          IconButton(
-                            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 26),
-                            onPressed: () => Navigator.pop(context),
+                          if (_osdIcone != null) Icon(_osdIcone, color: const Color(0xFFF5B82E), size: 32),
+                          const SizedBox(width: 10),
+                          Text(
+                            _osdTexto!,
+                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  widget.obra.titulo,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
-                                ),
-                                Text(
-                                  '${_fonteAtual.etiquetaEpisodio} ${_fonteAtual.badgeResumo}'.trim(),
-                                  style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 12.5, fontWeight: FontWeight.w600),
-                                ),
-                              ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              if (_erroPlayer != null)
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(12)),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.redAccent, size: 42),
+                        const SizedBox(height: 10),
+                        Text(_erroPlayer!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
+                        const SizedBox(height: 12),
+                        CinemaFocusBox(
+                          autofocus: true,
+                          onTap: () => _iniciarFonte(_fonteAtual),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF5B82E),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text('Tentar novamente', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (podePularAbertura)
+                Positioned(
+                  right: 28,
+                  bottom: 92,
+                  child: CinemaFocusBox(
+                    onTap: _pularAbertura,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF5B82E),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.fast_forward, color: Colors.black),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Pular Abertura (+${widget.obra.aberturaSegundos}s)',
+                            style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              if (_controlesVisiveis && !_carregandoStream)
+                Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.black87, Colors.transparent, Colors.transparent, Colors.black87],
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                        child: Row(
+                          children: [
+                            CinemaFocusBox(
+                              borderRadius: 24,
+                              onTap: () => Navigator.pop(context),
+                              child: const Padding(
+                                padding: EdgeInsets.all(8),
+                                child: Icon(Icons.arrow_back, color: Colors.white, size: 26),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.obra.titulo,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+                                  ),
+                                  Text(
+                                    '${_fonteAtual.etiquetaEpisodio} ${_fonteAtual.badgeResumo}'.trim(),
+                                    style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 12.5, fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CinemaFocusBox(
+                            borderRadius: 30,
+                            scaleOnFocus: 1.12,
+                            onTap: () => _buscarRelativo(-10),
+                            child: const Padding(
+                              padding: EdgeInsets.all(10),
+                              child: Icon(Icons.replay_10, color: Colors.white, size: 38),
+                            ),
+                          ),
+                          const SizedBox(width: 28),
+                          CinemaFocusBox(
+                            autofocus: true,
+                            borderRadius: 36,
+                            scaleOnFocus: 1.12,
+                            onTap: _alternarPlayPause,
+                            child: CircleAvatar(
+                              radius: 30,
+                              backgroundColor: const Color(0xFFF5B82E),
+                              child: Icon(_tocando ? Icons.pause : Icons.play_arrow, size: 34, color: Colors.black),
+                            ),
+                          ),
+                          const SizedBox(width: 28),
+                          CinemaFocusBox(
+                            borderRadius: 30,
+                            scaleOnFocus: 1.12,
+                            onTap: () => _buscarRelativo(10),
+                            child: const Padding(
+                              padding: EdgeInsets.all(10),
+                              child: Icon(Icons.forward_10, color: Colors.white, size: 38),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    const Spacer(),
-                    // Controles Centrais
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          iconSize: 38,
-                          color: Colors.white,
-                          icon: const Icon(Icons.replay_10),
-                          onPressed: () {
-                            _player.seek(_posicao - const Duration(seconds: 10));
-                            _reiniciarTimerControles();
-                          },
-                        ),
-                        const SizedBox(width: 28),
-                        CinemaFocusBox(
-                          autofocus: true,
-                          borderRadius: 36,
-                          scaleOnFocus: 1.12,
-                          onTap: () {
-                            _player.playOrPause();
-                            _reiniciarTimerControles();
-                          },
-                          child: CircleAvatar(
-                            radius: 30,
-                            backgroundColor: const Color(0xFFF5B82E),
-                            child: Icon(_tocando ? Icons.pause : Icons.play_arrow, size: 34, color: Colors.black),
-                          ),
-                        ),
-                        const SizedBox(width: 28),
-                        IconButton(
-                          iconSize: 38,
-                          color: Colors.white,
-                          icon: const Icon(Icons.forward_10),
-                          onPressed: () {
-                            _player.seek(_posicao + const Duration(seconds: 10));
-                            _reiniciarTimerControles();
-                          },
-                        ),
-                      ],
-                    ),
-                    const Spacer(),
-                    // Barra Inferior (Progresso + Próximo Ep + Resolução/Áudio + Legendas)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(22, 0, 22, 16),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Text(_formatarTempo(_posicao), style: const TextStyle(color: Colors.white, fontSize: 12)),
-                              Expanded(
-                                child: Slider(
-                                  value: _duracao.inMilliseconds > 0
-                                      ? _posicao.inMilliseconds.clamp(0, _duracao.inMilliseconds).toDouble()
-                                      : 0,
-                                  max: _duracao.inMilliseconds > 0 ? _duracao.inMilliseconds.toDouble() : 1,
-                                  activeColor: const Color(0xFFF5B82E),
-                                  inactiveColor: Colors.white24,
-                                  onChanged: (v) {
-                                    _player.seek(Duration(milliseconds: v.toInt()));
-                                    _reiniciarTimerControles();
-                                  },
+                      const Spacer(),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(22, 0, 22, 16),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Text(_formatarTempo(_posicao), style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                Expanded(
+                                  child: Slider(
+                                    value: _duracao.inMilliseconds > 0
+                                        ? _posicao.inMilliseconds.clamp(0, _duracao.inMilliseconds).toDouble()
+                                        : 0,
+                                    max: _duracao.inMilliseconds > 0 ? _duracao.inMilliseconds.toDouble() : 1,
+                                    activeColor: const Color(0xFFF5B82E),
+                                    inactiveColor: Colors.white24,
+                                    onChanged: (v) {
+                                      _player.seek(Duration(milliseconds: v.toInt()));
+                                      _reiniciarTimerControles();
+                                    },
+                                  ),
                                 ),
-                              ),
-                              Text(_formatarTempo(_duracao), style: const TextStyle(color: Colors.white, fontSize: 12)),
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              if (prox != null)
-                                TextButton.icon(
-                                  onPressed: () => _iniciarFonte(prox),
-                                  icon: const Icon(Icons.skip_next, color: Color(0xFFF5B82E)),
-                                  label: Text('Próximo (${prox.etiquetaEpisodio})', style: const TextStyle(color: Colors.white)),
+                                Text(_formatarTempo(_duracao), style: const TextStyle(color: Colors.white, fontSize: 12)),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                if (prox != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 10),
+                                    child: CinemaFocusBox(
+                                      borderRadius: 8,
+                                      onTap: () => _iniciarFonte(prox),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.skip_next, color: Color(0xFFF5B82E), size: 20),
+                                            const SizedBox(width: 4),
+                                            Text('Próximo (${prox.etiquetaEpisodio})', style: const TextStyle(color: Colors.white)),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                if (widget.listaEpisodios.isNotEmpty)
+                                  CinemaFocusBox(
+                                    borderRadius: 8,
+                                    onTap: _abrirModalEpisodios,
+                                    child: const Padding(
+                                      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.list, color: Colors.white, size: 20),
+                                          SizedBox(width: 4),
+                                          Text('Episódios', style: TextStyle(color: Colors.white)),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                const Spacer(),
+                                CinemaFocusBox(
+                                  borderRadius: 8,
+                                  onTap: _abrirModalFontes,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.hd, color: Color(0xFFF5B82E), size: 20),
+                                        const SizedBox(width: 4),
+                                        Text(_fonteAtual.resolucao, style: const TextStyle(color: Colors.white)),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                              if (widget.listaEpisodios.isNotEmpty)
-                                TextButton.icon(
-                                  onPressed: _abrirModalEpisodios,
-                                  icon: const Icon(Icons.list, color: Colors.white),
-                                  label: const Text('Episódios', style: TextStyle(color: Colors.white)),
+                                const SizedBox(width: 10),
+                                CinemaFocusBox(
+                                  borderRadius: 8,
+                                  onTap: _abrirModalLegendas,
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.subtitles, color: Colors.white, size: 20),
+                                        SizedBox(width: 4),
+                                        Text('Legendas', style: TextStyle(color: Colors.white)),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                              const Spacer(),
-                              TextButton.icon(
-                                onPressed: _abrirModalFontes,
-                                icon: const Icon(Icons.hd, color: Color(0xFFF5B82E)),
-                                label: Text(_fonteAtual.resolucao, style: const TextStyle(color: Colors.white)),
-                              ),
-                              TextButton.icon(
-                                onPressed: _abrirModalLegendas,
-                                icon: const Icon(Icons.subtitles, color: Colors.white),
-                                label: const Text('Legendas', style: TextStyle(color: Colors.white)),
-                              ),
-                            ],
-                          ),
-                        ],
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }

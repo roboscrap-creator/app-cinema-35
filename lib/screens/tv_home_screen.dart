@@ -218,9 +218,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             final ativo = _abaIndex == i;
             return Padding(
               padding: const EdgeInsets.only(right: 10),
-              child: InkWell(
+              child: CinemaFocusBox(
                 onTap: () => setState(() => _abaIndex = i),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: 20,
+                scaleOnFocus: 1.06,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 160),
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
@@ -397,88 +398,94 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         child: Text(tituloSecao, style: const TextStyle(color: Colors.white54)),
       );
     }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          PageView.builder(
-            controller: controller,
-            itemCount: itens.length,
-            onPageChanged: onPageChanged,
-            itemBuilder: (_, idx) {
-              final obra = itens[idx];
-              final img = obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl;
-              return InkWell(
-                onTap: () => widget.onAbrirObra(obra),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (img.isNotEmpty)
-                      CachedNetworkImage(imageUrl: img, fit: BoxFit.cover)
-                    else
-                      Container(color: const Color(0xFF181D27)),
-                    Container(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Colors.black26, Colors.black87],
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 16,
-                      right: 16,
-                      bottom: 14,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(4)),
-                            child: Text(tituloSecao, style: const TextStyle(color: Colors.black, fontSize: 10.5, fontWeight: FontWeight.w900)),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            obra.titulo,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900),
-                          ),
-                          Text(
-                            '${obra.ano} • ${obra.genero}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white70, fontSize: 12.5),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+    final idxSeguro = paginaAtual.clamp(0, itens.length - 1);
+    final obra = itens[idxSeguro];
+    final img = obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl;
+
+    return CinemaFocusBox(
+      onTap: () => widget.onAbrirObra(obra),
+      borderRadius: 14,
+      scaleOnFocus: 1.025,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (img.isNotEmpty)
+              CachedNetworkImage(
+                key: ValueKey('${obra.chaveGrupo}_$idxSeguro'),
+                imageUrl: img,
+                fit: BoxFit.cover,
+              )
+            else
+              Container(color: const Color(0xFF181D27)),
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.black12, Colors.black87],
                 ),
-              );
-            },
-          ),
-          Positioned(
-            right: 14,
-            bottom: 16,
-            child: Row(
-              children: List.generate(
-                itens.length,
-                (i) => Container(
-                  width: i == paginaAtual ? 18 : 7,
-                  height: 7,
-                  margin: const EdgeInsets.only(left: 4),
-                  decoration: BoxDecoration(
-                    color: i == paginaAtual ? const Color(0xFFF5B82E) : Colors.white38,
-                    borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            Positioned(
+              left: 16,
+              right: 84,
+              bottom: 14,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5B82E),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      tituloSecao,
+                      style: const TextStyle(color: Colors.black, fontSize: 10.5, fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    obra.titulo,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900),
+                  ),
+                  Text(
+                    '${obra.ano} • ${obra.genero}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              right: 14,
+              bottom: 16,
+              child: Row(
+                children: List.generate(
+                  itens.length,
+                  (i) => GestureDetector(
+                    onTap: () => onPageChanged(i),
+                    child: Container(
+                      width: i == idxSeguro ? 18 : 7,
+                      height: 7,
+                      margin: const EdgeInsets.only(left: 4),
+                      decoration: BoxDecoration(
+                        color: i == idxSeguro ? const Color(0xFFF5B82E) : Colors.white38,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

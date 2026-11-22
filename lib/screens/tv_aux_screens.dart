@@ -138,6 +138,7 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 ),
               ),
+                ),
               const SizedBox(height: 12),
               Row(
                 children: [

@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
@@ -100,11 +101,20 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextField(
-                controller: _ctrl,
-                autofocus: true,
-                textInputAction: TextInputAction.search,
-                onChanged: (_) {
+              Focus(
+                onKeyEvent: (node, event) {
+                  if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                    FocusScope.of(context).nextFocus();
+                    return KeyEventResult.handled;
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: TextField(
+                  controller: _ctrl,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  onEditingComplete: () => FocusScope.of(context).nextFocus(),
+                  onChanged: (_) {
                   setState(() {});
                   _executarBusca();
                 },
@@ -210,6 +220,7 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   ),
                 ),
+              ),
                 const SizedBox(height: 14),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -239,9 +250,10 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
                     crossAxisSpacing: 8,
                     children: [
                       ...(_modoNumeros ? _numeros : _letras).map(
-                        (ch) => InkWell(
+                        (ch) => CinemaFocusBox(
                           onTap: () => _digitar(ch),
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: 6,
+                          scaleOnFocus: 1.08,
                           child: Container(
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
@@ -255,9 +267,10 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
                           ),
                         ),
                       ),
-                      InkWell(
+                      CinemaFocusBox(
                         onTap: () => _digitar(' '),
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: 6,
+                        scaleOnFocus: 1.08,
                         child: Container(
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
@@ -351,9 +364,10 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
   }
 
   Widget _teclaEspecial({String? label, IconData? icon, required VoidCallback onTap}) {
-    return InkWell(
+    return CinemaFocusBox(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: 6,
+      scaleOnFocus: 1.07,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
@@ -469,9 +483,9 @@ class _TvFiltroScreenState extends State<TvFiltroScreen> {
               itemBuilder: (_, i) {
                 final item = opcoes[i];
                 final ativo = item == selecionado;
-                return InkWell(
+                return CinemaFocusBox(
                   onTap: () => onSelect(item),
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: 18,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     decoration: BoxDecoration(color: ativo ? const Color(0xFFF5B82E) : Colors.transparent, borderRadius: BorderRadius.circular(18)),
@@ -778,8 +792,10 @@ class _TvHistoricoFavoritosScreenState extends State<TvHistoricoFavoritosScreen>
   }
 
   Widget _itemMenuLateral({required String titulo, required bool ativo, required VoidCallback onTap}) {
-    return InkWell(
+    return CinemaFocusBox(
       onTap: onTap,
+      borderRadius: 8,
+      scaleOnFocus: 1.02,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
@@ -791,9 +807,9 @@ class _TvHistoricoFavoritosScreenState extends State<TvHistoricoFavoritosScreen>
   }
 
   Widget _pilulaTipo({required String label, required bool ativo, required VoidCallback onTap}) {
-    return InkWell(
+    return CinemaFocusBox(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: 20,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
         decoration: BoxDecoration(

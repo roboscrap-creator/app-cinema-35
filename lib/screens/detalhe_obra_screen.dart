@@ -288,8 +288,10 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
   }
 
   Widget _buildPreviewCard(String img) {
-    return GestureDetector(
+    return CinemaFocusBox(
       onTap: () => _reproduzir(),
+      borderRadius: 14,
+      scaleOnFocus: 1.035,
       child: AspectRatio(
         aspectRatio: 16 / 9,
         child: ClipRRect(
@@ -400,8 +402,13 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
         ],
         Row(
           children: [
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
+            CinemaFocusBox(
+              autofocus: true,
+              borderRadius: 24,
+              scaleOnFocus: 1.06,
+              onTap: () => _reproduzir(),
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
                 backgroundColor: _obraAtual.disponivelParaAssistir ? const Color(0xFFF5B82E) : Colors.white24,
                 foregroundColor: _obraAtual.disponivelParaAssistir ? Colors.black : Colors.white70,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 13),
@@ -414,8 +421,12 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
               ),
             ),
             const SizedBox(width: 14),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
+            CinemaFocusBox(
+              borderRadius: 24,
+              scaleOnFocus: 1.06,
+              onTap: _alternarFavorito,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
                 foregroundColor: _favorito ? const Color(0xFFF5B82E) : Colors.white,
                 side: BorderSide(color: _favorito ? const Color(0xFFF5B82E) : Colors.white30),
                 padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
@@ -423,6 +434,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
               onPressed: _alternarFavorito,
               icon: Icon(_favorito ? Icons.favorite : Icons.favorite_border),
               label: Text(_favorito ? 'Favoritado' : 'Favoritar'),
+            ),
             ),
           ],
         ),

@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../main.dart';
+import '../widgets/cinema_widgets.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
 import '../services/torrserver_service.dart';
@@ -626,7 +627,52 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
+      body: Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          final k = event.logicalKey;
+          if (k == LogicalKeyboardKey.mediaPlayPause ||
+              k == LogicalKeyboardKey.mediaPlay ||
+              k == LogicalKeyboardKey.mediaPause) {
+            _player.playOrPause();
+            _reiniciarTimerControles();
+            return KeyEventResult.handled;
+          }
+          if (!_controlesVisiveis && !_carregandoStream) {
+            if (k == LogicalKeyboardKey.select ||
+                k == LogicalKeyboardKey.enter ||
+                k == LogicalKeyboardKey.numpadEnter ||
+                k == LogicalKeyboardKey.space ||
+                k == LogicalKeyboardKey.gameButtonA) {
+              _player.playOrPause();
+              _reiniciarTimerControles();
+              return KeyEventResult.handled;
+            }
+            if (k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.mediaFastForward) {
+              _player.seek(_posicao + const Duration(seconds: 10));
+              _reiniciarTimerControles();
+              return KeyEventResult.handled;
+            }
+            if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.mediaRewind) {
+              _player.seek(_posicao - const Duration(seconds: 10));
+              _reiniciarTimerControles();
+              return KeyEventResult.handled;
+            }
+            if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.arrowDown) {
+              _reiniciarTimerControles();
+              return KeyEventResult.handled;
+            }
+          } else {
+            _reiniciarTimerControles();
+            if (k == LogicalKeyboardKey.escape || k == LogicalKeyboardKey.goBack) {
+              setState(() => _controlesVisiveis = false);
+              return KeyEventResult.handled;
+            }
+          }
+          return KeyEventResult.ignored;
+        },
+        child: GestureDetector(
         onTap: () {
           if (_controlesVisiveis && !_carregandoStream) {
             setState(() => _controlesVisiveis = false);
@@ -743,17 +789,18 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                           },
                         ),
                         const SizedBox(width: 28),
-                        CircleAvatar(
-                          radius: 30,
-                          backgroundColor: const Color(0xFFF5B82E),
-                          child: IconButton(
-                            iconSize: 34,
-                            color: Colors.black,
-                            icon: Icon(_tocando ? Icons.pause : Icons.play_arrow),
-                            onPressed: () {
-                              _player.playOrPause();
-                              _reiniciarTimerControles();
-                            },
+                        CinemaFocusBox(
+                          autofocus: true,
+                          borderRadius: 36,
+                          scaleOnFocus: 1.12,
+                          onTap: () {
+                            _player.playOrPause();
+                            _reiniciarTimerControles();
+                          },
+                          child: CircleAvatar(
+                            radius: 30,
+                            backgroundColor: const Color(0xFFF5B82E),
+                            child: Icon(_tocando ? Icons.pause : Icons.play_arrow, size: 34, color: Colors.black),
                           ),
                         ),
                         const SizedBox(width: 28),
@@ -829,6 +876,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
               ),
           ],
         ),
+      ),
       ),
     );
   }

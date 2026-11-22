@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -409,6 +410,92 @@ class _TvPosterCardState extends State<TvPosterCard> {
                   ),
                 ],
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+class CinemaFocusBox extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double borderRadius;
+  final double scaleOnFocus;
+  final bool autofocus;
+  final EdgeInsetsGeometry padding;
+
+  const CinemaFocusBox({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.borderRadius = 12,
+    this.scaleOnFocus = 1.045,
+    this.autofocus = false,
+    this.padding = EdgeInsets.zero,
+  });
+
+  @override
+  State<CinemaFocusBox> createState() => _CinemaFocusBoxState();
+}
+
+class _CinemaFocusBoxState extends State<CinemaFocusBox> {
+  bool _focused = false;
+  bool _hovered = false;
+
+  bool get _ativo => _focused || _hovered;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Focus(
+        autofocus: widget.autofocus,
+        onFocusChange: (f) => setState(() => _focused = f),
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent &&
+              (event.logicalKey == LogicalKeyboardKey.select ||
+               event.logicalKey == LogicalKeyboardKey.enter ||
+               event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+               event.logicalKey == LogicalKeyboardKey.gameButtonA ||
+               event.logicalKey == LogicalKeyboardKey.space)) {
+            if (widget.onTap != null) {
+              widget.onTap!();
+              return KeyEventResult.handled;
+            }
+          }
+          return KeyEventResult.ignored;
+        },
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedScale(
+            scale: _ativo ? widget.scaleOnFocus : 1.0,
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOutCubic,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              padding: widget.padding,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(widget.borderRadius),
+                border: Border.all(
+                  color: _ativo ? const Color(0xFFF5B82E) : Colors.transparent,
+                  width: _ativo ? 3.0 : 1.0,
+                ),
+                boxShadow: _ativo
+                    ? [
+                        BoxShadow(
+                          color: const Color(0xFFF5B82E).withOpacity(0.50),
+                          blurRadius: 16,
+                          spreadRadius: 1.5,
+                        ),
+                      ]
+                    : const [],
+              ),
+              child: widget.child,
             ),
           ),
         ),

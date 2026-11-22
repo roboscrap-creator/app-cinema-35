@@ -193,9 +193,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         children: [
           const CinemaLogoWidget(height: 36, width: 124),
           const SizedBox(width: 10),
-          InkWell(
+          CinemaFocusBox(
             onTap: widget.onAlternarModoMobile,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: 18,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
@@ -575,9 +575,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     final img = grande
         ? (obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl)
         : (obra.capaUrl.isNotEmpty ? obra.capaUrl : obra.bannerUrl);
-    return InkWell(
+    return CinemaFocusBox(
       onTap: () => widget.onAbrirObra(obra),
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: 12,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: Stack(
@@ -626,9 +626,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   }
 
   Widget _botaoAcaoCategoria({IconData? icon, required String label, bool destaque = false, required VoidCallback onTap}) {
-    return InkWell(
+    return CinemaFocusBox(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: 10,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(

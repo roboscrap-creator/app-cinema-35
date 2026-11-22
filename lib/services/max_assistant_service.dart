@@ -66,7 +66,8 @@ class MaxAssistantService extends ChangeNotifier {
   MaxAssistantService._();
 
   static const String _cloudEndpoint = String.fromEnvironment('MAX_CLOUD_URL', defaultValue: '');
-  static const String _embeddedGeminiKey = String.fromEnvironment('GEMINI_API_KEY', defaultValue: '');
+  static const String _embeddedGeminiKey1 = String.fromEnvironment('GEMINI_API_KEY', defaultValue: '');
+  static const String _embeddedGeminiKey2 = String.fromEnvironment('GEMINI_API_KEY_2', defaultValue: '');
 
   final SpeechToText _stt = SpeechToText();
   final FlutterTts _tts = FlutterTts();
@@ -311,10 +312,11 @@ $contextoPerfis
       } catch (_) {}
     }
 
-    if (_embeddedGeminiKey.isNotEmpty) {
+    for (final apiKey in [_embeddedGeminiKey1, _embeddedGeminiKey2]) {
+      if (apiKey.isEmpty) continue;
       try {
         final uri = Uri.parse(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$_embeddedGeminiKey');
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey');
         final resp = await http
             .post(uri,
                 headers: {'Content-Type': 'application/json'},
@@ -325,8 +327,8 @@ $contextoPerfis
                 }))
             .timeout(const Duration(seconds: 8));
         if (resp.statusCode == 200) {
-          final txt = jsonDecode(resp.body)['candidates']?[0]?['content']?['parts']?[0]?['text']?.toString() ?? '';
-          final parsed = _extrairJson(txt);
+          final bodyTxt = jsonDecode(resp.body)['candidates']?[0]?['content']?['parts']?[0]?['text']?.toString() ?? '';
+          final parsed = _extrairJson(bodyTxt);
           if (parsed != null) return parsed;
         }
       } catch (_) {}

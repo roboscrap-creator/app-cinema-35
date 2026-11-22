@@ -997,7 +997,7 @@ class _TvSubcategoriaScreenState extends State<TvSubcategoriaScreen> {
           ],
         ),
         actions: [
-          PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })), const SizedBox(width: 6), MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icone: Icons.playlist_add_rounded, tooltip: 'Pedidos', onTap: () => PedidosScreenModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: widget.onAbrirBusca),
+          PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })), const SizedBox(width: 6), MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icon: Icons.playlist_add_rounded, label: 'Pedidos', onPressed: () => PedidosScreenModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: widget.onAbrirBusca),
           const SizedBox(width: 10),
           TopIconeComTooltip(icon: Icons.filter_alt_outlined, label: 'Filtro', onPressed: widget.onAbrirFiltro),
           const SizedBox(width: 20),

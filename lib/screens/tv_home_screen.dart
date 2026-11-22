@@ -254,7 +254,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             );
           }),
           const Spacer(),
-          PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })), const SizedBox(width: 6), MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icone: Icons.playlist_add_rounded, tooltip: 'Pedidos', onTap: () => PedidosScreenModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: _abrirBusca),
+          PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })), const SizedBox(width: 6), MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icon: Icons.playlist_add_rounded, label: 'Pedidos', onPressed: () => PedidosScreenModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: _abrirBusca),
           const SizedBox(width: 12),
           TopIconeComTooltip(
             icon: Icons.filter_alt_outlined,

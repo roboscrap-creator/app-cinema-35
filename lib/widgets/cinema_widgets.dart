@@ -1,6 +1,3 @@
-import '../widgets/max_assistant_overlay.dart';
-import '../widgets/perfis_usuario_screen.dart';
-import '../services/max_memory_service.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -107,7 +104,7 @@ class TopIconeComTooltip extends StatefulWidget {
   final String label;
   final VoidCallback onPressed;
 
-  const PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })), const SizedBox(width: 6), MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icone: Icons.playlist_add_rounded, tooltip: 'Pedidos', onTap: () => PedidosScreenModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip({
+  const TopIconeComTooltip({
     super.key,
     required this.icon,
     required this.label,

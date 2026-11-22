@@ -420,6 +420,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
+            ),
             const SizedBox(width: 14),
             CinemaFocusBox(
               borderRadius: 24,

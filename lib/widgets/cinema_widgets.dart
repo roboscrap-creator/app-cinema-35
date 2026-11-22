@@ -343,7 +343,7 @@ class _TvPosterCardState extends State<TvPosterCard> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        if (o.notaImdb.isNotEmpty && o.notaImdb != '0.0')
+                        if (o.notaImdb > 0)
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                             decoration: BoxDecoration(
@@ -351,7 +351,7 @@ class _TvPosterCardState extends State<TvPosterCard> {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              o.notaImdb,
+                              o.notaImdb.toStringAsFixed(1),
                               style: const TextStyle(
                                 color: Color(0xFFF5B82E),
                                 fontSize: 10.5,

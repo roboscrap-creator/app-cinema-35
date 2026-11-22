@@ -299,6 +299,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       ..sort((a, b) => b.scorePopularidade.compareTo(a.scorePopularidade));
 
     return ListView(
+      cacheExtent: 320,
       padding: const EdgeInsets.fromLTRB(26, 8, 26, 36),
       children: [
         // Dois Banners Rotativos Lado a Lado (4 Filmes + 4 Séries)
@@ -416,6 +417,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                 key: ValueKey('${obra.chaveGrupo}_$idxSeguro'),
                 imageUrl: img,
                 fit: BoxFit.cover,
+                memCacheWidth: 720,
+                fadeInDuration: Duration.zero,
               )
             else
               Container(color: const Color(0xFF181D27)),
@@ -507,6 +510,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                 : ['Todos', 'Ação', 'Aventura', 'Fantasia', 'Shonen'];
 
     return ListView(
+      cacheExtent: 320,
       padding: const EdgeInsets.fromLTRB(26, 8, 26, 36),
       children: [
         // Mosaico Fixo com Banner Principal + 2 Pôsteres Laterais

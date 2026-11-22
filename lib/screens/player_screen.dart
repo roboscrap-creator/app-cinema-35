@@ -69,7 +69,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
     _player = Player(
       configuration: const PlayerConfiguration(
-        bufferSize: 32 * 1024 * 1024,
+        bufferSize: 20 * 1024 * 1024,
       ),
     );
     if (_player.platform is NativePlayer) {

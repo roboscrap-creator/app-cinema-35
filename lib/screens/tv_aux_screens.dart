@@ -360,6 +360,7 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
           ),
         ],
       ),
+      ),
     );
   }
 

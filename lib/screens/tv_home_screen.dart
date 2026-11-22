@@ -1,3 +1,4 @@
+import '../services/app_updater_service.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -39,6 +40,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   void initState() {
     super.initState();
     _carregarProgresso();
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) AppUpdaterService.verificarAtualizacao(context, silencioso: true);
+    });
     _autoPlayTimer = Timer.periodic(const Duration(seconds: 6), (_) {
       if (!mounted || _abaIndex != 0) return;
       if (_bannerFilmesCtrl.hasClients) {
@@ -259,6 +263,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             icon: Icons.history,
             label: 'Meus Favoritos e Histórico',
             onPressed: _abrirHistoricoFavoritos,
+          ),
+          const SizedBox(width: 12),
+          TopIconeComTooltip(
+            icon: Icons.system_update,
+            label: 'Atualizar Aplicativo',
+            onPressed: () => AppUpdaterService.verificarAtualizacao(context, silencioso: false),
           ),
           const SizedBox(width: 12),
           TopIconeComTooltip(

@@ -20,16 +20,87 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-      - name: Criar estrutura Android, embutir TorrServer e gerar logo Cinema
+
+      - name: Criar estrutura Android, embutir TorrServer e configurar Auto-Update
         run: |
           flutter create . --platforms=android --org com.chiavegatti.cinema
-          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><application android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
+
+          if [ ! -f cinema-release.jks ]; then
+            keytool -genkeypair -v -keystore cinema-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias cinema -storepass cinema35pass -keypass cinema35pass -dname "CN=Cinema, OU=App, O=Chiavegatti, L=Uberlandia, S=MG, C=BR"
+          fi
+          cp cinema-release.jks android/app/cinema-release.jks
+
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/><application android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
           sed -i 's/android:label="app_cinema"/android:label="Cinema"/' android/app/src/main/AndroidManifest.xml
 
+          # Adicionar FileProvider no AndroidManifest.xml para instalacao OTA do APK
+          sed -i 's|</application>|    <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.fileprovider" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" /></provider>\n    </application>|' android/app/src/main/AndroidManifest.xml
+
+          mkdir -p android/app/src/main/res/xml
+          cat << 'XMLEOF' > android/app/src/main/res/xml/file_paths.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths>
+              <files-path name="updates" path="." />
+              <cache-path name="cache_updates" path="." />
+          </paths>
+          XMLEOF
+
+          # Configurar assinatura fixa release no Gradle
+          cat << 'PROPEOF' > android/key.properties
+          storePassword=cinema35pass
+          keyPassword=cinema35pass
+          keyAlias=cinema
+          storeFile=cinema-release.jks
+          PROPEOF
+
           if [ -f android/app/build.gradle.kts ]; then
-            sed -i 's/android {/android {\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }/' android/app/build.gradle.kts
+            cat << 'GRADLEKTS' >> android/app/build.gradle.kts
+
+          android {
+              packaging {
+                  jniLibs {
+                      useLegacyPackaging = true
+                  }
+              }
+              signingConfigs {
+                  create("releaseFixed") {
+                      storeFile = file("cinema-release.jks")
+                      storePassword = "cinema35pass"
+                      keyAlias = "cinema"
+                      keyPassword = "cinema35pass"
+                  }
+              }
+              buildTypes {
+                  getByName("release") {
+                      signingConfig = signingConfigs.getByName("releaseFixed")
+                  }
+              }
+          }
+          GRADLEKTS
           elif [ -f android/app/build.gradle ]; then
-            sed -i 's/android {/android {\n    packagingOptions {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }/' android/app/build.gradle
+            cat << 'GRADLEGROOVY' >> android/app/build.gradle
+
+          android {
+              packagingOptions {
+                  jniLibs {
+                      useLegacyPackaging = true
+                  }
+              }
+              signingConfigs {
+                  releaseFixed {
+                      storeFile file("cinema-release.jks")
+                      storePassword "cinema35pass"
+                      keyAlias "cinema"
+                      keyPassword "cinema35pass"
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.releaseFixed
+                  }
+              }
+          }
+          GRADLEGROOVY
           fi
 
           mkdir -p android/app/src/main/jniLibs/arm64-v8a
@@ -37,13 +108,18 @@ jobs:
           chmod +x android/app/src/main/jniLibs/arm64-v8a/libtorrserver.so
 
           MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
-          PKG_LINE=$(grep "^package " "$MAIN_ACT" | head -n 1)
           cat << 'KTEOF' > "$MAIN_ACT"
           package com.chiavegatti.cinema.app_cinema
 
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Build
+          import android.provider.Settings
+          import androidx.core.content.FileProvider
           import io.flutter.embedding.android.FlutterActivity
           import io.flutter.embedding.engine.FlutterEngine
           import io.flutter.plugin.common.MethodChannel
+          import java.io.File
 
           class MainActivity: FlutterActivity() {
               private val CHANNEL = "com.chiavegatti.cinema/torrserver"
@@ -51,14 +127,49 @@ jobs:
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
-                      if (call.method == "getPaths") {
-                          val paths = mapOf(
-                              "nativeLibDir" to applicationContext.applicationInfo.nativeLibraryDir,
-                              "filesDir" to applicationContext.filesDir.absolutePath
-                          )
-                          result.success(paths)
-                      } else {
-                          result.notImplemented()
+                      when (call.method) {
+                          "getPaths" -> {
+                              val paths = mapOf(
+                                  "nativeLibDir" to applicationContext.applicationInfo.nativeLibraryDir,
+                                  "filesDir" to applicationContext.filesDir.absolutePath
+                              )
+                              result.success(paths)
+                          }
+                          "installApk" -> {
+                              val path = call.argument<String>("path")
+                              if (path.isNullOrEmpty()) {
+                                  result.error("INVALID_PATH", "Caminho vazio", null)
+                                  return@setMethodCallHandler
+                              }
+                              try {
+                                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                                      val permIntent = Intent(
+                                          Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                          Uri.parse("package:$packageName")
+                                      )
+                                      permIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                      startActivity(permIntent)
+                                      result.success("PERMISSION_NEEDED")
+                                      return@setMethodCallHandler
+                                  }
+                                  val file = File(path)
+                                  val uri = FileProvider.getUriForFile(
+                                      this,
+                                      "$packageName.fileprovider",
+                                      file
+                                  )
+                                  val intent = Intent(Intent.ACTION_VIEW).apply {
+                                      setDataAndType(uri, "application/vnd.android.package-archive")
+                                      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                  }
+                                  startActivity(intent)
+                                  result.success("STARTED")
+                              } catch (e: Exception) {
+                                  result.error("INSTALL_ERROR", e.message, null)
+                              }
+                          }
+                          else -> result.notImplemented()
                       }
                   }
               }
@@ -67,18 +178,22 @@ jobs:
 
           python3 -m pip install pillow
           python3 gerar_icone.py
+
       - name: Instalar dependencias
         run: flutter pub get
+
       - name: Compilar APK Release (arm64)
         run: |
           flutter build apk --config-only --release --target-platform android-arm64
           cd android && ./gradlew assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
+
       - name: Publicar APK direto na Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-apk
           name: Cinema APK (TorrServer Integrado)
           files: build/app/outputs/flutter-apk/app-release.apk
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:

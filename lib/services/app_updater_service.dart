@@ -112,7 +112,7 @@ class AppUpdaterService {
       builder: (ctx) {
         bool baixando = false;
         double progresso = 0.0;
-        String status = 'Uma nova versão do CineMax está disponível${mb.isNotEmpty ? " ($mb)" : ""}.\\nPublicado em: $dataFmt';
+        String status = 'Uma nova versão do CineMax está disponível${mb.isNotEmpty ? " ($mb)" : ""}.\nPublicado em: $dataFmt';
 
         return StatefulBuilder(
           builder: (ctx, setModal) {

@@ -184,15 +184,28 @@ jobs:
 
       - name: Compilar APK Release (arm64)
         run: |
-          flutter build apk --config-only --release --target-platform android-arm64
+          flutter build apk --config-only --release --target-platform android-arm64 --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} --dart-define=GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }}
           cd android && ./gradlew assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
+
+      - name: Gerar version.json OTA
+        run: |
+          cat << JSONEOF > build/app/outputs/flutter-apk/version.json
+          {
+            "version": "3.5.0",
+            "build": "${{ github.run_number }}",
+            "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "apk_url": "https://github.com/roboscrap-creator/app-cinema-35/releases/download/latest-apk/app-release.apk"
+          }
+          JSONEOF
 
       - name: Publicar APK direto na Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-apk
           name: CineMax APK (TorrServer Integrado)
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/version.json
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

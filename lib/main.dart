@@ -10,6 +10,12 @@ import 'widgets/cinema_widgets.dart';
 import 'screens/tv_home_screen.dart';
 import 'screens/tv_aux_screens.dart';
 import 'screens/detalhe_obra_screen.dart';
+import 'services/app_updater_service.dart';
+import 'services/max_assistant_service.dart';
+import 'services/max_memory_service.dart';
+import 'services/max_wake_word_service.dart';
+import 'widgets/max_assistant_overlay.dart';
+import 'widgets/perfis_usuario_screen.dart';
 
 class CinemaOrientation {
   static bool emPlayer = false;
@@ -69,6 +75,7 @@ class CinemaBootstrapScreen extends StatefulWidget {
 class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
   List<ObraAgrupada> _catalogo = [];
   bool _carregando = true;
+  bool _perfilSelecionado = false;
   bool? _modoTvForcado;
 
   @override
@@ -78,9 +85,13 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
   }
 
   Future<void> _inicializar() async {
+    await MaxMemoryService.instance.inicializar();
+    await MaxAssistantService.instance.inicializar();
     final prefs = await SharedPreferences.getInstance();
     final modoSalvo = prefs.getBool('modo_tv_forcado');
     final obras = await SupabaseService.carregarCatalogoAgrupado();
+    MaxAssistantService.instance.atualizarCatalogo(obras);
+    MaxAssistantService.instance.onExecutarAcao = _executarAcaoMax;
     if (mounted) {
       setState(() {
         _modoTvForcado = modoSalvo;
@@ -88,6 +99,47 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
         _carregando = false;
       });
     }
+  }
+
+  void _onPerfilConfirmado() {
+    if (!mounted) return;
+    setState(() => _perfilSelecionado = true);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) AppUpdaterService.verificarAtualizacao(context, silencioso: true);
+    });
+    MaxWakeWordService.instance.iniciar(onAcordar: (cmd) {
+      if (!mounted) return;
+      MaxAssistantModal.abrir(context);
+      if (cmd != null && cmd.isNotEmpty) MaxAssistantService.instance.processarComando(cmd);
+    });
+  }
+
+  void _executarAcaoMax(MaxAcaoComando acao) {
+    if (!mounted) return;
+    final listaAtual = _catalogoFiltradoPerfil;
+    if (acao.tipo == 'abrir_titulo' && (acao.titulo ?? '').isNotEmpty) {
+      final q = SupabaseService.normalizarTexto(acao.titulo!);
+      final match = listaAtual.where((o) => SupabaseService.normalizarTexto(o.titulo).contains(q) || SupabaseService.normalizarTexto(o.tituloOriginal).contains(q)).toList();
+      if (match.isNotEmpty) { _abrirObra(match.first); return; }
+    }
+    if (acao.tipo == 'abrir_favoritos') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => TvHistoricoFavoritosScreen(catalogo: listaAtual, onAbrirObra: _abrirObra)));
+      return;
+    }
+    if (acao.tipo == 'abrir_pedidos') { PedidosScreenModal.abrir(context); return; }
+    if (acao.tipo == 'abrir_busca' || acao.tipo == 'buscar_termo' || acao.tipo == 'filtrar_streaming') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => TvBuscaScreen(catalogo: listaAtual, onAbrirObra: _abrirObra)));
+    }
+  }
+
+  List<ObraAgrupada> get _catalogoFiltradoPerfil {
+    if (!MaxMemoryService.instance.modoKidsAtivo) return _catalogo;
+    return _catalogo.where((o) {
+      final c = SupabaseService.normalizarTexto(o.categoria);
+      final g = SupabaseService.normalizarTexto(o.genero);
+      final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
+      return c.contains('kids') || c.contains('infantil') || g.contains('infantil') || g.contains('animacao') || g.contains('familia') || t.contains('kids');
+    }).toList();
   }
 
   Future<void> _recarregarCatalogo() async {
@@ -137,34 +189,22 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
       );
     }
 
+    if (!_perfilSelecionado) {
+      return PerfisSelectionOverlay(obrigatorio: true, onPerfilSelecionado: _onPerfilConfirmado);
+    }
+    final catalogoAtivo = _catalogoFiltradoPerfil;
     final size = MediaQuery.of(context).size;
     final isTvAuto = size.shortestSide >= 650;
     final usarLayoutTv = _modoTvForcado ?? isTvAuto;
 
     if (usarLayoutTv) {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-      return TvHomeScreen(
-        catalogo: _catalogo,
-        onRefresh: _recarregarCatalogo,
-        onAbrirObra: _abrirObra,
-        onAlternarModoMobile: () => _alternarModo(false),
-      );
+      SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+      return TvHomeScreen(catalogo: catalogoAtivo, onRefresh: _recarregarCatalogo, onAbrirObra: _abrirObra, onAlternarModoMobile: () => _alternarModo(false));
     }
-
     if (!CinemaOrientation.emPlayer) {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-      ]);
+      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     }
-    return MobileHomeScreen(
-      catalogo: _catalogo,
-      onRefresh: _recarregarCatalogo,
-      onAbrirObra: _abrirObra,
-      onAlternarModoTv: () => _alternarModo(true),
-    );
+    return MobileHomeScreen(catalogo: catalogoAtivo, onRefresh: _recarregarCatalogo, onAbrirObra: _abrirObra, onAlternarModoTv: () => _alternarModo(true));
   }
 }
 
@@ -234,6 +274,9 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
       appBar: AppBar(
         title: const CinemaLogoWidget(height: 34, width: 120),
         actions: [
+          Center(child: Padding(padding: const EdgeInsets.only(right: 4), child: PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })))),
+          Center(child: Padding(padding: const EdgeInsets.only(right: 2), child: MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)))),
+          IconButton(tooltip: 'Pedidos', icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFFF5B82E)), onPressed: () => PedidosScreenModal.abrir(context)),
           IconButton(
             tooltip: 'Buscar',
             icon: const Icon(Icons.search),

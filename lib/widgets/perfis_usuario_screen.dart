@@ -1,6 +1,91 @@
 import 'package:flutter/material.dart';
 import '../services/max_assistant_service.dart';
 import '../services/max_memory_service.dart';
+import 'cinema_widgets.dart';
+
+class AvatarTematico {
+  final String id;
+  final String nome;
+  final String categoria;
+  final String emoji;
+  final List<Color> cores;
+
+  const AvatarTematico({
+    required this.id,
+    required this.nome,
+    required this.categoria,
+    required this.emoji,
+    required this.cores,
+  });
+}
+
+const List<AvatarTematico> kAvataresCineMax = [
+  AvatarTematico(id: 'geral_pipoca', nome: 'Pipoca VIP', categoria: 'Geral', emoji: '🍿', cores: [Color(0xFFF5B82E), Color(0xFFC97B0C)]),
+  AvatarTematico(id: 'geral_claquete', nome: 'Diretor', categoria: 'Geral', emoji: '🎬', cores: [Color(0xFF3A7BD5), Color(0xFF1F3C88)]),
+  AvatarTematico(id: 'filme_heroi', nome: 'Herói', categoria: 'Filmes', emoji: '🦸', cores: [Color(0xFFE53935), Color(0xFF8E0000)]),
+  AvatarTematico(id: 'filme_espaco', nome: 'Sci-Fi', categoria: 'Filmes', emoji: '🚀', cores: [Color(0xFF6A11CB), Color(0xFF2575FC)]),
+  AvatarTematico(id: 'filme_terror', nome: 'Suspense', categoria: 'Filmes', emoji: '👻', cores: [Color(0xFF434343), Color(0xFF121212)]),
+  AvatarTematico(id: 'serie_coroa', nome: 'Trono', categoria: 'Séries', emoji: '👑', cores: [Color(0xFFD4AF37), Color(0xFF7A5C00)]),
+  AvatarTematico(id: 'serie_detetive', nome: 'Detetive', categoria: 'Séries', emoji: '🕵️', cores: [Color(0xFF2C3E50), Color(0xFF4CA1AF)]),
+  AvatarTematico(id: 'serie_dragao', nome: 'Fantasia', categoria: 'Séries', emoji: '🐉', cores: [Color(0xFF11998E), Color(0xFF0B4F4A)]),
+  AvatarTematico(id: 'anime_ninja', nome: 'Ninja', categoria: 'Animes', emoji: '🥷', cores: [Color(0xFFFF512F), Color(0xFFDD2476)]),
+  AvatarTematico(id: 'anime_katana', nome: 'Samurai', categoria: 'Animes', emoji: '⚔️', cores: [Color(0xFF8E2DE2), Color(0xFF4A00E0)]),
+  AvatarTematico(id: 'anime_chama', nome: 'Shonen', categoria: 'Animes', emoji: '🔥', cores: [Color(0xFFFF8008), Color(0xFFFFC837)]),
+  AvatarTematico(id: 'desenho_estrela', nome: 'Estrelinha', categoria: 'Desenhos', emoji: '⭐', cores: [Color(0xFFFFB75E), Color(0xFFED8F03)]),
+  AvatarTematico(id: 'desenho_robo', nome: 'Robozinho', categoria: 'Desenhos', emoji: '🤖', cores: [Color(0xFF00B4DB), Color(0xFF0083B0)]),
+  AvatarTematico(id: 'desenho_dino', nome: 'Dino Kids', categoria: 'Desenhos', emoji: '🦖', cores: [Color(0xFF56AB2F), Color(0xFFA8E063)]),
+  AvatarTematico(id: 'desenho_unicornio', nome: 'Mágico', categoria: 'Desenhos', emoji: '🦄', cores: [Color(0xFFFC5C7D), Color(0xFF6A82FB)]),
+];
+
+AvatarTematico buscarAvatarPorId(String id) {
+  for (final a in kAvataresCineMax) {
+    if (a.id == id) return a;
+  }
+  return kAvataresCineMax.first;
+}
+
+class AvatarIlustradoWidget extends StatelessWidget {
+  final String avatarId;
+  final double size;
+  final bool infantil;
+
+  const AvatarIlustradoWidget({super.key, required this.avatarId, this.size = 76, this.infantil = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final av = buscarAvatarPorId(avatarId);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: size,
+          height: size,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(size * 0.24),
+            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: av.cores),
+            boxShadow: [BoxShadow(color: av.cores.first.withOpacity(0.35), blurRadius: 10, offset: const Offset(0, 4))],
+          ),
+          child: Text(av.emoji, style: TextStyle(fontSize: size * 0.48)),
+        ),
+        if (infantil)
+          Positioned(
+            right: -4,
+            bottom: -4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00D2FF),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: const Color(0xFF0A0C10), width: 1.5),
+              ),
+              child: const Text('KIDS', style: TextStyle(color: Colors.black, fontSize: 8.5, fontWeight: FontWeight.w900)),
+            ),
+          ),
+      ],
+    );
+  }
+}
 
 class PerfilChipTopButton extends StatefulWidget {
   final VoidCallback onTap;
@@ -15,39 +100,30 @@ class _PerfilChipTopButtonState extends State<PerfilChipTopButton> {
 
   @override
   Widget build(BuildContext context) {
-    final nome = MaxMemoryService.instance.nomeAtual;
-    final inicial = nome.isNotEmpty ? nome[0].toUpperCase() : 'U';
+    final perfil = MaxMemoryService.instance.perfilAtual;
+    final nome = perfil?.nome ?? 'Geral';
+    final avatarId = perfil?.avatarId ?? 'geral_pipoca';
+    final kids = perfil?.infantil == true;
 
-    return Focus(
-      onFocusChange: (f) => setState(() => _focado = f),
-      child: InkWell(
-        onTap: widget.onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1A1F2E),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: _focado ? Colors.white : const Color(0xFFF5B82E).withOpacity(0.65),
-              width: _focado ? 2.0 : 1.2,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircleAvatar(
-                radius: 11,
-                backgroundColor: const Color(0xFFF5B82E),
-                child: Text(inicial,
-                    style: const TextStyle(color: Color(0xFF0B0D12), fontWeight: FontWeight.w900, fontSize: 12)),
-              ),
-              if (nome.isNotEmpty) ...[
-                const SizedBox(width: 6),
-                Text(nome, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
-              ],
-            ],
-          ),
+    return CinemaFocusBox(
+      onTap: widget.onTap,
+      borderRadius: 22,
+      scaleOnFocus: 1.06,
+      onFocusChanged: (f) => setState(() => _focado = f),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1F2E),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: _focado ? Colors.white : const Color(0xFFF5B82E).withOpacity(0.65), width: _focado ? 2.0 : 1.2),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AvatarIlustradoWidget(avatarId: avatarId, size: 24, infantil: false),
+            const SizedBox(width: 6),
+            Text(kids ? '$nome • Kids' : nome, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+          ],
         ),
       ),
     );
@@ -56,7 +132,9 @@ class _PerfilChipTopButtonState extends State<PerfilChipTopButton> {
 
 class PerfisSelectionOverlay extends StatefulWidget {
   final VoidCallback? onPerfilSelecionado;
-  const PerfisSelectionOverlay({super.key, this.onPerfilSelecionado});
+  final bool obrigatorio;
+
+  const PerfisSelectionOverlay({super.key, this.onPerfilSelecionado, this.obrigatorio = false});
 
   static Future<void> abrir(BuildContext context, {VoidCallback? onPerfilSelecionado}) async {
     await MaxMemoryService.instance.inicializar();
@@ -75,51 +153,199 @@ class PerfisSelectionOverlay extends StatefulWidget {
 
 class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
   Future<void> _selecionar(MaxPerfilUsuario perfil) async {
-    await MaxMemoryService.instance.definirPerfilAtivo(perfil.nome, infantil: perfil.infantil);
+    await MaxMemoryService.instance.definirPerfilAtivo(perfil.nome, infantil: perfil.infantil, avatarId: perfil.avatarId);
     widget.onPerfilSelecionado?.call();
-    if (mounted) Navigator.of(context).pop();
-    MaxAssistantService.instance.falar('Olá, ${perfil.nome}! Perfil carregado. O que vamos assistir?');
+    if (!widget.obrigatorio && mounted) Navigator.of(context).pop();
+    if (perfil.nome.toLowerCase() != 'geral') {
+      MaxAssistantService.instance.falar('Olá, ${perfil.nome}! O que vamos assistir hoje?');
+    }
   }
 
   Future<void> _novoPerfil() async {
     final nomeCtrl = TextEditingController();
     bool ehInfantil = false;
+    String categoriaFiltro = 'Todos';
+    String avatarSelecionado = 'geral_pipoca';
+    const categorias = ['Todos', 'Filmes', 'Séries', 'Animes', 'Desenhos', 'Geral'];
+
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => AlertDialog(
-          backgroundColor: const Color(0xFF141824),
-          title: const Text('Novo Perfil CineMax', style: TextStyle(color: Color(0xFFF5B82E))),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nomeCtrl,
-                autofocus: true,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(hintText: 'Nome do usuário...', hintStyle: TextStyle(color: Colors.white38)),
+        builder: (ctx, setLocal) {
+          final avataresFiltrados = categoriaFiltro == 'Todos'
+              ? kAvataresCineMax
+              : kAvataresCineMax.where((a) => a.categoria == categoriaFiltro).toList();
+
+          return AlertDialog(
+            backgroundColor: const Color(0xFF141824),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFF5B82E), width: 1.4)),
+            title: const Text('Novo Perfil CineMax', style: TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w900)),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: nomeCtrl,
+                      autofocus: true,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'Nome do perfil...',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: const Color(0xFF1E2436),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      activeColor: const Color(0xFFF5B82E),
+                      title: const Text('Perfil Kids (filtra conteúdo infantil)', style: TextStyle(color: Colors.white, fontSize: 13.5)),
+                      value: ehInfantil,
+                      onChanged: (v) => setLocal(() {
+                        ehInfantil = v;
+                        if (v) avatarSelecionado = 'desenho_estrela';
+                      }),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Escolha um avatar:', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 34,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: categorias.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 6),
+                        itemBuilder: (_, idx) {
+                          final cat = categorias[idx];
+                          final ativo = cat == categoriaFiltro;
+                          return ChoiceChip(
+                            label: Text(cat, style: TextStyle(fontSize: 11.5, color: ativo ? Colors.black : Colors.white)),
+                            selected: ativo,
+                            selectedColor: const Color(0xFFF5B82E),
+                            onSelected: (_) => setLocal(() => categoriaFiltro = cat),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: avataresFiltrados.map((av) {
+                        final sel = av.id == avatarSelecionado;
+                        return GestureDetector(
+                          onTap: () => setLocal(() => avatarSelecionado = av.id),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: sel ? const Color(0xFFF5B82E) : Colors.transparent, width: 2.5),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AvatarIlustradoWidget(avatarId: av.id, size: 52),
+                                const SizedBox(height: 3),
+                                Text(av.nome, style: const TextStyle(color: Colors.white70, fontSize: 10)),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
               ),
-              SwitchListTile(
-                activeColor: const Color(0xFFF5B82E),
-                title: const Text('Perfil Infantil (Kids)', style: TextStyle(color: Colors.white)),
-                value: ehInfantil,
-                onChanged: (v) => setLocal(() => ehInfantil = v),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF5B82E), foregroundColor: Colors.black),
+                onPressed: () async {
+                  final nome = nomeCtrl.text.trim();
+                  if (nome.isEmpty) return;
+                  await MaxMemoryService.instance.definirPerfilAtivo(nome, infantil: ehInfantil, avatarId: avatarSelecionado);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) setState(() {});
+                  widget.onPerfilSelecionado?.call();
+                  if (!widget.obrigatorio && mounted) Navigator.pop(context);
+                },
+                child: const Text('Salvar', style: TextStyle(fontWeight: FontWeight.w900)),
               ),
             ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF5B82E), foregroundColor: Colors.black),
-              onPressed: () async {
-                final nome = nomeCtrl.text.trim();
-                if (nome.isEmpty) return;
-                await MaxMemoryService.instance.definirPerfilAtivo(nome, infantil: ehInfantil);
-                if (ctx.mounted) Navigator.pop(ctx);
-                widget.onPerfilSelecionado?.call();
-                if (mounted) Navigator.pop(context);
-              },
-              child: const Text('Salvar'),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildConteudo() {
+    final perfis = MaxMemoryService.instance.perfis;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CinemaLogoWidget(height: 46, width: 170),
+            const SizedBox(height: 22),
+            const Text('Quem está assistindo?', style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 28),
+            Wrap(
+              spacing: 22,
+              runSpacing: 22,
+              alignment: WrapAlignment.center,
+              children: [
+                ...perfis.asMap().entries.map((entry) {
+                  final p = entry.value;
+                  return CinemaFocusBox(
+                    autofocus: entry.key == 0,
+                    borderRadius: 20,
+                    scaleOnFocus: 1.08,
+                    onTap: () => _selecionar(p),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AvatarIlustradoWidget(avatarId: p.avatarId, size: 88, infantil: p.infantil),
+                          const SizedBox(height: 8),
+                          Text(p.nome, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800)),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                CinemaFocusBox(
+                  borderRadius: 20,
+                  scaleOnFocus: 1.08,
+                  onTap: _novoPerfil,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 88,
+                          height: 88,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF181D2B),
+                            borderRadius: BorderRadius.circular(21),
+                            border: Border.all(color: Colors.white30, width: 1.5),
+                          ),
+                          child: const Icon(Icons.add_rounded, color: Color(0xFFF5B82E), size: 42),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text('Adicionar Perfil', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -129,70 +355,13 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    final perfis = MaxMemoryService.instance.perfis;
+    if (widget.obrigatorio) {
+      return Scaffold(backgroundColor: const Color(0xFF0A0C10), body: SafeArea(child: _buildConteudo()));
+    }
     return Dialog(
       backgroundColor: const Color(0xFF0E111A),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: Color(0xFFF5B82E), width: 1.5),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Quem está assistindo?',
-                style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 22),
-            Wrap(
-              spacing: 18,
-              runSpacing: 18,
-              alignment: WrapAlignment.center,
-              children: [
-                ...perfis.map((p) => InkWell(
-                      onTap: () => _selecionar(p),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 84,
-                            height: 84,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF5B82E),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Text(p.nome[0].toUpperCase(),
-                                style: const TextStyle(color: Color(0xFF0B0D12), fontSize: 38, fontWeight: FontWeight.w900)),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(p.nome, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                        ],
-                      ),
-                    )),
-                InkWell(
-                  onTap: _novoPerfil,
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 84,
-                        height: 84,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF181D2B),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white30),
-                        ),
-                        child: const Icon(Icons.add_rounded, color: Color(0xFFF5B82E), size: 40),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text('Adicionar', style: TextStyle(color: Colors.white70)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24), side: const BorderSide(color: Color(0xFFF5B82E), width: 1.5)),
+      child: _buildConteudo(),
     );
   }
 }

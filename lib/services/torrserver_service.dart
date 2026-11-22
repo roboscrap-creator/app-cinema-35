@@ -60,7 +60,7 @@ class TorrServerService {
           'DisableDHT': false,
           'DisablePEX': false,
           'DisableUpload': false,
-          'ConnectionsLimit': 120,
+          'ConnectionsLimit': 150,
           'PeersListenPort': 0,
         },
       });
@@ -79,7 +79,7 @@ class TorrServerService {
       final filesDir = (paths?['filesDir'] ?? '').toString();
       final binPath = '$nativeLibDir/libtorrserver.so';
       if (nativeLibDir.isEmpty || !await File(binPath).exists()) {
-        ultimoErro = 'Binario TorrServer nao encontrado.';
+        ultimoErro = 'Motor de streaming local não encontrado.';
         return false;
       }
       final dataDir = Directory('$filesDir/torrserver');
@@ -113,10 +113,10 @@ class TorrServerService {
           }
         }
       }
-      ultimoErro = 'Timeout na porta 8090.';
+      ultimoErro = 'Tempo esgotado ao iniciar o motor local.';
       return false;
     } catch (e) {
-      ultimoErro = 'Erro ao iniciar TorrServer: $e';
+      ultimoErro = 'Erro ao iniciar motor local: $e';
       return false;
     }
   }
@@ -151,9 +151,7 @@ class TorrServerService {
         final res = await req.close().timeout(const Duration(seconds: 5));
         if (res.statusCode == 200) {
           final bytes = await res.fold<List<int>>([], (prev, el) => prev..addAll(el));
-          if (bytes.length > 100 && bytes.first == 100) {
-            return bytes;
-          }
+          if (bytes.length > 100 && bytes.first == 100) return bytes;
         } else {
           await res.drain();
         }
@@ -218,19 +216,40 @@ class TorrServerService {
       (m) => '${m.group(1)}${_base32ParaHex(m.group(2)!)}',
     );
     const trackers = [
+      'udp://tracker.opentrackr.org:1337/announce',
       'http://tracker.opentrackr.org:1337/announce',
+      'udp://open.stealth.si:80/announce',
+      'udp://tracker.torrent.eu.org:451/announce',
+      'udp://open.demonii.com:1337/announce',
+      'udp://tracker.openbittorrent.com:6969/announce',
+      'http://tracker.openbittorrent.com:80/announce',
+      'udp://exodus.desync.com:6969/announce',
+      'udp://tracker.moeking.me:6969/announce',
+      'udp://explodie.org:6969/announce',
+      'udp://tracker.tiny-vps.com:6969/announce',
+      'udp://tracker.dler.org:6969/announce',
       'https://tracker.tamersunion.org:443/announce',
       'https://tracker.loligirl.cn:443/announce',
       'https://tracker.gbitt.info:443/announce',
       'http://93.158.213.92:1337/announce',
-      'udp://tracker.opentrackr.org:1337/announce',
       'udp://93.158.213.92:1337/announce',
-      'udp://open.stealth.si:80/announce',
-      'udp://tracker.torrent.eu.org:451/announce',
+      'udp://tracker1.bt.moack.co.kr:80/announce',
+      'udp://tracker.theoks.net:6969/announce',
+      'udp://tracker.bittor.pw:1337/announce',
+      'udp://movies.zsw.ca:6969/announce',
+      'udp://tracker.cyberia.is:6969/announce',
+      'udp://retracker01-msk-virt.corbina.net:80/announce',
+      'udp://p4p.arenabg.com:1337/announce',
+      'udp://tracker.leechers-paradise.org:6969/announce',
+      'udp://tracker.coppersurfer.tk:6969/announce',
+      'udp://9.rarbg.com:2810/announce',
+      'udp://tracker.publictracker.xyz:6969/announce',
     ];
     final sb = StringBuffer(clean);
+    final lower = clean.toLowerCase();
     for (final tr in trackers) {
-      if (!clean.toLowerCase().contains(Uri.encodeComponent(tr).toLowerCase())) {
+      final enc = Uri.encodeComponent(tr).toLowerCase();
+      if (!lower.contains(enc) && !lower.contains(tr.toLowerCase())) {
         sb.write('&tr=${Uri.encodeComponent(tr)}');
       }
     }
@@ -243,15 +262,16 @@ class TorrServerService {
     void Function(double)? onProgress,
     bool Function()? cancelado,
   }) async {
+    ultimoErro = '';
     final cleanMagnet = _enriquecerMagnet(magnetUrl);
     final hash = _extrairHash(cleanMagnet);
-    onProgress?.call(0.15);
-    onStatus?.call('Iniciando motor TorrServer...');
+    onProgress?.call(0.12);
+    onStatus?.call('Iniciando motor de vídeo...');
     if (!await garantirAtivo()) return null;
     if (cancelado != null && cancelado()) return null;
 
-    onProgress?.call(0.28);
-    onStatus?.call('Buscando arquivo .torrent em cache web...');
+    onProgress?.call(0.25);
+    onStatus?.call('Verificando fontes e trackers...');
     bool subiuTorrent = false;
     if (hash.length == 40) {
       final torrentBytes = await _baixarTorrentCache(hash);
@@ -260,64 +280,71 @@ class TorrServerService {
       }
     }
 
-    if (!subiuTorrent) {
-      await _postJson('/torrents', {
-        'action': 'add',
-        'link': cleanMagnet,
-        'title': 'Stream',
-        'save_to_db': false,
-      });
-    }
+    await _postJson('/torrents', {
+      'action': 'add',
+      'link': cleanMagnet,
+      'title': 'Stream',
+      'save_to_db': false,
+    });
 
     int fileId = 1;
     String fileName = 'video.mkv';
     int fileSize = 0;
+    int activePeers = 0;
+    int totalSeeds = 0;
+    double speedBytes = 0;
     bool encontrouArquivo = false;
 
-    for (int i = 0; i < 40; i++) {
+    for (int i = 0; i < 30; i++) {
       if (cancelado != null && cancelado()) return null;
       await Future.delayed(const Duration(milliseconds: 500));
-      onProgress?.call((0.35 + (i * 0.014)).clamp(0.35, 0.88));
+      onProgress?.call((0.30 + (i * 0.018)).clamp(0.30, 0.88));
       final info = await _postJson('/torrents', {'action': 'get', 'hash': hash});
-      final files = info is Map ? info['file_stats'] : null;
-      if (files is List && files.isNotEmpty) {
-        Map? maior;
-        for (final f in files) {
-          if (f is Map) {
-            final p = (f['path'] ?? '').toString().toLowerCase();
-            final ehVid = p.endsWith('.mkv') || p.endsWith('.mp4') || p.endsWith('.avi') || p.endsWith('.ts');
-            if (ehVid && (maior == null || (f['length'] ?? 0) > (maior['length'] ?? 0))) {
-              maior = f;
+      if (info is Map) {
+        activePeers = (info['active_peers'] is num) ? (info['active_peers'] as num).toInt() : 0;
+        totalSeeds = (info['connected_seeders'] is num)
+            ? (info['connected_seeders'] as num).toInt()
+            : ((info['total_peers'] is num) ? (info['total_peers'] as num).toInt() : 0);
+        speedBytes = (info['download_speed'] is num) ? (info['download_speed'] as num).toDouble() : 0.0;
+
+        final files = info['file_stats'];
+        if (files is List && files.isNotEmpty) {
+          Map? maior;
+          for (final f in files) {
+            if (f is Map) {
+              final p = (f['path'] ?? '').toString().toLowerCase();
+              final ehVid = p.endsWith('.mkv') || p.endsWith('.mp4') || p.endsWith('.avi') || p.endsWith('.ts');
+              if (ehVid && (maior == null || (f['length'] ?? 0) > (maior['length'] ?? 0))) {
+                maior = f;
+              }
             }
           }
+          maior ??= files.first as Map;
+          fileId = (maior['id'] is int) ? maior['id'] as int : 1;
+          fileName = (maior['path'] ?? 'video.mkv').toString().split('/').last;
+          fileSize = (maior['length'] is int) ? maior['length'] as int : 0;
+          encontrouArquivo = true;
+          if (activePeers > 0 || totalSeeds > 0 || i >= 8) break;
         }
-        maior ??= files.first as Map;
-        fileId = (maior['id'] is int) ? maior['id'] as int : 1;
-        fileName = (maior['path'] ?? 'video.mkv').toString().split('/').last;
-        fileSize = (maior['length'] is int) ? maior['length'] as int : 0;
-        encontrouArquivo = true;
-        break;
       }
-      final peers = info is Map ? (info['active_peers'] ?? 0) : 0;
-      onStatus?.call(subiuTorrent
-          ? 'Carregando metadados do .torrent...'
-          : 'Buscando metadados via P2P (peers: $peers)...');
+      if (i >= 14 && !encontrouArquivo && activePeers == 0 && totalSeeds == 0) break;
+      onStatus?.call('Buscando peers ativos (peers: $activePeers)...');
     }
 
-    if (!encontrouArquivo) {
-      ultimoErro = 'Torrent sem seeds ou metadados indisponiveis no momento.';
+    if (!encontrouArquivo || (activePeers == 0 && totalSeeds == 0 && !subiuTorrent)) {
+      ultimoErro = 'Fonte sem peers ativos no momento.';
       return null;
     }
 
-    onProgress?.call(0.92);
-    onStatus?.call('Iniciando reproducao de $fileName...');
+    onProgress?.call(0.94);
+    onStatus?.call('Iniciando reprodução...');
     return TorrentStreamInfo(
       playUrl: '$baseUrl/play/$hash/$fileId?play',
       fileName: fileName,
       fileSizeBytes: fileSize,
-      activePeers: 1,
-      totalSeeds: 1,
-      downloadSpeedBytes: 0,
+      activePeers: activePeers,
+      totalSeeds: totalSeeds,
+      downloadSpeedBytes: speedBytes,
     );
   }
 }

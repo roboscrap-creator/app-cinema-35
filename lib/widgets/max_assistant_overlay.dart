@@ -109,7 +109,7 @@ class _PedidosScreenModalState extends State<PedidosScreenModal> {
         SnackBar(
           backgroundColor: const Color(0xFF1D2230),
           content: Text(
-            remotoOk ? 'Pedido "$titulo" enviado direto para o Robô Scrape!' : 'Pedido "$titulo" salvo na lista!',
+            remotoOk ? 'Pedido "$titulo" enviado para adição ao catálogo do CineMax!' : 'Pedido "$titulo" salvo na lista!',
             style: const TextStyle(color: Color(0xFFFFDF73), fontWeight: FontWeight.w700),
           ),
         ),
@@ -206,7 +206,7 @@ class _PedidosScreenModalState extends State<PedidosScreenModal> {
                             subtitle: Text('${item.tipo} • ${item.solicitadoPor} (${item.dataHora})',
                                 style: const TextStyle(color: Colors.white54, fontSize: 11)),
                             trailing: Text(
-                              item.enviadoParaScrape ? 'No Robô' : 'Salvo',
+                              item.enviadoParaScrape ? 'Na fila' : 'Salvo',
                               style: TextStyle(
                                 color: item.enviadoParaScrape ? Colors.greenAccent : Colors.amberAccent,
                                 fontSize: 11,

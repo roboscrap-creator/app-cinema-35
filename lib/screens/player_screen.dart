@@ -11,6 +11,8 @@ import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
 import '../services/torrserver_service.dart';
 import '../services/cdn_stream_service.dart';
+import '../services/catalog_audit_service.dart';
+import '../services/max_wake_word_service.dart';
 
 class CinemaPlayerScreen extends StatefulWidget {
   final ObraAgrupada obra;
@@ -51,6 +53,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   String _legendaSelecionada = 'Nenhuma';
 
   int _retryAutoCount = 0;
+  final Set<String> _fontesTentadas = {};
   String? _osdTexto;
   IconData? _osdIcone;
   Timer? _osdTimer;
@@ -60,6 +63,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   void initState() {
     super.initState();
     CinemaOrientation.emPlayer = true;
+    MaxWakeWordService.instance.pausar();
     _fonteAtual = widget.fonteInicial;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
@@ -119,15 +123,45 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     });
   }
 
-  Future<void> _iniciarFonte(FonteMidia fonte) async {
+  Future<void> _iniciarFonte(FonteMidia fonte, {bool limparHistoricoTentativas = true}) async {
+    if (limparHistoricoTentativas) _fontesTentadas.clear();
+    _fontesTentadas.add(fonte.id);
+    _retryAutoCount = 0;
+    try { await _player.stop(); } catch (_) {}
+    if (!mounted) return;
     setState(() {
       _fonteAtual = fonte;
       _tentouBackup = false;
       _carregandoStream = true;
       _erroPlayer = null;
+      _osdTexto = null;
     });
     SupabaseService.registrarVisualizacao(fonte.id);
     await _abrirMidia(fonte.urlStream);
+  }
+
+  Future<bool> _tentarProximaFonteOuBackup(String motivoFalha) async {
+    if (!_tentouBackup && _fonteAtual.urlStreamBackup.isNotEmpty) {
+      _tentouBackup = true;
+      if (mounted) setState(() { _carregandoStream = true; _erroPlayer = null; });
+      await _abrirMidia(_fonteAtual.urlStreamBackup);
+      return true;
+    }
+    final alternativas = widget.obra.fontes.where((f) {
+      if (_fontesTentadas.contains(f.id)) return false;
+      if (_fonteAtual.episodio != null) return f.temporada == _fonteAtual.temporada && f.episodio == _fonteAtual.episodio;
+      return true;
+    }).toList();
+    if (alternativas.isNotEmpty) {
+      await _iniciarFonte(alternativas.first, limparHistoricoTentativas: false);
+      return true;
+    }
+    CatalogAuditService.instance.reportarProblemaParaScrape(
+      titulo: widget.obra.titulo,
+      categoria: 'link-sem-peers',
+      detalhes: 'Falha em todas as fontes de ${widget.obra.titulo} (${_fonteAtual.etiquetaEpisodio}): $motivoFalha',
+    );
+    return false;
   }
 
   Future<void> _abrirMidia(String url) async {
@@ -153,12 +187,14 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
           swP2p.stop();
           if (!mounted) return;
           if (info == null) {
-            setState(() {
-              _carregandoStream = false;
-              _erroPlayer = TorrServerService.ultimoErro.isNotEmpty
-                  ? TorrServerService.ultimoErro
-                  : 'Não foi possível carregar o stream no momento.';
-            });
+            final motivo = TorrServerService.ultimoErro.isNotEmpty ? TorrServerService.ultimoErro : 'Não foi possível carregar o stream no momento.';
+            final trocou = await _tentarProximaFonteOuBackup(motivo);
+            if (!trocou && mounted) {
+              setState(() {
+                _carregandoStream = false;
+                _erroPlayer = '$motivo\nReportamos automaticamente para atualização no catálogo.';
+              });
+            }
             return;
           }
           CdnStreamService.ultimoDiagnostico =
@@ -204,8 +240,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   void _reiniciarTimerControles() {
     _hideTimer?.cancel();
-    _osdTimer?.cancel();
-    _playerRootFocus.dispose();
+    if (!mounted) return;
     setState(() => _controlesVisiveis = true);
     _hideTimer = Timer(const Duration(seconds: 5), () {
       if (mounted && _tocando) {
@@ -241,7 +276,10 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     CinemaOrientation.emPlayer = false;
     _salvarProgressoAtual();
     _hideTimer?.cancel();
+    _osdTimer?.cancel();
     _saveProgressTimer?.cancel();
+    _playerRootFocus.dispose();
+    MaxWakeWordService.instance.retomar();
     _player.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
@@ -631,7 +669,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       _osdIcone = icone;
       _osdTexto = texto;
     });
-    _osdTimer = Timer(const Duration(milliseconds: 1200), () {
+    _osdTimer = Timer(const Duration(milliseconds: 800), () {
       if (mounted) {
         setState(() {
           _osdTexto = null;
@@ -780,7 +818,8 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
               if (_carregandoStream)
                 const Center(child: CircularProgressIndicator(color: Color(0xFFF5B82E))),
               if (_osdTexto != null && !_carregandoStream)
-                Center(
+                Align(
+                  alignment: const Alignment(0, -0.58),
                   child: IgnorePointer(
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),

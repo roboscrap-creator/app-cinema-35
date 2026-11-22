@@ -1,57 +1,37 @@
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 import os
 
-def criar_icone(tamanho):
-    img = Image.new("RGBA", (tamanho, tamanho), (0, 0, 0, 0))
+def criar_icone(tamanho, caminho):
+    img = Image.new("RGBA", (tamanho, tamanho), (11, 13, 18, 255))
     draw = ImageDraw.Draw(img)
-    pad = int(tamanho * 0.03)
-    borda = max(3, int(tamanho * 0.035))
 
-    # Círculo externo dourado e fundo azul-marinho escuro
-    draw.ellipse([pad, pad, tamanho - pad, tamanho - pad], fill=(255, 196, 0, 255))
-    draw.ellipse([pad + borda, pad + borda, tamanho - pad - borda, tamanho - pad - borda], fill=(12, 16, 62, 255))
+    # Fundo com borda dourada elegante
+    pad = int(tamanho * 0.06)
+    raio = int(tamanho * 0.22)
+    draw.rounded_rectangle(
+        [pad, pad, tamanho - pad, tamanho - pad],
+        radius=raio,
+        fill=(22, 26, 36, 255),
+        outline=(245, 184, 46, 255),
+        width=max(3, tamanho // 36),
+    )
 
-    # Esfera brilhante estilo Play (ciano -> magenta) no topo direito
-    cx, cy, r = int(tamanho * 0.63), int(tamanho * 0.35), int(tamanho * 0.145)
-    for y in range(cy - r, cy + r):
-        for x in range(cx - r, cx + r):
-            dx, dy = x - cx, y - cy
-            if dx*dx + dy*dy <= r*r:
-                t = (dy + r) / (2.0 * r)
-                cr = int(0 * (1 - t) + 230 * t)
-                cg = int(215 * (1 - t) + 30 * t)
-                cb = int(255 * (1 - t) + 245 * t)
-                img.putpixel((x, y), (cr, cg, cb, 255))
+    # Emblema central dourado
+    cx, cy = tamanho // 2, tamanho // 2
+    r_inner = int(tamanho * 0.28)
+    draw.ellipse(
+        [cx - r_inner, cy - r_inner, cx + r_inner, cy + r_inner],
+        fill=(245, 184, 46, 255),
+    )
 
-    # Brilho branco na esfera e triângulo Play
-    draw.ellipse([cx - int(r*0.55), cy - int(r*0.65), cx - int(r*0.1), cy - int(r*0.25)], fill=(255, 255, 255, 180))
-    tri = [
-        (cx - int(r * 0.28), cy - int(r * 0.38)),
-        (cx - int(r * 0.28), cy + int(r * 0.38)),
-        (cx + int(r * 0.42), cy)
-    ]
-    draw.polygon(tri, fill=(255, 255, 255, 255))
+    # Triangulo Play escuro nitido no centro
+    p1 = (cx - int(r_inner * 0.32), cy - int(r_inner * 0.46))
+    p2 = (cx - int(r_inner * 0.32), cy + int(r_inner * 0.46))
+    p3 = (cx + int(r_inner * 0.52), cy)
+    draw.polygon([p1, p2, p3], fill=(11, 13, 18, 255))
 
-    # Fonte arredondada/negrito para escrever "Cinema"
-    font_paths = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-    ]
-    font_path = next((p for p in font_paths if os.path.exists(p)), None)
-    f_size = int(tamanho * 0.22)
-    font = ImageFont.truetype(font_path, f_size) if font_path else ImageFont.load_default()
-
-    texto = "Cinema"
-    bbox = draw.textbbox((0, 0), texto, font=font)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    tx = (tamanho - tw) // 2
-    ty = int(tamanho * 0.50)
-
-    # Sombra e texto dourado/laranja vibrante
-    draw.text((tx + max(2, tamanho // 80), ty + max(2, tamanho // 80)), texto, font=font, fill=(140, 60, 0, 255))
-    draw.text((tx, ty), texto, font=font, fill=(255, 198, 10, 255))
-
-    return img
+    os.makedirs(os.path.dirname(caminho), exist_ok=True)
+    img.save(caminho, "PNG")
 
 densidades = {
     "mipmap-mdpi": 48,
@@ -60,9 +40,6 @@ densidades = {
     "mipmap-xxhdpi": 144,
     "mipmap-xxxhdpi": 192,
 }
-
 for pasta, px in densidades.items():
-    destino = f"android/app/src/main/res/{pasta}/ic_launcher.png"
-    os.makedirs(os.path.dirname(destino), exist_ok=True)
-    criar_icone(px).save(destino)
-    print(f"Icone gerado: {destino} ({px}x{px})")
+    criar_icone(px, f"android/app/src/main/res/{pasta}/ic_launcher.png")
+print("Icone CineMax gerado!")

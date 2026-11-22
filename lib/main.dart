@@ -37,7 +37,7 @@ class AppCinema extends StatelessWidget {
         LogicalKeySet(LogicalKeyboardKey.gameButtonA): const ActivateIntent(),
       },
       child: MaterialApp(
-        title: 'Cinema',
+        title: 'CineMax',
         debugShowCheckedModeBanner: false,
         theme: ThemeData.dark().copyWith(
           scaffoldBackgroundColor: const Color(0xFF0A0C10),

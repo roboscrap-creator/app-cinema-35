@@ -112,8 +112,7 @@ class AppUpdaterService {
       builder: (ctx) {
         bool baixando = false;
         double progresso = 0.0;
-        String status = 'Uma nova versão do Cinema está disponível${mb.isNotEmpty ? " ($mb)" : ""}.
-Publicado em: $dataFmt';
+        String status = 'Uma nova versão do CineMax está disponível${mb.isNotEmpty ? " ($mb)" : ""}.\\nPublicado em: $dataFmt';
 
         return StatefulBuilder(
           builder: (ctx, setModal) {
@@ -170,7 +169,7 @@ Publicado em: $dataFmt';
                     setModal(() {
                       baixando = false;
                       status =
-                          'Permita "Instalar apps desconhecidos" para o Cinema nas configurações e clique em Atualizar Agora novamente.';
+                          'Permita "Instalar apps desconhecidos" para o CineMax nas configurações e clique em Atualizar Agora novamente.';
                     });
                   }
                   return;

@@ -10,47 +10,87 @@ class CinemaLogoWidget extends StatelessWidget {
 
   const CinemaLogoWidget({
     super.key,
-    this.height = 38,
-    this.width = 132,
+    this.height = 40,
+    this.width = 152,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       height: height,
-      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color(0xFF1A1D26),
-            Color(0xFF0E1016),
+            Color(0xFF1D2230),
+            Color(0xFF0D1017),
           ],
         ),
+        border: Border.all(
+          color: const Color(0xFFF5B82E).withOpacity(0.55),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFF5B82E).withOpacity(0.16),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      alignment: Alignment.center,
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 8,
-            height: height * 0.56,
+            width: height * 0.64,
+            height: height * 0.64,
             decoration: BoxDecoration(
-              color: const Color(0xFFF5B82E),
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(7),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFFFDF73), Color(0xFFF5B82E), Color(0xFFC98A12)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFF5B82E).withOpacity(0.45),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.play_arrow_rounded,
+              color: const Color(0xFF0B0D12),
+              size: height * 0.48,
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            'Cinema',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: height * 0.54,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.6,
+          RichText(
+            text: TextSpan(
+              children: [
+                TextSpan(
+                  text: 'Cine',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: height * 0.48,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                TextSpan(
+                  text: 'MAX',
+                  style: TextStyle(
+                    color: const Color(0xFFF5B82E),
+                    fontSize: height * 0.48,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

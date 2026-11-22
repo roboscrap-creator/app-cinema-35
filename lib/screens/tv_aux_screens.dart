@@ -1,3 +1,6 @@
+import '../widgets/max_assistant_overlay.dart';
+import '../widgets/perfis_usuario_screen.dart';
+import '../services/max_memory_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import '../models/midia_model.dart';
@@ -994,7 +997,7 @@ class _TvSubcategoriaScreenState extends State<TvSubcategoriaScreen> {
           ],
         ),
         actions: [
-          TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: widget.onAbrirBusca),
+          PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })), const SizedBox(width: 6), MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icone: Icons.playlist_add_rounded, tooltip: 'Pedidos', onTap: () => PedidosScreenModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: widget.onAbrirBusca),
           const SizedBox(width: 10),
           TopIconeComTooltip(icon: Icons.filter_alt_outlined, label: 'Filtro', onPressed: widget.onAbrirFiltro),
           const SizedBox(width: 20),

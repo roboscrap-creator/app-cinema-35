@@ -133,6 +133,9 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
       final c = SupabaseService.normalizarTexto(o.categoria);
       final g = SupabaseService.normalizarTexto(o.genero);
       final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
+      final ehAnime = c.contains('anime') || g.contains('anime') || t.contains('anime') ||
+          CatalogAuditService.ehAnime(titulo: o.titulo, generos: o.genero.split(','), paisOrigem: o.pais, sinopse: o.sinopse);
+      if (ehAnime) return false;
       return c.contains('kids') || c.contains('infantil') || g.contains('infantil') || g.contains('animacao') || g.contains('familia') || t.contains('kids');
     }).toList();
   }

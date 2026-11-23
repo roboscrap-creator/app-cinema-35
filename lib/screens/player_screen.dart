@@ -37,6 +37,8 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   bool _controlesVisiveis = true;
   bool _tentouBackup = false;
   bool _carregandoStream = true;
+  String _statusCarregamento = 'Preparando vídeo...';
+  double? _progressoCarregamento;
   String? _erroPlayer;
   Timer? _hideTimer;
   Timer? _saveProgressTimer;
@@ -76,6 +78,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     );
     if (_player.platform is NativePlayer) {
       final np = _player.platform as NativePlayer;
+      np.setProperty('hwdec', 'auto-safe');
       np.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
       np.setProperty('network-timeout', '30');
     }
@@ -171,17 +174,21 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       if (lower.startsWith('magnet:?') || lower.endsWith('.torrent')) {
         CdnResolucaoInfo? cdnInfo;
         if (lower.startsWith('magnet:?')) {
+          if (mounted) setState(() { _statusCarregamento = 'Conectando à Gcore CDN...'; _progressoCarregamento = null; });
           cdnInfo = await CdnStreamService.resolverMagnet(urlFinal);
         }
 
         if (!mounted) return;
 
         if (cdnInfo != null && cdnInfo.url.isNotEmpty) {
+          if (mounted) setState(() { _statusCarregamento = 'Iniciando via Gcore CDN (${cdnInfo!.latenciaMs}ms)...'; _progressoCarregamento = 0.95; });
           urlFinal = cdnInfo.url;
         } else {
           final swP2p = Stopwatch()..start();
           final info = await TorrServerService.prepararMagnet(
             urlFinal,
+            onStatus: (st) { if (mounted) setState(() => _statusCarregamento = st); },
+            onProgress: (pr) { if (mounted) setState(() => _progressoCarregamento = pr); },
             cancelado: () => !mounted,
           );
           swP2p.stop();
@@ -196,6 +203,12 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
               });
             }
             return;
+          }
+          if (mounted) {
+            setState(() {
+              _statusCarregamento = 'P2P pronto (${info.totalSeeds} seeds • ${info.activePeers} peers)';
+              _progressoCarregamento = 1.0;
+            });
           }
           CdnStreamService.ultimoDiagnostico =
               'Origem: P2P Local (TorrServer) | ${swP2p.elapsedMilliseconds}ms';
@@ -827,7 +840,39 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                 ),
               ),
               if (_carregandoStream)
-                const Center(child: CircularProgressIndicator(color: Color(0xFFF5B82E))),
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.82),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFF5B82E).withOpacity(0.5)),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(color: Color(0xFFF5B82E)),
+                        const SizedBox(height: 14),
+                        Text(
+                          _statusCarregamento,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700),
+                        ),
+                        if (_progressoCarregamento != null) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: 180,
+                            child: LinearProgressIndicator(
+                              value: _progressoCarregamento,
+                              backgroundColor: Colors.white12,
+                              valueColor: const AlwaysStoppedAnimation(Color(0xFFF5B82E)),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
               if (_osdTexto != null && !_carregandoStream)
                 Align(
                   alignment: const Alignment(0, -0.58),

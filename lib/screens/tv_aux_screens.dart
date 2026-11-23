@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
+import '../services/catalog_audit_service.dart';
 import '../widgets/cinema_widgets.dart';
 
 class TvBuscaScreen extends StatefulWidget {
@@ -435,8 +436,10 @@ class _TvFiltroScreenState extends State<TvFiltroScreen> {
 
       if (_tipo == 'Filmes' && (!cat.contains('filme') || cat.contains('série') || cat.contains('serie'))) return false;
       if (_tipo == 'Séries' && !(cat.contains('série') || cat.contains('serie'))) return false;
-      if (_tipo == 'Kids' && !(cat.contains('infantil') || cat.contains('kids') || gen.contains('infantil') || gen.contains('animacao') || tags.contains('kids'))) return false;
-      if (_tipo == 'Anime' && !(cat.contains('anime') || gen.contains('anime') || tags.contains('anime'))) return false;
+      final ehAnime = cat.contains('anime') || gen.contains('anime') || tags.contains('anime') ||
+          CatalogAuditService.ehAnime(titulo: o.titulo, generos: o.genero.split(','), paisOrigem: o.pais, sinopse: o.sinopse);
+      if (_tipo == 'Kids' && (ehAnime || !(cat.contains('infantil') || cat.contains('kids') || gen.contains('infantil') || gen.contains('animacao') || tags.contains('kids')))) return false;
+      if (_tipo == 'Anime' && !ehAnime) return false;
 
       if (_genero != 'Todos') {
         final gBusca = SupabaseService.normalizarTexto(_genero);

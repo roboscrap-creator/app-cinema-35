@@ -174,11 +174,22 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   Future<void> _abrirMidia(String url) async {
     try {
-      String urlFinal = TorrServerService.normalizarLinkMidia(url);
+      String urlFinal = url.trim();
+      if (!SupabaseService.ehLinkValido(urlFinal)) {
+        const motivo = 'Link negado: ausente prefixo obrigatório magnet:?xt=urn:btih:';
+        final trocou = await _tentarProximaFonteOuBackup(motivo);
+        if (!trocou && mounted) {
+          setState(() {
+            _carregandoStream = false;
+            _erroPlayer = '$motivo\nReportamos automaticamente para correção no catálogo.';
+          });
+        }
+        return;
+      }
       final lower = urlFinal.toLowerCase();
-      if (lower.startsWith('magnet:?') || lower.endsWith('.torrent')) {
+      if (lower.startsWith('magnet:?xt=urn:btih:') || lower.endsWith('.torrent')) {
         CdnResolucaoInfo? cdnInfo;
-        if (lower.startsWith('magnet:?')) {
+        if (lower.startsWith('magnet:?xt=urn:btih:')) {
           if (mounted) setState(() { _statusCarregamento = 'Conectando à Gcore CDN...'; _progressoCarregamento = null; });
           cdnInfo = await CdnStreamService.resolverMagnet(urlFinal);
         }

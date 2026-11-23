@@ -243,7 +243,22 @@ class SupabaseService {
     return u;
   }
 
+  static bool ehLinkValido(String url) {
+    final u = url.trim();
+    if (u.isEmpty) return false;
+    final low = u.toLowerCase();
+    if (low.startsWith('magnet:?xt=urn:btih:')) {
+      return RegExp(r'^magnet:\?xt=urn:btih:(?:[a-f0-9]{40}|[a-z2-7]{32})(?:&|$)', caseSensitive: false).hasMatch(u);
+    }
+    if (low.startsWith('https://') || low.startsWith('http://')) {
+      final uri = Uri.tryParse(u);
+      return uri != null && uri.host.isNotEmpty;
+    }
+    return false;
+  }
+
   static bool _urlEstaAtiva(String url) {
+    if (!ehLinkValido(url)) return false;
     final u = url.toLowerCase();
     for (final m in [
       'staniptv',
@@ -495,7 +510,12 @@ class SupabaseService {
             map['temporada'] ??= te['t'];
             map['episodio'] ??= te['e'];
           }
-          if ((map['url_stream'] ?? '').toString().trim().isNotEmpty) {
+          final uStream = (map['url_stream'] ?? '').toString().trim();
+          if (_urlEstaAtiva(uStream)) {
+            final uBackup = (map['url_stream_backup'] ?? '').toString().trim();
+            if (uBackup.isNotEmpty && !_urlEstaAtiva(uBackup)) {
+              map['url_stream_backup'] = '';
+            }
             fontes.add(FonteMidia.fromJson(map));
           }
         }

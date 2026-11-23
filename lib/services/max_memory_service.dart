@@ -172,6 +172,61 @@ class MaxMemoryService {
     _enviarPerfilSupabase(_perfis[chave]!);
   }
 
+  Future<void> editarPerfil({
+    required String nomeAntigo,
+    required String novoNome,
+    required bool infantil,
+    required String avatarId,
+  }) async {
+    await inicializar();
+    final limpoNovo = novoNome.trim();
+    if (limpoNovo.isEmpty) return;
+    final chAntiga = nomeAntigo.trim().toLowerCase();
+    final chNova = limpoNovo.toLowerCase();
+    final existente = _perfis[chAntiga] ?? MaxPerfilUsuario(nome: limpoNovo);
+
+    if (chAntiga != chNova && chAntiga != 'geral') {
+      _perfis.remove(chAntiga);
+      _removerPerfilSupabase(chAntiga);
+    }
+
+    _perfis[chNova] = existente.copyWith(
+      nome: chAntiga == 'geral' ? 'Geral' : limpoNovo,
+      infantil: infantil,
+      avatarId: avatarId,
+    );
+
+    if (_perfilAtivo.toLowerCase() == chAntiga) {
+      _perfilAtivo = _perfis[chNova]!.nome;
+    }
+    await _salvar();
+    _enviarPerfilSupabase(_perfis[chNova]!);
+  }
+
+  Future<void> excluirPerfil(String nome) async {
+    await inicializar();
+    final ch = nome.trim().toLowerCase();
+    if (ch.isEmpty || ch == 'geral') return;
+    _perfis.remove(ch);
+    if (_perfilAtivo.toLowerCase() == ch) {
+      _perfilAtivo = 'Geral';
+    }
+    await _salvar();
+    await _removerPerfilSupabase(ch);
+  }
+
+  Future<void> _removerPerfilSupabase(String chavePerfil) async {
+    try {
+      final dev = await SupabaseService.getDeviceId();
+      final key = await SupabaseService.getAnonKey();
+      final full = '${dev}_$chavePerfil';
+      await http.delete(
+        Uri.parse('${SupabaseService.baseUrl}/rest/v1/max_perfis_usuario?nome_chave=eq.${Uri.encodeComponent(full)}'),
+        headers: {'apikey': key, 'Authorization': 'Bearer $key'},
+      ).timeout(const Duration(seconds: 5));
+    } catch (_) {}
+  }
+
   Future<void> registrarAprendizado(String fato) async {
     await inicializar();
     final limpo = fato.trim();

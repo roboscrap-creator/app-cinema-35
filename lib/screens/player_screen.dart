@@ -174,7 +174,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   Future<void> _abrirMidia(String url) async {
     try {
-      String urlFinal = url.trim();
+      String urlFinal = TorrServerService.normalizarLinkMidia(url);
       final lower = urlFinal.toLowerCase();
       if (lower.startsWith('magnet:?') || lower.endsWith('.torrent')) {
         CdnResolucaoInfo? cdnInfo;
@@ -773,7 +773,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
           }
 
           if (k == LogicalKeyboardKey.escape || k == LogicalKeyboardKey.goBack) {
-            if (_controlesVisiveis && !_carregandoStream) {
+            if (_controlesVisiveis && !_carregandoStream && _erroPlayer == null) {
               setState(() => _controlesVisiveis = false);
               _playerRootFocus.requestFocus();
               return KeyEventResult.handled;
@@ -824,7 +824,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         },
         child: GestureDetector(
           onTap: () {
-            if (_controlesVisiveis && !_carregandoStream) {
+            if (_controlesVisiveis && !_carregandoStream && _erroPlayer == null) {
               setState(() => _controlesVisiveis = false);
               _playerRootFocus.requestFocus();
             } else {
@@ -960,7 +960,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                     ),
                   ),
                 ),
-              if (_controlesVisiveis && !_carregandoStream)
+              if (_controlesVisiveis && !_carregandoStream && _erroPlayer == null)
                 Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(

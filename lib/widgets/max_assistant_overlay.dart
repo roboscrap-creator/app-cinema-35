@@ -309,6 +309,17 @@ class _MaxAssistantModalState extends State<MaxAssistantModal> {
                       style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic)),
                 ],
                 const SizedBox(height: 12),
+                if (max.ouvindo || max.processando)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFF5B82E))),
+                        const SizedBox(width: 8),
+                        Text(max.ouvindo ? 'Ouvindo sua voz...' : 'Max está pensando...', style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 12.5, fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ),
                 Text(max.ultimaFalaMax, style: const TextStyle(color: Color(0xFFFFF4D2), fontSize: 15, height: 1.35)),
                 const SizedBox(height: 12),
                 Row(

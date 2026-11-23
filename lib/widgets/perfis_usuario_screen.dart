@@ -152,7 +152,13 @@ class PerfisSelectionOverlay extends StatefulWidget {
 }
 
 class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
+  bool _modoGerenciar = false;
+
   Future<void> _selecionar(MaxPerfilUsuario perfil) async {
+    if (_modoGerenciar) {
+      await _abrirFormPerfil(editar: perfil);
+      return;
+    }
     await MaxMemoryService.instance.definirPerfilAtivo(perfil.nome, infantil: perfil.infantil, avatarId: perfil.avatarId);
     widget.onPerfilSelecionado?.call();
     if (!widget.obrigatorio && mounted) Navigator.of(context).pop();
@@ -161,11 +167,13 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
     }
   }
 
-  Future<void> _novoPerfil() async {
-    final nomeCtrl = TextEditingController();
-    bool ehInfantil = false;
+  Future<void> _abrirFormPerfil({MaxPerfilUsuario? editar}) async {
+    final ehEdicao = editar != null;
+    final ehGeral = editar?.nome.toLowerCase() == 'geral';
+    final nomeCtrl = TextEditingController(text: editar?.nome ?? '');
+    bool ehInfantil = editar?.infantil ?? false;
     String categoriaFiltro = 'Todos';
-    String avatarSelecionado = 'geral_pipoca';
+    String avatarSelecionado = editar?.avatarId ?? 'geral_pipoca';
     const categorias = ['Todos', 'Filmes', 'Séries', 'Animes', 'Desenhos', 'Geral'];
 
     await showDialog(
@@ -179,7 +187,10 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
           return AlertDialog(
             backgroundColor: const Color(0xFF141824),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFF5B82E), width: 1.4)),
-            title: const Text('Novo Perfil CineMax', style: TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w900)),
+            title: Text(
+              ehEdicao ? 'Editar Perfil' : 'Novo Perfil CineMax',
+              style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w900),
+            ),
             content: SizedBox(
               width: 420,
               child: SingleChildScrollView(
@@ -189,7 +200,8 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
                   children: [
                     TextField(
                       controller: nomeCtrl,
-                      autofocus: true,
+                      enabled: !ehGeral,
+                      autofocus: !ehEdicao,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'Nome do perfil...',
@@ -211,7 +223,7 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
                       }),
                     ),
                     const SizedBox(height: 8),
-                    const Text('Escolha um avatar:', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
+                    const Text('Escolha uma foto / avatar:', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
                     SizedBox(
                       height: 34,
@@ -237,7 +249,9 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
                       runSpacing: 10,
                       children: avataresFiltrados.map((av) {
                         final sel = av.id == avatarSelecionado;
-                        return GestureDetector(
+                        return CinemaFocusBox(
+                          borderRadius: 16,
+                          scaleOnFocus: 1.06,
                           onTap: () => setLocal(() => avatarSelecionado = av.id),
                           child: Container(
                             padding: const EdgeInsets.all(4),
@@ -262,17 +276,41 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
               ),
             ),
             actions: [
+              if (ehEdicao && !ehGeral)
+                TextButton.icon(
+                  style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                  onPressed: () async {
+                    await MaxMemoryService.instance.excluirPerfil(editar!.nome);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (mounted) setState(() {});
+                    widget.onPerfilSelecionado?.call();
+                  },
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('Excluir', style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF5B82E), foregroundColor: Colors.black),
                 onPressed: () async {
                   final nome = nomeCtrl.text.trim();
                   if (nome.isEmpty) return;
-                  await MaxMemoryService.instance.definirPerfilAtivo(nome, infantil: ehInfantil, avatarId: avatarSelecionado);
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  if (mounted) setState(() {});
-                  widget.onPerfilSelecionado?.call();
-                  if (!widget.obrigatorio && mounted) Navigator.pop(context);
+                  if (ehEdicao) {
+                    await MaxMemoryService.instance.editarPerfil(
+                      nomeAntigo: editar!.nome,
+                      novoNome: nome,
+                      infantil: ehInfantil,
+                      avatarId: avatarSelecionado,
+                    );
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (mounted) setState(() {});
+                    widget.onPerfilSelecionado?.call();
+                  } else {
+                    await MaxMemoryService.instance.definirPerfilAtivo(nome, infantil: ehInfantil, avatarId: avatarSelecionado);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (mounted) setState(() {});
+                    widget.onPerfilSelecionado?.call();
+                    if (!widget.obrigatorio && mounted) Navigator.pop(context);
+                  }
                 },
                 child: const Text('Salvar', style: TextStyle(fontWeight: FontWeight.w900)),
               ),
@@ -292,9 +330,13 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const CinemaLogoWidget(height: 46, width: 170),
-            const SizedBox(height: 22),
-            const Text('Quem está assistindo?', style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 28),
+            const SizedBox(height: 20),
+            Text(
+              _modoGerenciar ? 'Toque em um perfil para editar ou excluir' : 'Quem está assistindo?',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 24),
             Wrap(
               spacing: 22,
               runSpacing: 22,
@@ -312,7 +354,22 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          AvatarIlustradoWidget(avatarId: p.avatarId, size: 88, infantil: p.infantil),
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              AvatarIlustradoWidget(avatarId: p.avatarId, size: 88, infantil: p.infantil),
+                              if (_modoGerenciar)
+                                Positioned.fill(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(21),
+                                    ),
+                                    child: const Icon(Icons.edit_rounded, color: Color(0xFFF5B82E), size: 34),
+                                  ),
+                                ),
+                            ],
+                          ),
                           const SizedBox(height: 8),
                           Text(p.nome, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800)),
                         ],
@@ -323,7 +380,7 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
                 CinemaFocusBox(
                   borderRadius: 20,
                   scaleOnFocus: 1.08,
-                  onTap: _novoPerfil,
+                  onTap: () => _abrirFormPerfil(),
                   child: Padding(
                     padding: const EdgeInsets.all(8),
                     child: Column(
@@ -346,6 +403,39 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 24),
+            CinemaFocusBox(
+              borderRadius: 22,
+              scaleOnFocus: 1.05,
+              onTap: () => setState(() => _modoGerenciar = !_modoGerenciar),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                decoration: BoxDecoration(
+                  color: _modoGerenciar ? const Color(0xFFF5B82E) : Colors.white10,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: const Color(0xFFF5B82E)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _modoGerenciar ? Icons.check_rounded : Icons.manage_accounts_rounded,
+                      color: _modoGerenciar ? Colors.black : const Color(0xFFF5B82E),
+                      size: 19,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _modoGerenciar ? 'Concluir Edição' : 'Editar / Excluir Perfis',
+                      style: TextStyle(
+                        color: _modoGerenciar ? Colors.black : Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),

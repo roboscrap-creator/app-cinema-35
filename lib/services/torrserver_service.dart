@@ -30,6 +30,16 @@ class TorrServerService {
   static bool _configurado = false;
   static String ultimoErro = '';
 
+  static String normalizarLinkMidia(String url) {
+    final u = url.trim();
+    if (u.isEmpty) return u;
+    if (u.toLowerCase().startsWith('xt=urn:btih:')) return 'magnet:?$u';
+    if (RegExp(r'^(?:[a-fA-F0-9]{40}|[a-zA-Z2-7]{32})(?:&|$)').hasMatch(u)) {
+      return 'magnet:?xt=urn:btih:$u';
+    }
+    return u;
+  }
+
   static Future<bool> _portaAberta() async {
     try {
       final s = await Socket.connect('127.0.0.1', 8090, timeout: const Duration(milliseconds: 350));
@@ -263,7 +273,7 @@ class TorrServerService {
     bool Function()? cancelado,
   }) async {
     ultimoErro = '';
-    final cleanMagnet = _enriquecerMagnet(magnetUrl);
+    final cleanMagnet = _enriquecerMagnet(normalizarLinkMidia(magnetUrl));
     final hash = _extrairHash(cleanMagnet);
     onProgress?.call(0.12);
     onStatus?.call('Iniciando motor de vídeo...');

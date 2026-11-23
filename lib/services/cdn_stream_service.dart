@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'torrserver_service.dart';
 
 class CdnResolucaoInfo {
   final String url;
@@ -42,7 +43,7 @@ class CdnStreamService {
 
   static void preAquecerMagnet(String? url) {
     if (url == null) return;
-    final clean = url.trim();
+    final clean = TorrServerService.normalizarLinkMidia(url);
     if (!clean.toLowerCase().startsWith('magnet:?')) return;
     final chave = _chaveMagnet(clean);
     final hit = _cache[chave];
@@ -52,7 +53,7 @@ class CdnStreamService {
   }
 
   static Future<CdnResolucaoInfo?> resolverMagnet(String magnet) async {
-    final clean = magnet.trim();
+    final clean = TorrServerService.normalizarLinkMidia(magnet);
     final chave = _chaveMagnet(clean);
     final sw = Stopwatch()..start();
 

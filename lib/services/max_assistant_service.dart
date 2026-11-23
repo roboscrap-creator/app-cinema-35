@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
+import 'package:media_kit/media_kit.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import '../models/midia_model.dart';
 import 'max_memory_service.dart';
@@ -14,6 +16,7 @@ class MaxAcaoComando {
   final String falaResposta;
   final String? titulo;
   final String? tipoObra;
+  final String? audioBase64;
   final bool aguardarConfirmacaoAbrir;
   final bool aguardarConfirmacaoPedido;
 
@@ -22,6 +25,7 @@ class MaxAcaoComando {
     required this.falaResposta,
     this.titulo,
     this.tipoObra,
+    this.audioBase64,
     this.aguardarConfirmacaoAbrir = false,
     this.aguardarConfirmacaoPedido = false,
   });
@@ -32,6 +36,7 @@ class MaxAcaoComando {
       falaResposta: (json['fala'] ?? 'Prontinho!').toString(),
       titulo: json['titulo']?.toString(),
       tipoObra: json['tipo_obra']?.toString(),
+      audioBase64: json['audio_base64']?.toString(),
       aguardarConfirmacaoAbrir: json['aguardar_confirmacao_abrir'] == true,
       aguardarConfirmacaoPedido: json['aguardar_confirmacao_pedido'] == true,
     );
@@ -47,6 +52,7 @@ class MaxAssistantService extends ChangeNotifier {
 
   final SpeechToText _stt = SpeechToText();
   final FlutterTts _tts = FlutterTts();
+  final Player _audioPlayer = Player();
 
   bool _inicializado = false;
   bool _ouvindo = false;
@@ -67,6 +73,14 @@ class MaxAssistantService extends ChangeNotifier {
 
   void atualizarCatalogo(List<ObraAgrupada> catalogo) {}
 
+  void _aoTerminarFala() {
+    _falando = false;
+    notifyListeners();
+    if (_pendenteAbrir != null || _pendentePedidoCatalogo != null) {
+      Future.delayed(const Duration(milliseconds: 350), iniciarEscuta);
+    }
+  }
+
   Future<void> inicializar() async {
     if (_inicializado) return;
     await MaxMemoryService.instance.inicializar();
@@ -77,19 +91,16 @@ class MaxAssistantService extends ChangeNotifier {
       await _tts.setSpeechRate(0.50);
       await _tts.setVolume(1.0);
       _tts.setStartHandler(() { _falando = true; notifyListeners(); });
-      _tts.setCompletionHandler(() {
-        _falando = false;
-        notifyListeners();
-        if (_pendenteAbrir != null || _pendentePedidoCatalogo != null) {
-          Future.delayed(const Duration(milliseconds: 350), iniciarEscuta);
-        }
-      });
+      _tts.setCompletionHandler(_aoTerminarFala);
       _tts.setErrorHandler((_) { _falando = false; notifyListeners(); });
+      _audioPlayer.stream.completed.listen((done) {
+        if (done && _falando) _aoTerminarFala();
+      });
     } catch (_) {}
     _inicializado = true;
   }
 
-  Future<void> falar(String texto) async {
+  Future<void> falar(String texto, {String? audioBase64}) async {
     await inicializar();
     final limpo = texto
         .replaceAll(RegExp(r'rob[oô]\s*scrape?', caseSensitive: false), 'catálogo do CineMax')
@@ -97,10 +108,30 @@ class MaxAssistantService extends ChangeNotifier {
         .trim();
     _ultimaFalaMax = limpo;
     notifyListeners();
+
     try {
       await _tts.stop();
+      await _audioPlayer.stop();
+
+      if (audioBase64 != null && audioBase64.isNotEmpty) {
+        final bytes = base64Decode(audioBase64);
+        final file = File('${Directory.systemTemp.path}/max_voz_neural.mp3');
+        await file.writeAsBytes(bytes, flush: true);
+        _falando = true;
+        notifyListeners();
+        await _audioPlayer.open(Media(file.path), play: true);
+        return;
+      }
+
       await _tts.speak(limpo);
-    } catch (_) {}
+    } catch (_) {
+      try {
+        await _tts.speak(limpo);
+      } catch (_) {
+        _falando = false;
+        notifyListeners();
+      }
+    }
   }
 
   Future<void> pararTudo() async {
@@ -108,6 +139,7 @@ class MaxAssistantService extends ChangeNotifier {
     _pendentePedidoCatalogo = null;
     if (_ouvindo) { await _stt.stop(); _ouvindo = false; }
     await _tts.stop();
+    try { await _audioPlayer.stop(); } catch (_) {}
     _falando = false;
     _processando = false;
     notifyListeners();
@@ -115,7 +147,11 @@ class MaxAssistantService extends ChangeNotifier {
 
   Future<void> iniciarEscuta() async {
     await inicializar();
-    if (_falando) { await _tts.stop(); _falando = false; }
+    if (_falando) {
+      await _tts.stop();
+      try { await _audioPlayer.stop(); } catch (_) {}
+      _falando = false;
+    }
 
     final ok = await _stt.initialize(
       onStatus: (s) { if (s == 'done' || s == 'notListening') { _ouvindo = false; notifyListeners(); } },
@@ -203,7 +239,7 @@ class MaxAssistantService extends ChangeNotifier {
               'kids': MaxMemoryService.instance.modoKidsAtivo,
             }),
           )
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 20));
 
       if (resp.statusCode == 200) {
         final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
@@ -214,7 +250,7 @@ class MaxAssistantService extends ChangeNotifier {
         if (acao.aguardarConfirmacaoAbrir && (acao.titulo ?? '').isNotEmpty) {
           _pendenteAbrir = acao;
         }
-        await falar(acao.falaResposta);
+        await falar(acao.falaResposta, audioBase64: acao.audioBase64);
         if (!['conversa', 'solicitar_adicao'].contains(acao.tipo)) {
           onExecutarAcao?.call(acao);
         }

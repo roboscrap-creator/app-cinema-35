@@ -62,7 +62,7 @@ class MaxAssistantService extends ChangeNotifier {
   String _ultimaFalaMax = 'Oi! Toque no microfone e me peça qualquer filme, série ou anime.';
   MaxAcaoComando? _pendenteAbrir;
   MaxAcaoComando? _pendentePedidoCatalogo;
-  final List> _historicoDialogo = [];
+  final List<Map<String, String>> _historicoDialogo = [];
 
   void Function(MaxAcaoComando acao)? onExecutarAcao;
 

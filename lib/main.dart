@@ -134,7 +134,7 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
       final g = SupabaseService.normalizarTexto(o.genero);
       final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
       final ehAnime = c.contains('anime') || g.contains('anime') || t.contains('anime') ||
-          CatalogAuditService.ehAnime(titulo: o.titulo, generos: o.genero.split(','), paisOrigem: o.pais, sinopse: o.sinopse);
+          CatalogAuditService.ehAnime(titulo: o.titulo, generos: o.genero.split(','), tags: o.tags, paisOrigem: o.pais, sinopse: o.sinopse);
       if (ehAnime) return false;
       return c.contains('kids') || c.contains('infantil') || g.contains('infantil') || g.contains('animacao') || g.contains('familia') || t.contains('kids');
     }).toList();
@@ -226,7 +226,19 @@ class MobileHomeScreen extends StatefulWidget {
 
 class _MobileHomeScreenState extends State<MobileHomeScreen> {
   int _abaIndex = 0;
+  Map<String, Map<String, dynamic>> _progressoMap = {};
   static const List<String> _abas = ['Início', 'Filmes', 'Séries', 'Kids', 'Anime'];
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarProgresso();
+  }
+
+  Future<void> _carregarProgresso() async {
+    final p = await SupabaseService.carregarProgressoAssistido();
+    if (mounted) setState(() => _progressoMap = p);
+  }
 
   List<ObraAgrupada> get _listaAba {
     if (_abaIndex == 0) return widget.catalogo;
@@ -239,10 +251,12 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     bool ehAnimeObra(ObraAgrupada o) {
       final c = SupabaseService.normalizarTexto(o.categoria);
       final g = SupabaseService.normalizarTexto(o.genero);
-      if (c.contains('anime') || g.contains('anime')) return true;
+      final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
+      if (c.contains('anime') || g.contains('anime') || t.contains('anime')) return true;
       return CatalogAuditService.ehAnime(
         titulo: o.titulo,
         generos: o.genero.split(','),
+        tags: o.tags,
         paisOrigem: o.pais,
         sinopse: o.sinopse,
       );
@@ -270,10 +284,15 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final base = _listaAba;
-    final destaques = base.where((o) => o.emDestaque).take(6).toList();
-    if (destaques.isEmpty && base.isNotEmpty) {
-      destaques.addAll(base.take(5));
+    final baseComCapa = base.where((o) => o.capaUrl.isNotEmpty || o.bannerUrl.isNotEmpty).toList();
+    final listaVitrine = baseComCapa.isNotEmpty ? baseComCapa : base;
+    final destaques = listaVitrine.where((o) => o.emDestaque).take(6).toList();
+    if (destaques.isEmpty && listaVitrine.isNotEmpty) {
+      destaques.addAll(listaVitrine.take(5));
     }
+    final continuar = widget.catalogo.where((o) => _progressoMap.containsKey(o.chaveGrupo)).toList();
+    final top10 = List<ObraAgrupada>.from(listaVitrine)
+      ..sort((a, b) => b.scorePopularidade.compareTo(a.scorePopularidade));
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0C10),
@@ -426,11 +445,15 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 18),
-                  _buildShelfMobile('Adicionados Recentemente', base.take(20).toList()),
-                  _buildShelfMobile('Ação', _porGenero(base, 'Ação')),
-                  _buildShelfMobile('Suspense e Mistério', _porGenero(base, 'Suspense')),
-                  _buildShelfMobile('Drama', _porGenero(base, 'Drama')),
-                  _buildShelfMobile('Comédia', _porGenero(base, 'Comédia')),
+                  if (_abaIndex == 0 && continuar.isNotEmpty)
+                    _buildShelfMobile('Continuar Assistindo', continuar, mostrarProgresso: true),
+                  if (_abaIndex == 0 && top10.isNotEmpty)
+                    _buildShelfMobile('Top 10 em Alta', top10.take(10).toList(), numerado: true),
+                  _buildShelfMobile('Adicionados Recentemente', listaVitrine.take(20).toList()),
+                  _buildShelfMobile('Ação', _porGenero(listaVitrine, 'Ação')),
+                  _buildShelfMobile('Suspense e Mistério', _porGenero(listaVitrine, 'Suspense')),
+                  _buildShelfMobile('Drama', _porGenero(listaVitrine, 'Drama')),
+                  _buildShelfMobile('Comédia', _porGenero(listaVitrine, 'Comédia')),
                 ],
               ),
             ),
@@ -440,7 +463,12 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     );
   }
 
-  Widget _buildShelfMobile(String titulo, List<ObraAgrupada> itens) {
+  Widget _buildShelfMobile(
+    String titulo,
+    List<ObraAgrupada> itens, {
+    bool numerado = false,
+    bool mostrarProgresso = false,
+  }) {
     if (itens.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
@@ -455,11 +483,22 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
               scrollDirection: Axis.horizontal,
               itemCount: itens.length,
               separatorBuilder: (_, __) => const SizedBox(width: 10),
-              itemBuilder: (_, idx) => TvPosterCard(
-                obra: itens[idx],
-                width: 132,
-                onTap: () => widget.onAbrirObra(itens[idx]),
-              ),
+              itemBuilder: (_, idx) {
+                final obra = itens[idx];
+                final prog = mostrarProgresso
+                    ? (_progressoMap[obra.chaveGrupo]?['progresso'] as double?)
+                    : null;
+                return TvPosterCard(
+                  obra: obra,
+                  width: 132,
+                  rankNumero: numerado ? idx + 1 : null,
+                  progresso: prog,
+                  onTap: () {
+                    widget.onAbrirObra(obra);
+                    Future.delayed(const Duration(seconds: 2), _carregarProgresso);
+                  },
+                );
+              },
             ),
           ),
         ],

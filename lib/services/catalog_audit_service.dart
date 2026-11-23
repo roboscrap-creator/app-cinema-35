@@ -47,21 +47,44 @@ class CatalogAuditService extends ChangeNotifier {
   static bool ehAnime({
     required String titulo,
     List<String> generos = const [],
+    List<String> tags = const [],
     String? paisOrigem,
     String? idiomaOriginal,
     String? sinopse,
   }) {
-    final gLower = generos.map((e) => e.toLowerCase()).toList();
+    final gLower = generos.map((e) => e.toLowerCase().trim()).toList();
+    final tagsLower = tags.map((e) => e.toLowerCase().trim()).toList();
     final tLower = titulo.toLowerCase();
     final sLower = (sinopse ?? '').toLowerCase();
     final pais = (paisOrigem ?? '').toUpperCase();
     final lang = (idiomaOriginal ?? '').toLowerCase();
 
-    if (gLower.any((g) => g.contains('anime'))) return true;
+    if (gLower.any((g) => g.contains('anime')) || tagsLower.any((t) => t.contains('anime'))) return true;
 
-    final ehAnimacao = gLower.any((g) => g.contains('animação') || g.contains('animation'));
-    final origemJapao = pais.contains('JP') || lang == 'ja';
+    // Caracteres japoneses (Hiragana, Katakana, Kanji) no título ou sinopse
+    if (RegExp(r'[\u3040-\u30ff\u4e00-\u9faf]').hasMatch(titulo)) return true;
+
+    final ehAnimacao = gLower.any((g) =>
+        g.contains('animação') || g.contains('animacao') || g.contains('animation'));
+    final origemJapao = pais.contains('JP') || pais.contains('JAP') || lang == 'ja' || lang == 'jp';
     if (ehAnimacao && origemJapao) return true;
+
+    // Animação combinada com gêneros típicos de anime juvenil/adulto (+12/+14/+16) nunca é Kids
+    final temGeneroAdultoJuvenil = gLower.any((g) =>
+        g.contains('sci-fi') ||
+        g.contains('ficção') ||
+        g.contains('ficcao') ||
+        g.contains('terror') ||
+        g.contains('horror') ||
+        g.contains('crime') ||
+        g.contains('mistério') ||
+        g.contains('misterio') ||
+        g.contains('suspense') ||
+        g.contains('thriller') ||
+        g.contains('guerra') ||
+        g.contains('war') ||
+        g.contains('action & adventure'));
+    if (ehAnimacao && temGeneroAdultoJuvenil) return true;
 
     const palavrasAnime = [
       'jujutsu', 'naruto', 'one piece', 'dragon ball', 'attack on titan',
@@ -69,7 +92,15 @@ class CatalogAuditService extends ChangeNotifier {
       'fullmetal', 'hunter x hunter', 'chainsaw man', 'tokyo ghoul',
       'my hero academia', 'boku no hero', 'solo leveling', 'boruto',
       'saint seiya', 'cavaleiros do zodíaco', 'yu yu hakusho', 'evangelion',
-      'cowboy bebop', 'spy x family', 'vinland saga', 'blue lock', 'haikyuu'
+      'cowboy bebop', 'spy x family', 'vinland saga', 'blue lock', 'haikyuu',
+      'gundam', 'mobile suit', 'bass x machina', 'bastard', 'berserk',
+      'one punch', 'mob psycho', 'jojo', 'fairy tail', 'black clover',
+      'sword art', 'overlord', 're:zero', 'konosuba', 'dandadan', 'kaiju',
+      'frieren', 'mashle', 'dr. stone', 'dr stone', 'akira', 'ghost in the shell',
+      'inuyasha', 'ranma', 'sailor moon', 'pokemon', 'pokémon', 'digimon',
+      'yu-gi-oh', 'yugioh', 'beyblade', 'bakugan', 'monogatari', 'fate/',
+      'steins;gate', 'code geass', 'gintama', 'hells paradise', 'jigokuraku',
+      'tokyo revengers', 'wind breaker', 'baki', 'kengan', 'record of ragnarok'
     ];
     return palavrasAnime.any((p) => tLower.contains(p) || sLower.contains(p));
   }

@@ -78,6 +78,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     return CatalogAuditService.ehAnime(
       titulo: o.titulo,
       generos: o.genero.split(','),
+      tags: o.tags,
       paisOrigem: o.pais,
       sinopse: o.sinopse,
     );

@@ -193,6 +193,11 @@ class SupabaseService {
     return null;
   }
 
+  static String _separarCamelCase(String texto) {
+    if (texto.contains(' ')) return texto;
+    return texto.replaceAllMapped(RegExp(r'([a-záàâãéêíóôõúç])([A-ZÁÀÂÃÉÊÍÓÔÕÚÇ])'), (m) => '${m.group(1)} ${m.group(2)}');
+  }
+
   static String _limparNomeObra(String titulo) {
     var s = _limparExtinf(titulo)
         .replaceAll(
@@ -219,7 +224,8 @@ class SupabaseService {
             '')
         .replaceAll(RegExp(r'[\|\-:\s]+$'), '')
         .trim();
-    return s.isEmpty ? _limparExtinf(titulo) : s;
+    final base = s.isEmpty ? _limparExtinf(titulo) : s;
+    return _separarCamelCase(base);
   }
 
   static String normalizarTexto(String texto) => texto

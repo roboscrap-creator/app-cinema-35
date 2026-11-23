@@ -54,7 +54,7 @@ class SupabaseService {
     } catch (_) {}
   }
 
-  static Future>> carregarProgressoAssistido() async {
+  static Future<Map<String, Map<String, dynamic>>> carregarProgressoAssistido() async {
     final Map<String, Map<String, dynamic>> out = {};
     try {
       final perfil = await _perfilAtualChave();

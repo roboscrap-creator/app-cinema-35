@@ -261,14 +261,20 @@ class _TvPosterCardState extends State<TvPosterCard> {
       onFocusChanged: (v) {
         if (mounted) setState(() => _focado = v);
       },
-      child: SizedBox(
-        width: widget.width,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              height: widget.height,
-              width: widget.width,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final usarFlex = constraints.hasBoundedHeight && constraints.maxHeight < (widget.height + 28);
+          final cardW = constraints.hasBoundedWidth && constraints.maxWidth < widget.width ? constraints.maxWidth : widget.width;
+          final posterH = usarFlex ? (constraints.maxHeight - 24).clamp(110.0, widget.height) : widget.height;
+          return SizedBox(
+            width: cardW,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  height: posterH,
+                  width: cardW,
               decoration: BoxDecoration(
                 color: const Color(0xFF161A23),
                 borderRadius: BorderRadius.circular(8),
@@ -408,7 +414,8 @@ class _TvPosterCardState extends State<TvPosterCard> {
             ),
           ],
         ),
-      ),
+      );
+      }),
     );
   }
 }

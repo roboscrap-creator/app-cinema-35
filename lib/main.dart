@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/midia_model.dart';
 import 'services/supabase_service.dart';
+import 'services/catalog_audit_service.dart';
 import 'widgets/cinema_widgets.dart';
 import 'screens/tv_home_screen.dart';
 import 'screens/tv_aux_screens.dart';
@@ -13,7 +14,6 @@ import 'screens/detalhe_obra_screen.dart';
 import 'services/app_updater_service.dart';
 import 'services/max_assistant_service.dart';
 import 'services/max_memory_service.dart';
-import 'services/max_wake_word_service.dart';
 import 'widgets/max_assistant_overlay.dart';
 import 'widgets/perfis_usuario_screen.dart';
 
@@ -107,10 +107,7 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) AppUpdaterService.verificarAtualizacao(context, silencioso: true);
     });
-    MaxWakeWordService.instance.iniciar(onAcordar: (cmd) {
-      if (!mounted) return;
-      MaxAssistantModal.abrir(context);
-      if (cmd != null && cmd.isNotEmpty) MaxAssistantService.instance.processarComando(cmd);
+  if (cmd != null && cmd.isNotEmpty) MaxAssistantService.instance.processarComando(cmd);
     });
   }
 
@@ -238,18 +235,26 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     if (_abaIndex == 2) {
       return widget.catalogo.where((o) => o.isSerie).toList();
     }
-    if (_abaIndex == 3) {
-      return widget.catalogo.where((o) {
-        final c = SupabaseService.normalizarTexto(o.categoria);
-        final g = SupabaseService.normalizarTexto(o.genero);
-        return c.contains('kids') || c.contains('infantil') || g.contains('animacao');
-      }).toList();
-    }
-    return widget.catalogo.where((o) {
+    bool ehAnimeObra(ObraAgrupada o) {
       final c = SupabaseService.normalizarTexto(o.categoria);
       final g = SupabaseService.normalizarTexto(o.genero);
-      return c.contains('anime') || g.contains('anime');
-    }).toList();
+      if (c.contains('anime') || g.contains('anime')) return true;
+      return CatalogAuditService.ehAnime(
+        titulo: o.titulo,
+        generos: o.genero.split(','),
+        paisOrigem: o.pais,
+        sinopse: o.sinopse,
+      );
+    }
+    if (_abaIndex == 3) {
+      return widget.catalogo.where((o) {
+        if (ehAnimeObra(o)) return false;
+        final c = SupabaseService.normalizarTexto(o.categoria);
+        final g = SupabaseService.normalizarTexto(o.genero);
+        return c.contains('kids') || c.contains('infantil') || g.contains('infantil') || g.contains('animacao');
+      }).toList();
+    }
+    return widget.catalogo.where(ehAnimeObra).toList();
   }
 
   List<ObraAgrupada> _porGenero(List<ObraAgrupada> base, String termo) {
@@ -272,7 +277,8 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0C10),
       appBar: AppBar(
-        title: const CinemaLogoWidget(height: 34, width: 120),
+        titleSpacing: 8,
+        title: const CinemaLogoWidget(height: 30, width: 102),
         actions: [
           Center(child: Padding(padding: const EdgeInsets.only(right: 4), child: PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })))),
           Center(child: Padding(padding: const EdgeInsets.only(right: 2), child: MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)))),
@@ -288,6 +294,7 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
             ),
           ),
           IconButton(
+            visualDensity: VisualDensity.compact,
             tooltip: 'Filtro Avançado',
             icon: const Icon(Icons.filter_alt_outlined),
             onPressed: () => Navigator.push(
@@ -308,8 +315,9 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
             ),
           ),
           IconButton(
+            visualDensity: VisualDensity.compact,
             tooltip: 'Modo TV Box',
-            icon: const Icon(Icons.tv, color: Color(0xFFF5B82E)),
+            icon: const Icon(Icons.tv_rounded, color: Color(0xFFF5B82E)),
             onPressed: widget.onAlternarModoTv,
           ),
         ],

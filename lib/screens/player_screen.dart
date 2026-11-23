@@ -12,7 +12,6 @@ import '../services/supabase_service.dart';
 import '../services/torrserver_service.dart';
 import '../services/cdn_stream_service.dart';
 import '../services/catalog_audit_service.dart';
-import '../services/max_wake_word_service.dart';
 
 class CinemaPlayerScreen extends StatefulWidget {
   final ObraAgrupada obra;
@@ -63,7 +62,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   void initState() {
     super.initState();
     CinemaOrientation.emPlayer = true;
-    MaxWakeWordService.instance.pausar();
     _fonteAtual = widget.fonteInicial;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
@@ -90,13 +88,15 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       if (mounted) setState(() => _duracao = d);
     });
     _player.stream.playing.listen((pl) {
-      if (mounted) setState(() => _tocando = pl);
+      if (mounted) setState(() { _tocando = pl; if (pl) { _erroPlayer = null; _carregandoStream = false; } });
     });
     _player.stream.buffering.listen((b) {
       if (mounted && !b) setState(() => _carregandoStream = false);
     });
     _player.stream.error.listen((err) {
       if (!mounted) return;
+      final errLow = err.toLowerCase();
+      if (errLow.contains('could not open codec') || errLow.contains('subtitle') || (_tocando && _posicao.inSeconds > 1)) return;
       if (_retryAutoCount < 1 && (_fonteAtual.urlStream.toLowerCase().startsWith('magnet:') || _fonteAtual.urlStream.toLowerCase().endsWith('.torrent'))) {
         _retryAutoCount++;
         Future.delayed(const Duration(milliseconds: 1400), () {
@@ -279,7 +279,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _osdTimer?.cancel();
     _saveProgressTimer?.cancel();
     _playerRootFocus.dispose();
-    MaxWakeWordService.instance.retomar();
     _player.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
@@ -567,7 +566,16 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                         final nome = (item['SubFileName'] ?? 'Legenda').toString();
                                         final idioma = (item['LanguageName'] ?? '').toString();
                                         final dl = (item['SubDownloadLink'] ?? '').toString();
-                                        return ListTile(
+                                        return CinemaFocusBox(
+                                          borderRadius: 8,
+                                          onTap: () async {
+                                            if (dl.isNotEmpty) {
+                                              await _player.setSubtitleTrack(SubtitleTrack.uri(dl, title: nome, language: idioma));
+                                              setState(() { _legendaAtiva = true; _legendaSelecionada = nome; });
+                                            }
+                                            if (ctx.mounted) Navigator.pop(ctx);
+                                          },
+                                          child: ListTile(
                                           dense: true,
                                           leading: const Icon(Icons.subtitles, color: Color(0xFFF5B82E)),
                                           title: Text(nome, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13)),
@@ -711,9 +719,11 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final podePularAbertura = widget.obra.aberturaSegundos > 0 &&
+    final podePularAbertura = widget.obra.isSerie &&
+        _erroPlayer == null &&
+        widget.obra.aberturaSegundos > 0 &&
         _posicao.inSeconds >= 5 &&
-        _posicao.inSeconds <= (widget.obra.aberturaSegundos + 45);
+        _posicao.inSeconds <= 22;
     final prox = _proximoEpisodio;
 
     return Scaffold(
@@ -986,17 +996,31 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                               children: [
                                 Text(_formatarTempo(_posicao), style: const TextStyle(color: Colors.white, fontSize: 12)),
                                 Expanded(
-                                  child: Slider(
-                                    value: _duracao.inMilliseconds > 0
-                                        ? _posicao.inMilliseconds.clamp(0, _duracao.inMilliseconds).toDouble()
-                                        : 0,
-                                    max: _duracao.inMilliseconds > 0 ? _duracao.inMilliseconds.toDouble() : 1,
-                                    activeColor: const Color(0xFFF5B82E),
-                                    inactiveColor: Colors.white24,
-                                    onChanged: (v) {
-                                      _player.seek(Duration(milliseconds: v.toInt()));
-                                      _reiniciarTimerControles();
+                                  child: Focus(
+                                    onKeyEvent: (node, event) {
+                                      if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                                      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+                                        _buscarRelativo(15);
+                                        return KeyEventResult.handled;
+                                      }
+                                      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                                        _buscarRelativo(-15);
+                                        return KeyEventResult.handled;
+                                      }
+                                      return KeyEventResult.ignored;
                                     },
+                                    child: Slider(
+                                      value: _duracao.inMilliseconds > 0
+                                          ? _posicao.inMilliseconds.clamp(0, _duracao.inMilliseconds).toDouble()
+                                          : 0,
+                                      max: _duracao.inMilliseconds > 0 ? _duracao.inMilliseconds.toDouble() : 1,
+                                      activeColor: const Color(0xFFF5B82E),
+                                      inactiveColor: Colors.white24,
+                                      onChanged: (v) {
+                                        _player.seek(Duration(milliseconds: v.toInt()));
+                                        _reiniciarTimerControles();
+                                      },
+                                    ),
                                   ),
                                 ),
                                 Text(_formatarTempo(_duracao), style: const TextStyle(color: Colors.white, fontSize: 12)),

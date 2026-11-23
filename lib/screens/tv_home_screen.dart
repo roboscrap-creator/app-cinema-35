@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
+import '../services/catalog_audit_service.dart';
 import '../widgets/cinema_widgets.dart';
 import 'tv_aux_screens.dart';
 
@@ -79,19 +80,28 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   List<ObraAgrupada> get _series =>
       widget.catalogo.where((o) => o.isSerie).toList();
 
+  bool _ehAnime(ObraAgrupada o) {
+    final c = SupabaseService.normalizarTexto(o.categoria);
+    final g = SupabaseService.normalizarTexto(o.genero);
+    final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
+    if (c.contains('anime') || g.contains('anime') || t.contains('anime')) return true;
+    return CatalogAuditService.ehAnime(
+      titulo: o.titulo,
+      generos: o.genero.split(','),
+      paisOrigem: o.pais,
+      sinopse: o.sinopse,
+    );
+  }
+
   List<ObraAgrupada> get _kids => widget.catalogo.where((o) {
+        if (_ehAnime(o)) return false;
         final c = SupabaseService.normalizarTexto(o.categoria);
         final g = SupabaseService.normalizarTexto(o.genero);
         final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
         return c.contains('infantil') || c.contains('kids') || g.contains('infantil') || g.contains('animacao') || t.contains('kids');
       }).toList();
 
-  List<ObraAgrupada> get _animes => widget.catalogo.where((o) {
-        final c = SupabaseService.normalizarTexto(o.categoria);
-        final g = SupabaseService.normalizarTexto(o.genero);
-        final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
-        return c.contains('anime') || g.contains('anime') || t.contains('anime');
-      }).toList();
+  List<ObraAgrupada> get _animes => widget.catalogo.where(_ehAnime).toList();
 
   List<ObraAgrupada> _filtrarTagOuGenero(List<ObraAgrupada> base, String termo) {
     final q = SupabaseService.normalizarTexto(termo);

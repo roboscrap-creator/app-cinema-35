@@ -590,6 +590,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                             }
                                             if (ctx.mounted) Navigator.pop(ctx);
                                           },
+                                        )
                                         );
                                       },
                                     ),

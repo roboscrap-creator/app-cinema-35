@@ -107,8 +107,6 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) AppUpdaterService.verificarAtualizacao(context, silencioso: true);
     });
-  if (cmd != null && cmd.isNotEmpty) MaxAssistantService.instance.processarComando(cmd);
-    });
   }
 
   void _executarAcaoMax(MaxAcaoComando acao) {

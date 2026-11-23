@@ -281,45 +281,39 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
         titleSpacing: 8,
         title: const CinemaLogoWidget(height: 30, width: 102),
         actions: [
-          Center(child: Padding(padding: const EdgeInsets.only(right: 4), child: PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })))),
-          Center(child: Padding(padding: const EdgeInsets.only(right: 2), child: MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)))),
-          IconButton(tooltip: 'Pedidos', icon: const Icon(Icons.playlist_add_rounded, color: Color(0xFFF5B82E)), onPressed: () => PedidosScreenModal.abrir(context)),
-          IconButton(
-            tooltip: 'Buscar',
-            icon: const Icon(Icons.search),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => TvBuscaScreen(catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra),
-              ),
-            ),
-          ),
+          Center(child: Padding(padding: const EdgeInsets.only(right: 4), child: MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)))),
           IconButton(
             visualDensity: VisualDensity.compact,
-            tooltip: 'Filtro Avançado',
-            icon: const Icon(Icons.filter_alt_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => TvFiltroScreen(catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra),
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Meus Favoritos e Histórico',
-            icon: const Icon(Icons.history),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => TvHistoricoFavoritosScreen(catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra),
-              ),
-            ),
+            tooltip: 'Buscar',
+            icon: const Icon(Icons.search),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TvBuscaScreen(catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra))),
           ),
           IconButton(
             visualDensity: VisualDensity.compact,
             tooltip: 'Modo TV Box',
             icon: const Icon(Icons.tv_rounded, color: Color(0xFFF5B82E)),
             onPressed: widget.onAlternarModoTv,
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.white),
+            color: const Color(0xFF141822),
+            onSelected: (v) {
+              if (v == 'perfil') {
+                PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); });
+              } else if (v == 'pedidos') {
+                PedidosScreenModal.abrir(context);
+              } else if (v == 'filtro') {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => TvFiltroScreen(catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra)));
+              } else if (v == 'historico') {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => TvHistoricoFavoritosScreen(catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra)));
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'perfil', child: ListTile(dense: true, leading: Icon(Icons.person, color: Color(0xFFF5B82E)), title: Text('Trocar Perfil'))),
+              PopupMenuItem(value: 'pedidos', child: ListTile(dense: true, leading: Icon(Icons.playlist_add_rounded, color: Color(0xFFF5B82E)), title: Text('Pedidos'))),
+              PopupMenuItem(value: 'filtro', child: ListTile(dense: true, leading: Icon(Icons.filter_alt_outlined, color: Colors.white), title: Text('Filtro Avançado'))),
+              PopupMenuItem(value: 'historico', child: ListTile(dense: true, leading: Icon(Icons.history, color: Colors.white), title: Text('Favoritos e Histórico'))),
+            ],
           ),
         ],
       ),

@@ -26,59 +26,131 @@ class SupabaseService {
   // =========================================================================
   // PROGRESSO / CONTINUAR ASSISTINDO & HISTÓRICO COMPLETO
   // =========================================================================
+  static Future<String> _perfilAtualChave() async {
+    final prefs = await SharedPreferences.getInstance();
+    final p = (prefs.getString('cinemax_max_perfil_ativo_v2') ?? 'geral').trim().toLowerCase();
+    return p.isEmpty ? 'geral' : p;
+  }
+
   static Future<void> salvarProgressoAssistido({
     required String chaveGrupo,
     required double progresso,
     String? etiquetaEp,
   }) async {
     final prefs = await SharedPreferences.getInstance();
+    final perfil = await _perfilAtualChave();
+    final progLimpo = progresso.clamp(0.03, 0.99);
     final raw = prefs.getString('cinema_continuar_assistindo') ?? '{}';
     final Map<String, dynamic> mapa = jsonDecode(raw);
     mapa[chaveGrupo] = {
-      'progresso': progresso.clamp(0.03, 0.99),
+      'progresso': progLimpo,
       'etiqueta': etiquetaEp ?? '',
       'ts': DateTime.now().millisecondsSinceEpoch,
     };
     await prefs.setString('cinema_continuar_assistindo', jsonEncode(mapa));
+
+    try {
+      final key = await getAnonKey();
+      await http.post(
+        Uri.parse('$baseUrl/rest/v1/user_progresso'),
+        headers: {'apikey': key, 'Authorization': 'Bearer $key', 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates'},
+        body: jsonEncode({
+          'perfil': perfil,
+          'chave_grupo': chaveGrupo,
+          'progresso': progLimpo,
+          'etiqueta': etiquetaEp ?? '',
+          'atualizado_em': DateTime.now().toIso8601String(),
+        }),
+      ).timeout(const Duration(seconds: 5));
+    } catch (_) {}
   }
 
-  static Future<Map<String, Map<String, dynamic>>> carregarProgressoAssistido() async {
+  static Future>> carregarProgressoAssistido() async {
     final prefs = await SharedPreferences.getInstance();
+    final perfil = await _perfilAtualChave();
     final raw = prefs.getString('cinema_continuar_assistindo') ?? '{}';
     final Map<String, dynamic> decoded = jsonDecode(raw);
     final Map<String, Map<String, dynamic>> out = {};
     decoded.forEach((k, v) {
       if (v is Map) out[k] = Map<String, dynamic>.from(v);
     });
+
+    try {
+      final key = await getAnonKey();
+      final uri = Uri.parse('$baseUrl/rest/v1/user_progresso?perfil=eq.${Uri.encodeComponent(perfil)}&select=chave_grupo,progresso,etiqueta');
+      final resp = await http.get(uri, headers: {'apikey': key, 'Authorization': 'Bearer $key'}).timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        for (final r in (jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>)) {
+          if (r is Map && (r['chave_grupo'] ?? '').toString().isNotEmpty) {
+            out[r['chave_grupo'].toString()] = {
+              'progresso': (r['progresso'] as num?)?.toDouble() ?? 0.1,
+              'etiqueta': (r['etiqueta'] ?? '').toString(),
+            };
+          }
+        }
+        await prefs.setString('cinema_continuar_assistindo', jsonEncode(out));
+      }
+    } catch (_) {}
     return out;
   }
 
   static Future<void> removerDoHistorico(List<String> chaves) async {
     final prefs = await SharedPreferences.getInstance();
+    final perfil = await _perfilAtualChave();
     final raw = prefs.getString('cinema_continuar_assistindo') ?? '{}';
     final Map<String, dynamic> mapa = jsonDecode(raw);
     for (final c in chaves) {
       mapa.remove(c);
     }
     await prefs.setString('cinema_continuar_assistindo', jsonEncode(mapa));
+
+    try {
+      final key = await getAnonKey();
+      for (final c in chaves) {
+        await http.delete(
+          Uri.parse('$baseUrl/rest/v1/user_progresso?perfil=eq.${Uri.encodeComponent(perfil)}&chave_grupo=eq.${Uri.encodeComponent(c)}'),
+          headers: {'apikey': key, 'Authorization': 'Bearer $key'},
+        ).timeout(const Duration(seconds: 4));
+      }
+    } catch (_) {}
   }
 
   static Future<void> limparTodoHistorico() async {
     final prefs = await SharedPreferences.getInstance();
+    final perfil = await _perfilAtualChave();
     await prefs.setString('cinema_continuar_assistindo', '{}');
+    try {
+      final key = await getAnonKey();
+      await http.delete(
+        Uri.parse('$baseUrl/rest/v1/user_progresso?perfil=eq.${Uri.encodeComponent(perfil)}'),
+        headers: {'apikey': key, 'Authorization': 'Bearer $key'},
+      ).timeout(const Duration(seconds: 5));
+    } catch (_) {}
   }
 
-  // =========================================================================
-  // FAVORITOS
-  // =========================================================================
   static Future<Set<String>> carregarFavoritos() async {
     final prefs = await SharedPreferences.getInstance();
-    final list = prefs.getStringList('cinema_favoritos') ?? [];
-    return list.toSet();
+    final perfil = await _perfilAtualChave();
+    final set = (prefs.getStringList('cinema_favoritos') ?? []).toSet();
+    try {
+      final key = await getAnonKey();
+      final uri = Uri.parse('$baseUrl/rest/v1/user_favoritos?perfil=eq.${Uri.encodeComponent(perfil)}&select=chave_grupo');
+      final resp = await http.get(uri, headers: {'apikey': key, 'Authorization': 'Bearer $key'}).timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        for (final r in (jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>)) {
+          if (r is Map && (r['chave_grupo'] ?? '').toString().isNotEmpty) {
+            set.add(r['chave_grupo'].toString());
+          }
+        }
+        await prefs.setStringList('cinema_favoritos', set.toList());
+      }
+    } catch (_) {}
+    return set;
   }
 
   static Future<bool> alternarFavorito(String chaveGrupo) async {
     final prefs = await SharedPreferences.getInstance();
+    final perfil = await _perfilAtualChave();
     final set = (prefs.getStringList('cinema_favoritos') ?? []).toSet();
     final bool adicionado;
     if (set.contains(chaveGrupo)) {
@@ -89,6 +161,22 @@ class SupabaseService {
       adicionado = true;
     }
     await prefs.setStringList('cinema_favoritos', set.toList());
+
+    try {
+      final key = await getAnonKey();
+      if (adicionado) {
+        await http.post(
+          Uri.parse('$baseUrl/rest/v1/user_favoritos'),
+          headers: {'apikey': key, 'Authorization': 'Bearer $key', 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates'},
+          body: jsonEncode({'perfil': perfil, 'chave_grupo': chaveGrupo}),
+        ).timeout(const Duration(seconds: 5));
+      } else {
+        await http.delete(
+          Uri.parse('$baseUrl/rest/v1/user_favoritos?perfil=eq.${Uri.encodeComponent(perfil)}&chave_grupo=eq.${Uri.encodeComponent(chaveGrupo)}'),
+          headers: {'apikey': key, 'Authorization': 'Bearer $key'},
+        ).timeout(const Duration(seconds: 5));
+      }
+    } catch (_) {}
     return adicionado;
   }
 

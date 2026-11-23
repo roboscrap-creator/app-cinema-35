@@ -26,10 +26,21 @@ class SupabaseService {
   // =========================================================================
   // PROGRESSO / CONTINUAR ASSISTINDO & HISTÓRICO COMPLETO
   // =========================================================================
+  static Future<String> getDeviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    var id = prefs.getString('cinemax_device_id_v1') ?? '';
+    if (id.isEmpty) {
+      id = 'dev_${DateTime.now().microsecondsSinceEpoch}';
+      await prefs.setString('cinemax_device_id_v1', id);
+    }
+    return id;
+  }
+
   static Future<String> _perfilAtualChave() async {
     final prefs = await SharedPreferences.getInstance();
+    final dev = await getDeviceId();
     final p = (prefs.getString('cinemax_max_perfil_ativo_v2') ?? 'geral').trim().toLowerCase();
-    return p.isEmpty ? 'geral' : p;
+    return '${dev}_${p.isEmpty ? 'geral' : p}';
   }
 
   static Future<void> salvarProgressoAssistido({
@@ -224,7 +235,7 @@ class SupabaseService {
       normalizarTexto(_limparNomeObra(texto)).replaceAll(RegExp(r'[^a-z0-9]'), '');
 
   static String _normalizarUrlImagem(String url) {
-    var u = url.trim();
+    var u = url.trim().replaceAll('/t/p/original/', '/t/p/w780/');
     if (u.startsWith('http://image.tmdb.org') ||
         u.startsWith('http://i.imgur.com')) {
       u = u.replaceFirst('http://', 'https://');

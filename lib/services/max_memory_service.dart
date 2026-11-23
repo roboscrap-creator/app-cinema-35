@@ -263,13 +263,15 @@ class MaxMemoryService {
 
   Future<void> _carregarPerfisDaNuvem() async {
     try {
+      final dev = await SupabaseService.getDeviceId();
       final key = await SupabaseService.getAnonKey();
-      final uri = Uri.parse('${SupabaseService.baseUrl}/rest/v1/max_perfis_usuario?select=nome_chave,dados&limit=30');
+      final uri = Uri.parse('${SupabaseService.baseUrl}/rest/v1/max_perfis_usuario?nome_chave=like.${Uri.encodeComponent(dev)}_*&select=nome_chave,dados&limit=20');
       final resp = await http.get(uri, headers: {'apikey': key, 'Authorization': 'Bearer $key'}).timeout(const Duration(seconds: 6));
       if (resp.statusCode == 200) {
         for (final row in (jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>)) {
           if (row is Map && row['dados'] is Map) {
-            final ch = (row['nome_chave'] ?? '').toString().toLowerCase();
+            final full = (row['nome_chave'] ?? '').toString().toLowerCase();
+            final ch = full.startsWith('${dev}_') ? full.substring(dev.length + 1) : full;
             if (ch.isNotEmpty) {
               _perfis[ch] = MaxPerfilUsuario.fromJson(Map<String, dynamic>.from(row['dados'] as Map));
             }
@@ -315,7 +317,7 @@ class MaxMemoryService {
       await http.post(
         Uri.parse('${SupabaseService.baseUrl}/rest/v1/max_perfis_usuario'),
         headers: {'apikey': key, 'Authorization': 'Bearer $key', 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates'},
-        body: jsonEncode({'nome_chave': perfil.nome.toLowerCase(), 'dados': perfil.toJson(), 'atualizado_em': DateTime.now().toIso8601String()}),
+        body: jsonEncode({'nome_chave': '${await SupabaseService.getDeviceId()}_${perfil.nome.toLowerCase()}', 'dados': perfil.toJson(), 'atualizado_em': DateTime.now().toIso8601String()}),
       ).timeout(const Duration(seconds: 5));
     } catch (_) {}
   }

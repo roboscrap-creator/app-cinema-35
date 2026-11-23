@@ -45,6 +45,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   Duration _posicao = Duration.zero;
   Duration _duracao = Duration.zero;
+  final ValueNotifier<Duration> _posNotifier = ValueNotifier(Duration.zero);
+  final ValueNotifier<Duration> _durNotifier = ValueNotifier(Duration.zero);
+  final List<StreamSubscription> _subs = [];
   bool _tocando = true;
 
   // Configurações de Legenda
@@ -84,12 +87,14 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     }
     _videoCtrl = VideoController(_player);
 
-    _player.stream.position.listen((p) {
-      if (mounted) setState(() => _posicao = p);
-    });
-    _player.stream.duration.listen((d) {
-      if (mounted) setState(() => _duracao = d);
-    });
+    _subs.add(_player.stream.position.listen((p) {
+      _posicao = p;
+      _posNotifier.value = p;
+    }));
+    _subs.add(_player.stream.duration.listen((d) {
+      _duracao = d;
+      _durNotifier.value = d;
+    }));
     _player.stream.playing.listen((pl) {
       if (mounted) setState(() { _tocando = pl; if (pl) { _erroPlayer = null; _carregandoStream = false; } });
     });
@@ -291,6 +296,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _hideTimer?.cancel();
     _osdTimer?.cancel();
     _saveProgressTimer?.cancel();
+    for (final sub in _subs) { sub.cancel(); }
+    _posNotifier.dispose();
+    _durNotifier.dispose();
     _playerRootFocus.dispose();
     _player.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -1038,39 +1046,61 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         padding: const EdgeInsets.fromLTRB(22, 0, 22, 16),
                         child: Column(
                           children: [
-                            Row(
-                              children: [
-                                Text(_formatarTempo(_posicao), style: const TextStyle(color: Colors.white, fontSize: 12)),
-                                Expanded(
-                                  child: Focus(
-                                    onKeyEvent: (node, event) {
-                                      if (event is! KeyDownEvent) return KeyEventResult.ignored;
-                                      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-                                        _buscarRelativo(15);
-                                        return KeyEventResult.handled;
-                                      }
-                                      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-                                        _buscarRelativo(-15);
-                                        return KeyEventResult.handled;
-                                      }
-                                      return KeyEventResult.ignored;
+                            ValueListenableBuilder<Duration>(
+                              valueListenable: _posNotifier,
+                              builder: (_, pos, __) {
+                                final dur = _durNotifier.value;
+                                return Focus(
+                                  onKeyEvent: (node, event) {
+                                    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                                    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+                                      _buscarRelativo(15);
+                                      return KeyEventResult.handled;
+                                    }
+                                    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                                      _buscarRelativo(-15);
+                                      return KeyEventResult.handled;
+                                    }
+                                    return KeyEventResult.ignored;
+                                  },
+                                  child: Builder(
+                                    builder: (fCtx) {
+                                      final focado = Focus.of(fCtx).hasFocus;
+                                      return Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(color: focado ? const Color(0xFFF5B82E) : Colors.transparent, width: 2),
+                                          color: focado ? const Color(0xFFF5B82E).withOpacity(0.14) : Colors.transparent,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Text(_formatarTempo(pos), style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                            Expanded(
+                                              child: Slider(
+                                                focusNode: FocusNode(canRequestFocus: false),
+                                                value: dur.inMilliseconds > 0 ? pos.inMilliseconds.clamp(0, dur.inMilliseconds).toDouble() : 0,
+                                                max: dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1,
+                                                activeColor: const Color(0xFFF5B82E),
+                                                inactiveColor: Colors.white24,
+                                                onChangeEnd: (v) {
+                                                  _player.seek(Duration(milliseconds: v.toInt()));
+                                                  _reiniciarTimerControles();
+                                                },
+                                                onChanged: (v) {
+                                                  _posNotifier.value = Duration(milliseconds: v.toInt());
+                                                  _reiniciarTimerControles();
+                                                },
+                                              ),
+                                            ),
+                                            Text(_formatarTempo(dur), style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                          ],
+                                        ),
+                                      );
                                     },
-                                    child: Slider(
-                                      value: _duracao.inMilliseconds > 0
-                                          ? _posicao.inMilliseconds.clamp(0, _duracao.inMilliseconds).toDouble()
-                                          : 0,
-                                      max: _duracao.inMilliseconds > 0 ? _duracao.inMilliseconds.toDouble() : 1,
-                                      activeColor: const Color(0xFFF5B82E),
-                                      inactiveColor: Colors.white24,
-                                      onChanged: (v) {
-                                        _player.seek(Duration(milliseconds: v.toInt()));
-                                        _reiniciarTimerControles();
-                                      },
-                                    ),
                                   ),
-                                ),
-                                Text(_formatarTempo(_duracao), style: const TextStyle(color: Colors.white, fontSize: 12)),
-                              ],
+                                );
+                              },
                             ),
                             Row(
                               children: [

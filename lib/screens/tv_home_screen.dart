@@ -47,17 +47,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) AppUpdaterService.verificarAtualizacao(context, silencioso: true);
     });
-    _autoPlayTimer = Timer.periodic(const Duration(seconds: 6), (_) {
-      if (!mounted || _abaIndex != 0) return;
-      if (_bannerFilmesCtrl.hasClients) {
-        final nextF = (_idxBannerFilme + 1) % 4;
-        _bannerFilmesCtrl.animateToPage(nextF, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut);
-      }
-      if (_bannerSeriesCtrl.hasClients) {
-        final nextS = (_idxBannerSerie + 1) % 4;
-        _bannerSeriesCtrl.animateToPage(nextS, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut);
-      }
-    });
+    // Auto-play desativado para manter TV Box rápida e sem reconstrução constante
   }
 
   Future<void> _carregarProgresso() async {
@@ -621,7 +611,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           fit: StackFit.expand,
           children: [
             if (img.isNotEmpty)
-              CachedNetworkImage(imageUrl: img, fit: BoxFit.cover)
+              CachedNetworkImage(imageUrl: img, fit: BoxFit.cover, memCacheWidth: 720, fadeInDuration: Duration.zero, errorWidget: (_, __, ___) => Container(color: const Color(0xFF161A23)))
             else
               Container(color: const Color(0xFF161A23)),
             Container(

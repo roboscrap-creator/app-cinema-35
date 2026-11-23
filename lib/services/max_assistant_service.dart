@@ -62,6 +62,11 @@ class MaxAssistantService extends ChangeNotifier {
   String _ultimaFalaMax = 'Oi! Toque no microfone e me peça qualquer filme, série ou anime.';
   MaxAcaoComando? _pendenteAbrir;
   MaxAcaoComando? _pendentePedidoCatalogo;
+  ObraAgrupada? _obraEmVisualizacao;
+
+  void definirObraEmVisualizacao(ObraAgrupada? obra) {
+    _obraEmVisualizacao = obra;
+  }
   final List<Map<String, String>> _historicoDialogo = [];
 
   void Function(MaxAcaoComando acao)? onExecutarAcao;
@@ -88,8 +93,30 @@ class MaxAssistantService extends ChangeNotifier {
     await PedidosScrapeService.instance.inicializar();
     try {
       await _tts.setLanguage('pt-BR');
-      await _tts.setPitch(1.03);
-      await _tts.setSpeechRate(0.50);
+      try {
+        final voices = await _tts.getVoices;
+        if (voices is List) {
+          Map<String, String>? melhorVoz;
+          for (final v in voices) {
+            if (v is Map) {
+              final locale = (v['locale'] ?? '').toString().toLowerCase();
+              final name = (v['name'] ?? '').toString().toLowerCase();
+              if (locale.contains('pt-br') || locale.contains('pt_br')) {
+                if (name.contains('neural') || name.contains('wavenet') || name.contains('enhanced') || name.contains('pt-br-x-ptd') || name.contains('pt-br-x-afs')) {
+                  melhorVoz = {'name': v['name'].toString(), 'locale': v['locale'].toString()};
+                  break;
+                }
+                melhorVoz ??= {'name': v['name'].toString(), 'locale': v['locale'].toString()};
+              }
+            }
+          }
+          if (melhorVoz != null) {
+            await _tts.setVoice(melhorVoz);
+          }
+        }
+      } catch (_) {}
+      await _tts.setPitch(1.05);
+      await _tts.setSpeechRate(0.53);
       await _tts.setVolume(1.0);
       _tts.setStartHandler(() { _falando = true; notifyListeners(); });
       _tts.setCompletionHandler(_aoTerminarFala);
@@ -106,6 +133,8 @@ class MaxAssistantService extends ChangeNotifier {
     final limpo = texto
         .replaceAll(RegExp(r'rob[oô]\s*scrape?', caseSensitive: false), 'catálogo do CineMax')
         .replaceAll(RegExp(r'roboscrap', caseSensitive: false), 'catálogo do CineMax')
+        .replaceAll(RegExp(r'[*_#`~]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     _ultimaFalaMax = limpo;
     notifyListeners();
@@ -260,6 +289,17 @@ class MaxAssistantService extends ChangeNotifier {
               'perfil': MaxMemoryService.instance.nomeAtual,
               'kids': MaxMemoryService.instance.modoKidsAtivo,
               'historico': _historicoDialogo,
+              if (_obraEmVisualizacao != null)
+                'obra_atual': {
+                  'titulo': _obraEmVisualizacao!.titulo,
+                  'categoria': _obraEmVisualizacao!.categoria,
+                  'genero': _obraEmVisualizacao!.genero,
+                  'ano': _obraEmVisualizacao!.ano,
+                  'diretor': _obraEmVisualizacao!.diretor,
+                  'elenco': _obraEmVisualizacao!.elenco,
+                  'sinopse': _obraEmVisualizacao!.sinopse,
+                  'nota_imdb': _obraEmVisualizacao!.notaImdb,
+                },
             }),
           )
           .timeout(const Duration(seconds: 20));

@@ -3,7 +3,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
 import '../services/cdn_stream_service.dart';
+import '../services/max_assistant_service.dart';
 import '../widgets/cinema_widgets.dart';
+import '../widgets/max_assistant_overlay.dart';
 import 'player_screen.dart';
 
 class DetalheObraScreen extends StatefulWidget {
@@ -31,6 +33,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
   void initState() {
     super.initState();
     _obraAtual = widget.obra;
+    MaxAssistantService.instance.definirObraEmVisualizacao(_obraAtual);
     if (_obraAtual.temporadasDisponiveis.isNotEmpty) {
       _temporadaSelecionada = _obraAtual.temporadasDisponiveis.first;
     }
@@ -42,6 +45,12 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
     }
     _carregarDetalhesExtras();
     CdnStreamService.preAquecerMagnet(_escolherMelhorFonte()?.urlStream);
+  }
+
+  @override
+  void dispose() {
+    MaxAssistantService.instance.definirObraEmVisualizacao(null);
+    super.dispose();
   }
 
   Future<void> _carregarDetalhesExtras() async {
@@ -64,6 +73,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
     final enriquecido = await SupabaseService.enriquecerComTmdb(_obraAtual);
     if (mounted) {
       setState(() => _obraAtual = enriquecido);
+      MaxAssistantService.instance.definirObraEmVisualizacao(_obraAtual);
       CdnStreamService.preAquecerMagnet(_escolherMelhorFonte()?.urlStream);
     }
   }
@@ -198,6 +208,8 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
                         style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)),
                   ],
                 ),
                 const SizedBox(height: 16),

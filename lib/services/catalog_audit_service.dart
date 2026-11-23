@@ -60,8 +60,6 @@ class CatalogAuditService extends ChangeNotifier {
     final lang = (idiomaOriginal ?? '').toLowerCase();
 
     if (gLower.any((g) => g.contains('anime')) || tagsLower.any((t) => t.contains('anime'))) return true;
-
-    // Caracteres japoneses (Hiragana, Katakana, Kanji) no título ou sinopse
     if (RegExp(r'[\u3040-\u30ff\u4e00-\u9faf]').hasMatch(titulo)) return true;
 
     final ehAnimacao = gLower.any((g) =>
@@ -69,40 +67,29 @@ class CatalogAuditService extends ChangeNotifier {
     final origemJapao = pais.contains('JP') || pais.contains('JAP') || lang == 'ja' || lang == 'jp';
     if (ehAnimacao && origemJapao) return true;
 
-    // Animação combinada com gêneros típicos de anime juvenil/adulto (+12/+14/+16) nunca é Kids
-    final temGeneroAdultoJuvenil = gLower.any((g) =>
-        g.contains('sci-fi') ||
-        g.contains('ficção') ||
-        g.contains('ficcao') ||
-        g.contains('terror') ||
-        g.contains('horror') ||
-        g.contains('crime') ||
-        g.contains('mistério') ||
-        g.contains('misterio') ||
-        g.contains('suspense') ||
-        g.contains('thriller') ||
-        g.contains('guerra') ||
-        g.contains('war') ||
-        g.contains('action & adventure'));
-    if (ehAnimacao && temGeneroAdultoJuvenil) return true;
+    final ehFamiliaKids = gLower.any((g) =>
+            g.contains('família') || g.contains('familia') || g.contains('family') || g.contains('infantil') || g.contains('kids')) ||
+        tagsLower.any((t) => t.contains('kids') || t.contains('infantil'));
 
-    const palavrasAnime = [
-      'jujutsu', 'naruto', 'one piece', 'dragon ball', 'attack on titan',
-      'shingeki', 'demon slayer', 'kimetsu', 'bleach', 'death note',
-      'fullmetal', 'hunter x hunter', 'chainsaw man', 'tokyo ghoul',
-      'my hero academia', 'boku no hero', 'solo leveling', 'boruto',
-      'saint seiya', 'cavaleiros do zodíaco', 'yu yu hakusho', 'evangelion',
-      'cowboy bebop', 'spy x family', 'vinland saga', 'blue lock', 'haikyuu',
-      'gundam', 'mobile suit', 'bass x machina', 'bastard', 'berserk',
+    if (ehAnimacao && !ehFamiliaKids) return true;
+
+    const termosAnime = [
+      'ms. servant', 'ms servant', 'sensei', 'senpai', 'sama', 'chan', 'kun',
+      'isekai', 'shonen', 'shoujo', 'mecha', 'jujutsu', 'naruto', 'one piece',
+      'dragon ball', 'attack on titan', 'shingeki', 'demon slayer', 'kimetsu',
+      'bleach', 'death note', 'fullmetal', 'hunter x hunter', 'chainsaw man',
+      'tokyo ghoul', 'my hero academia', 'boku no hero', 'solo leveling',
+      'boruto', 'saint seiya', 'cavaleiros do zodíaco', 'yu yu hakusho',
+      'evangelion', 'cowboy bebop', 'spy x family', 'vinland saga', 'blue lock',
+      'haikyuu', 'gundam', 'mobile suit', 'bass x machina', 'bastard', 'berserk',
       'one punch', 'mob psycho', 'jojo', 'fairy tail', 'black clover',
       'sword art', 'overlord', 're:zero', 'konosuba', 'dandadan', 'kaiju',
-      'frieren', 'mashle', 'dr. stone', 'dr stone', 'akira', 'ghost in the shell',
+      'frieren', 'mashle', 'dr. stone', 'akira', 'ghost in the shell',
       'inuyasha', 'ranma', 'sailor moon', 'pokemon', 'pokémon', 'digimon',
-      'yu-gi-oh', 'yugioh', 'beyblade', 'bakugan', 'monogatari', 'fate/',
-      'steins;gate', 'code geass', 'gintama', 'hells paradise', 'jigokuraku',
-      'tokyo revengers', 'wind breaker', 'baki', 'kengan', 'record of ragnarok'
+      'yu-gi-oh', 'beyblade', 'bakugan', 'monogatari', 'fate/', 'steins;gate',
+      'code geass', 'gintama', 'jigokuraku', 'tokyo revengers', 'baki', 'kengan'
     ];
-    return palavrasAnime.any((p) => tLower.contains(p) || sLower.contains(p));
+    return termosAnime.any((p) => tLower.contains(p) || sLower.contains(p));
   }
 
   Future<String?> auditarReproducao({

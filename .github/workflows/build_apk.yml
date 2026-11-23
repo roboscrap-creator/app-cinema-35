@@ -181,6 +181,12 @@ jobs:
 
       - name: Instalar dependencias
         run: flutter pub get
+      - name: Incrementar versão automática para OTA
+        run: |
+          RUN_NUM=${{ github.run_number }}
+          sed -i -E "s/^version:.*/version: 1.0.${RUN_NUM}+${RUN_NUM}/" pubspec.yaml
+          grep "^version:" pubspec.yaml
+
 
       - name: Compilar APK Release (arm64)
         run: |

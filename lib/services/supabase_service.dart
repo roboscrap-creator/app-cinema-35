@@ -37,19 +37,8 @@ class SupabaseService {
     required double progresso,
     String? etiquetaEp,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final perfil = await _perfilAtualChave();
-    final progLimpo = progresso.clamp(0.03, 0.99);
-    final raw = prefs.getString('cinema_continuar_assistindo') ?? '{}';
-    final Map<String, dynamic> mapa = jsonDecode(raw);
-    mapa[chaveGrupo] = {
-      'progresso': progLimpo,
-      'etiqueta': etiquetaEp ?? '',
-      'ts': DateTime.now().millisecondsSinceEpoch,
-    };
-    await prefs.setString('cinema_continuar_assistindo', jsonEncode(mapa));
-
     try {
+      final perfil = await _perfilAtualChave();
       final key = await getAnonKey();
       await http.post(
         Uri.parse('$baseUrl/rest/v1/user_progresso'),
@@ -57,7 +46,7 @@ class SupabaseService {
         body: jsonEncode({
           'perfil': perfil,
           'chave_grupo': chaveGrupo,
-          'progresso': progLimpo,
+          'progresso': progresso.clamp(0.03, 0.99),
           'etiqueta': etiquetaEp ?? '',
           'atualizado_em': DateTime.now().toIso8601String(),
         }),
@@ -66,19 +55,12 @@ class SupabaseService {
   }
 
   static Future>> carregarProgressoAssistido() async {
-    final prefs = await SharedPreferences.getInstance();
-    final perfil = await _perfilAtualChave();
-    final raw = prefs.getString('cinema_continuar_assistindo') ?? '{}';
-    final Map<String, dynamic> decoded = jsonDecode(raw);
     final Map<String, Map<String, dynamic>> out = {};
-    decoded.forEach((k, v) {
-      if (v is Map) out[k] = Map<String, dynamic>.from(v);
-    });
-
     try {
+      final perfil = await _perfilAtualChave();
       final key = await getAnonKey();
       final uri = Uri.parse('$baseUrl/rest/v1/user_progresso?perfil=eq.${Uri.encodeComponent(perfil)}&select=chave_grupo,progresso,etiqueta');
-      final resp = await http.get(uri, headers: {'apikey': key, 'Authorization': 'Bearer $key'}).timeout(const Duration(seconds: 5));
+      final resp = await http.get(uri, headers: {'apikey': key, 'Authorization': 'Bearer $key'}).timeout(const Duration(seconds: 6));
       if (resp.statusCode == 200) {
         for (final r in (jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>)) {
           if (r is Map && (r['chave_grupo'] ?? '').toString().isNotEmpty) {
@@ -88,23 +70,14 @@ class SupabaseService {
             };
           }
         }
-        await prefs.setString('cinema_continuar_assistindo', jsonEncode(out));
       }
     } catch (_) {}
     return out;
   }
 
   static Future<void> removerDoHistorico(List<String> chaves) async {
-    final prefs = await SharedPreferences.getInstance();
-    final perfil = await _perfilAtualChave();
-    final raw = prefs.getString('cinema_continuar_assistindo') ?? '{}';
-    final Map<String, dynamic> mapa = jsonDecode(raw);
-    for (final c in chaves) {
-      mapa.remove(c);
-    }
-    await prefs.setString('cinema_continuar_assistindo', jsonEncode(mapa));
-
     try {
+      final perfil = await _perfilAtualChave();
       final key = await getAnonKey();
       for (final c in chaves) {
         await http.delete(
@@ -116,10 +89,8 @@ class SupabaseService {
   }
 
   static Future<void> limparTodoHistorico() async {
-    final prefs = await SharedPreferences.getInstance();
-    final perfil = await _perfilAtualChave();
-    await prefs.setString('cinema_continuar_assistindo', '{}');
     try {
+      final perfil = await _perfilAtualChave();
       final key = await getAnonKey();
       await http.delete(
         Uri.parse('$baseUrl/rest/v1/user_progresso?perfil=eq.${Uri.encodeComponent(perfil)}'),
@@ -129,40 +100,28 @@ class SupabaseService {
   }
 
   static Future<Set<String>> carregarFavoritos() async {
-    final prefs = await SharedPreferences.getInstance();
-    final perfil = await _perfilAtualChave();
-    final set = (prefs.getStringList('cinema_favoritos') ?? []).toSet();
+    final set = <String>{};
     try {
+      final perfil = await _perfilAtualChave();
       final key = await getAnonKey();
       final uri = Uri.parse('$baseUrl/rest/v1/user_favoritos?perfil=eq.${Uri.encodeComponent(perfil)}&select=chave_grupo');
-      final resp = await http.get(uri, headers: {'apikey': key, 'Authorization': 'Bearer $key'}).timeout(const Duration(seconds: 5));
+      final resp = await http.get(uri, headers: {'apikey': key, 'Authorization': 'Bearer $key'}).timeout(const Duration(seconds: 6));
       if (resp.statusCode == 200) {
         for (final r in (jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>)) {
           if (r is Map && (r['chave_grupo'] ?? '').toString().isNotEmpty) {
             set.add(r['chave_grupo'].toString());
           }
         }
-        await prefs.setStringList('cinema_favoritos', set.toList());
       }
     } catch (_) {}
     return set;
   }
 
   static Future<bool> alternarFavorito(String chaveGrupo) async {
-    final prefs = await SharedPreferences.getInstance();
-    final perfil = await _perfilAtualChave();
-    final set = (prefs.getStringList('cinema_favoritos') ?? []).toSet();
-    final bool adicionado;
-    if (set.contains(chaveGrupo)) {
-      set.remove(chaveGrupo);
-      adicionado = false;
-    } else {
-      set.add(chaveGrupo);
-      adicionado = true;
-    }
-    await prefs.setStringList('cinema_favoritos', set.toList());
-
+    final atuais = await carregarFavoritos();
+    final adicionado = !atuais.contains(chaveGrupo);
     try {
+      final perfil = await _perfilAtualChave();
       final key = await getAnonKey();
       if (adicionado) {
         await http.post(
@@ -437,28 +396,102 @@ class SupabaseService {
         : [];
   }
 
-  static Future<List<ObraAgrupada>> carregarCatalogoAgrupado(
-      {bool forcarRefresh = false}) async {
-    if (!forcarRefresh && _memoriaRapida != null && _memoriaRapida!.isNotEmpty) {
-      return _memoriaRapida!;
-    }
+  static ObraAgrupada _obraFromViewRow(Map<String, dynamic> r) {
+    final tagsRaw = r['tags'];
+    final tagsList = tagsRaw is List
+        ? tagsRaw.where((e) => e != null).map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList()
+        : <String>[];
+    return ObraAgrupada(
+      chaveGrupo: (r['chave_grupo'] ?? '').toString(),
+      tmdbId: r['tmdb_id'] is int ? r['tmdb_id'] : int.tryParse('${r['tmdb_id'] ?? ''}'),
+      titulo: (r['titulo'] ?? 'Sem Título').toString(),
+      categoria: (r['categoria'] ?? 'Filme').toString(),
+      genero: (r['genero'] ?? '').toString(),
+      sinopse: (r['sinopse'] ?? '').toString(),
+      capaUrl: _normalizarUrlImagem((r['capa_url'] ?? '').toString()),
+      bannerUrl: _normalizarUrlImagem((r['banner_url'] ?? '').toString()),
+      ano: (r['ano'] ?? '').toString(),
+      emDestaque: r['em_destaque'] == true,
+      ordemDestaque: (r['ordem_destaque'] is num) ? (r['ordem_destaque'] as num).toInt() : 999,
+      tags: tagsList,
+      notaImdb: (r['nota_imdb'] is num) ? (r['nota_imdb'] as num).toDouble() : 0.0,
+      visualizacoes: (r['visualizacoes'] is num) ? (r['visualizacoes'] as num).toInt() : 0,
+      fontes: const [],
+      totalFontes: (r['total_fontes'] is num) ? (r['total_fontes'] as num).toInt() : 1,
+      maxTemporada: (r['max_temporada'] is num) ? (r['max_temporada'] as num).toInt() : 1,
+      maxEpisodio: (r['max_episodio'] is num) ? (r['max_episodio'] as num).toInt() : 0,
+      isSerieFlag: r['is_serie'] == true,
+    );
+  }
+
+  static Future<List<ObraAgrupada>> carregarCatalogoAgrupado({bool forcarRefresh = false, int limite = 500}) async {
     final key = await getAnonKey();
-    final res = await Future.wait([
-      _fetchLote(key, '&categoria=ilike.*Filme*', 1200),
-      _fetchLote(key, '&categoria=ilike.*S*rie*', 2000),
-      _fetchLote(key, '&or=(categoria.ilike.*Anime*,genero.ilike.*Anime*)', 800),
-      _fetchLote(
-          key,
-          '&or=(categoria.ilike.*Infantil*,categoria.ilike.*Kids*,genero.ilike.*Infantil*,genero.ilike.*Anima*)',
-          800),
-      _fetchLote(key, '&or=(categoria.ilike.*TV*,categoria.ilike.*Sport*,categoria.ilike.*Live*)', 400),
-    ]);
-    final combinado = [...res[0], ...res[1], ...res[2], ...res[3], ...res[4]];
-    if (combinado.isEmpty) {
-      combinado.addAll(await _fetchLote(key, '', 2000));
+    try {
+      final uri = Uri.parse(
+        '$baseUrl/rest/v1/catalogo_agrupado_view?select=*&order=em_destaque.desc,ordem_destaque.asc,criado_em.desc&limit=$limite',
+      );
+      final resp = await http.get(uri, headers: {
+        'apikey': key,
+        'Authorization': 'Bearer $key',
+        'Content-Type': 'application/json',
+      }).timeout(const Duration(seconds: 10));
+
+      if (resp.statusCode == 200 || resp.statusCode == 206) {
+        final rows = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
+        if (rows.isNotEmpty) {
+          return rows.whereType().map((e) => _obraFromViewRow(Map<String, dynamic>.from(e))).toList();
+        }
+      }
+    } catch (_) {}
+
+    final fallback = await _fetchLote(key, '', 400);
+    return _agruparDados(fallback);
+  }
+
+  static Future<List<FonteMidia>> carregarFontesDaObra(ObraAgrupada obra) async {
+    if (obra.fontes.isNotEmpty) return obra.fontes;
+    final key = await getAnonKey();
+    const cols = 'id,titulo,categoria,url_stream,url_stream_backup,formato,resolucao,tipo_audio,idiomas_audio,headers_customizados,temporada,episodio';
+    const filtroAtivos =
+        '&url_stream=not.ilike.*STANIPTV*&url_stream=not.ilike.*ntcdn.us*&url_stream=not.ilike.*vstreaming.net*&url_stream=not.ilike.*popfilmeshd.net*&url_stream=not.ilike.*themediafire.club*&url_stream=not.ilike.*cdnv12.ec.cx*&url_stream=not.ilike.*cdnv18.ec.cx*&url_stream=not.ilike.*0.0.0.0*&url_stream=not.ilike.*lh3.googleusercontent.com*&url_stream=not.ilike.*dailymotion.com/sec(';
+
+    String filtro;
+    if (obra.tmdbId != null && obra.tmdbId! > 0) {
+      filtro = '&tmdb_id=eq.${obra.tmdbId}';
+    } else {
+      final enc = Uri.encodeComponent(obra.titulo.trim());
+      filtro = '&or=(serie_nome.ilike.*$enc*,titulo.ilike.*$enc*)';
     }
-    _memoriaRapida = _agruparDados(combinado);
-    return _memoriaRapida!;
+
+    try {
+      final uri = Uri.parse('$baseUrl/rest/v1/catalogo_midia?select=$cols$filtroAtivos$filtro&order=temporada.asc.nullslast,episodio.asc.nullslast&limit=250');
+      final resp = await http.get(uri, headers: {
+        'apikey': key,
+        'Authorization': 'Bearer $key',
+        'Content-Type': 'application/json',
+      }).timeout(const Duration(seconds: 10));
+
+      if (resp.statusCode == 200 || resp.statusCode == 206) {
+        final rows = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
+        final fontes = <FonteMidia>[];
+        for (final item in rows) {
+          if (item is! Map) continue;
+          final map = Map<String, dynamic>.from(item);
+          final titLimpo = _limparExtinf((map['titulo'] ?? '').toString());
+          map['titulo'] = titLimpo;
+          final te = _extrairTempEp(titLimpo);
+          if (te != null) {
+            map['temporada'] ??= te['t'];
+            map['episodio'] ??= te['e'];
+          }
+          if ((map['url_stream'] ?? '').toString().trim().isNotEmpty) {
+            fontes.add(FonteMidia.fromJson(map));
+          }
+        }
+        return fontes;
+      }
+    } catch (_) {}
+    return const [];
   }
 
   static Future<void> registrarVisualizacao(String id) async {
@@ -586,6 +619,21 @@ class SupabaseService {
     if (qNorm.isEmpty) return [];
 
     final Map<String, ObraAgrupada> resultados = {};
+    try {
+      final key = await getAnonKey();
+      final enc = Uri.encodeComponent(query.trim());
+      final uri = Uri.parse('$baseUrl/rest/v1/catalogo_agrupado_view?select=*&or=(titulo.ilike.*$enc*,genero.ilike.*$enc*)&limit=60');
+      final resp = await http.get(uri, headers: {'apikey': key, 'Authorization': 'Bearer $key'}).timeout(const Duration(seconds: 6));
+      if (resp.statusCode == 200) {
+        for (final r in (jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>)) {
+          if (r is Map) {
+            final o = _obraFromViewRow(Map<String, dynamic>.from(r));
+            resultados[o.chaveGrupo] = o;
+          }
+        }
+      }
+    } catch (_) {}
+
     for (final o in catalogo) {
       final tit = normalizarTexto(o.titulo);
       final orig = normalizarTexto(o.tituloOriginal);

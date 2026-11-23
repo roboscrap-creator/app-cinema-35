@@ -33,8 +33,8 @@ class AppCinema extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    PaintingBinding.instance.imageCache.maximumSize = 110;
-    PaintingBinding.instance.imageCache.maximumSizeBytes = 55 * 1024 * 1024;
+    PaintingBinding.instance.imageCache.maximumSize = 45;
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 25 * 1024 * 1024;
     return Shortcuts(
       shortcuts: <LogicalKeySet, Intent>{
         LogicalKeySet(LogicalKeyboardKey.select): const ActivateIntent(),

@@ -130,6 +130,7 @@ class MaxMemoryService {
     } catch (_) {}
 
     _carregado = true;
+    await _carregarPerfisDaNuvem();
     _sincronizarCerebroGlobalSupabase();
   }
 
@@ -257,6 +258,25 @@ class MaxMemoryService {
     if (_fatosAprendidos.isNotEmpty) buf.writeln('Aprendizados: ${_fatosAprendidos.take(10).join(" | ")}');
     if (_catalogoConhecido.isNotEmpty) buf.writeln('Catálogo CineMax: ${_catalogoConhecido.join(" ; ")}');
     return buf.toString();
+  }
+
+
+  Future<void> _carregarPerfisDaNuvem() async {
+    try {
+      final key = await SupabaseService.getAnonKey();
+      final uri = Uri.parse('${SupabaseService.baseUrl}/rest/v1/max_perfis_usuario?select=nome_chave,dados&limit=30');
+      final resp = await http.get(uri, headers: {'apikey': key, 'Authorization': 'Bearer $key'}).timeout(const Duration(seconds: 6));
+      if (resp.statusCode == 200) {
+        for (final row in (jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>)) {
+          if (row is Map && row['dados'] is Map) {
+            final ch = (row['nome_chave'] ?? '').toString().toLowerCase();
+            if (ch.isNotEmpty) {
+              _perfis[ch] = MaxPerfilUsuario.fromJson(Map<String, dynamic>.from(row['dados'] as Map));
+            }
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _sincronizarCerebroGlobalSupabase() async {

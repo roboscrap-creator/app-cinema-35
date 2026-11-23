@@ -86,6 +86,10 @@ class ObraAgrupada {
   final double notaImdb;
   final int visualizacoes;
   final List<FonteMidia> fontes;
+  final int totalFontes;
+  final int maxTemporada;
+  final int maxEpisodio;
+  final bool? isSerieFlag;
 
   ObraAgrupada({
     required this.chaveGrupo,
@@ -108,19 +112,29 @@ class ObraAgrupada {
     this.notaImdb = 0.0,
     this.visualizacoes = 0,
     required this.fontes,
+    this.totalFontes = 0,
+    this.maxTemporada = 1,
+    this.maxEpisodio = 0,
+    this.isSerieFlag,
   });
 
-  bool get disponivelParaAssistir => fontes.isNotEmpty;
+  bool get disponivelParaAssistir => fontes.isNotEmpty || totalFontes > 0;
 
   bool get isSerie =>
-      categoria.toLowerCase().contains('série') ||
-      categoria.toLowerCase().contains('serie') ||
-      fontes.any((f) => f.episodio != null);
+      isSerieFlag ??
+      (categoria.toLowerCase().contains('série') ||
+          categoria.toLowerCase().contains('serie') ||
+          fontes.any((f) => f.episodio != null));
 
   double get scorePopularidade => (visualizacoes * 2.0) + (notaImdb * 10.0);
 
   String get badgePoster {
     if (!isSerie) return '';
+    if (fontes.isEmpty) {
+      if (maxTemporada > 1) return 'Temp.$maxTemporada';
+      if (maxEpisodio > 0) return 'S$maxTemporada-E$maxEpisodio';
+      return 'Temp.$maxTemporada';
+    }
     final temps = temporadasDisponiveis;
     if (temps.length > 1) return 'Temp.${temps.last}';
     final eps = episodiosDaTemporada(temps.first);
@@ -172,6 +186,7 @@ class ObraAgrupada {
     String? sinopse,
     String? genero,
     double? notaImdb,
+    List<FonteMidia>? fontes,
   }) {
     return ObraAgrupada(
       chaveGrupo: chaveGrupo,
@@ -193,7 +208,11 @@ class ObraAgrupada {
       tags: tags,
       notaImdb: (notaImdb != null && notaImdb > 0) ? notaImdb : this.notaImdb,
       visualizacoes: visualizacoes,
-      fontes: fontes,
+      fontes: fontes ?? this.fontes,
+      totalFontes: (fontes != null && fontes.isNotEmpty) ? fontes.length : totalFontes,
+      maxTemporada: maxTemporada,
+      maxEpisodio: maxEpisodio,
+      isSerieFlag: isSerieFlag,
     );
   }
 }

@@ -90,7 +90,7 @@ class PedidosScrapeService extends ChangeNotifier {
               ));
             }
           }
-          await _salvar();
+          // 100% nuvem na Supabase
         }
       }
     } catch (_) {}
@@ -145,7 +145,7 @@ class PedidosScrapeService extends ChangeNotifier {
         enviadoParaScrape: enviadoRemoto,
       ),
     );
-    await _salvar();
+    // 100% nuvem na Supabase
     notifyListeners();
     return enviadoRemoto;
   }

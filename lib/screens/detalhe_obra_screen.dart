@@ -45,6 +45,18 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
   }
 
   Future<void> _carregarDetalhesExtras() async {
+    if (_obraAtual.fontes.isEmpty && _obraAtual.totalFontes > 0) {
+      final fontesNuvem = await SupabaseService.carregarFontesDaObra(_obraAtual);
+      if (mounted && fontesNuvem.isNotEmpty) {
+        setState(() {
+          _obraAtual = _obraAtual.copyWith(fontes: fontesNuvem);
+          if (_obraAtual.temporadasDisponiveis.isNotEmpty) _temporadaSelecionada = _obraAtual.temporadasDisponiveis.first;
+          if (_obraAtual.audiosDisponiveis.isNotEmpty) _audioSelecionado = _obraAtual.audiosDisponiveis.first;
+          if (_obraAtual.resolucoesDisponiveis.isNotEmpty) _resolucaoSelecionada = _obraAtual.resolucoesDisponiveis.first;
+        });
+        CdnStreamService.preAquecerMagnet(_escolherMelhorFonte()?.urlStream);
+      }
+    }
     final favs = await SupabaseService.carregarFavoritos();
     if (mounted) {
       setState(() => _favorito = favs.contains(_obraAtual.chaveGrupo));
@@ -92,7 +104,13 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
     return candidatas.first;
   }
 
-  void _reproduzir([FonteMidia? fonteEspecifica]) {
+  Future<void> _reproduzir([FonteMidia? fonteEspecifica]) async {
+    if (fonteEspecifica == null && _obraAtual.fontes.isEmpty && _obraAtual.totalFontes > 0) {
+      final fontesNuvem = await SupabaseService.carregarFontesDaObra(_obraAtual);
+      if (mounted && fontesNuvem.isNotEmpty) {
+        setState(() => _obraAtual = _obraAtual.copyWith(fontes: fontesNuvem));
+      }
+    }
     final alvo = fonteEspecifica ?? _escolherMelhorFonte();
     if (alvo == null) {
       ScaffoldMessenger.of(context).showSnackBar(

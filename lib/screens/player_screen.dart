@@ -62,6 +62,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   IconData? _osdIcone;
   Timer? _osdTimer;
   final FocusNode _playerRootFocus = FocusNode();
+  final FocusNode _centroControlsFocus = FocusNode();
+  final FocusNode _sliderFocus = FocusNode();
+  final FocusNode _barraInferiorFocus = FocusNode();
 
   @override
   void initState() {
@@ -310,6 +313,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     for (final sub in _subs) { sub.cancel(); }
     _posNotifier.dispose();
     _durNotifier.dispose();
+    _centroControlsFocus.dispose();
+    _sliderFocus.dispose();
+    _barraInferiorFocus.dispose();
     _playerRootFocus.dispose();
     _player.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -1016,13 +1022,23 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         ),
                       ),
                       const Spacer(),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CinemaFocusBox(
-                            borderRadius: 30,
-                            scaleOnFocus: 1.12,
-                            onTap: () => _buscarRelativo(-10),
+                      Focus(
+                        focusNode: _centroControlsFocus,
+                        onKeyEvent: (_, event) {
+                          if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                            _sliderFocus.requestFocus();
+                            _reiniciarTimerControles();
+                            return KeyEventResult.handled;
+                          }
+                          return KeyEventResult.ignored;
+                        },
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CinemaFocusBox(
+                              borderRadius: 30,
+                              scaleOnFocus: 1.12,
+                              onTap: () => _buscarRelativo(-10),
                             child: const Padding(
                               padding: EdgeInsets.all(10),
                               child: Icon(Icons.replay_10, color: Colors.white, size: 38),
@@ -1051,6 +1067,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                             ),
                           ),
                         ],
+                        ),
                       ),
                       const Spacer(),
                       Padding(
@@ -1062,8 +1079,19 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                               builder: (_, pos, __) {
                                 final dur = _durNotifier.value;
                                 return Focus(
+                                  focusNode: _sliderFocus,
                                   onKeyEvent: (node, event) {
                                     if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                                    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                                      _barraInferiorFocus.requestFocus();
+                                      _reiniciarTimerControles();
+                                      return KeyEventResult.handled;
+                                    }
+                                    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                                      _centroControlsFocus.requestFocus();
+                                      _reiniciarTimerControles();
+                                      return KeyEventResult.handled;
+                                    }
                                     if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
                                       _buscarRelativo(15);
                                       return KeyEventResult.handled;
@@ -1113,9 +1141,21 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                 );
                               },
                             ),
-                            Row(
-                              children: [
-                                if (prox != null)
+                            FocusTraversalGroup(
+                              policy: ReadingOrderTraversalPolicy(),
+                              child: Focus(
+                                focusNode: _barraInferiorFocus,
+                                onKeyEvent: (_, event) {
+                                  if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                                    _sliderFocus.requestFocus();
+                                    _reiniciarTimerControles();
+                                    return KeyEventResult.handled;
+                                  }
+                                  return KeyEventResult.ignored;
+                                },
+                                child: Row(
+                                  children: [
+                                    if (prox != null)
                                   Padding(
                                     padding: const EdgeInsets.only(right: 10),
                                     child: CinemaFocusBox(
@@ -1183,6 +1223,8 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                   ),
                                 ),
                               ],
+                                ),
+                              ),
                             ),
                           ],
                         ),

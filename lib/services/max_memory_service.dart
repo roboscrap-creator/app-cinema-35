@@ -131,10 +131,32 @@ class MaxMemoryService {
 
     _carregado = true;
     await _carregarPerfisDaNuvem();
+    _deduplicarPerfis();
+    await _salvar();
     _sincronizarCerebroGlobalSupabase();
   }
 
+  void _deduplicarPerfis() {
+    final mapaLimpo = <String, MaxPerfilUsuario>{};
+    for (final p in _perfis.values) {
+      final nomeLimpo = p.nome.trim();
+      if (nomeLimpo.isEmpty) continue;
+      final ch = nomeLimpo.toLowerCase();
+      final atual = mapaLimpo[ch];
+      if (atual == null || (p.avatarId != 'geral_pipoca' && atual.avatarId == 'geral_pipoca')) {
+        mapaLimpo[ch] = p.copyWith(nome: ch == 'geral' ? 'Geral' : nomeLimpo);
+      }
+    }
+    if (!mapaLimpo.containsKey('geral')) {
+      mapaLimpo['geral'] = const MaxPerfilUsuario(nome: 'Geral', infantil: false, avatarId: 'geral_pipoca');
+    }
+    _perfis
+      ..clear()
+      ..addAll(mapaLimpo);
+  }
+
   List<MaxPerfilUsuario> get perfis {
+    _deduplicarPerfis();
     final lista = _perfis.values.toList();
     lista.sort((a, b) {
       if (a.nome.toLowerCase() == 'geral') return -1;

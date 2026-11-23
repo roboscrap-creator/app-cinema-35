@@ -62,6 +62,7 @@ class MaxAssistantService extends ChangeNotifier {
   String _ultimaFalaMax = 'Oi! Toque no microfone e me peça qualquer filme, série ou anime.';
   MaxAcaoComando? _pendenteAbrir;
   MaxAcaoComando? _pendentePedidoCatalogo;
+  final List> _historicoDialogo = [];
 
   void Function(MaxAcaoComando acao)? onExecutarAcao;
 
@@ -153,12 +154,28 @@ class MaxAssistantService extends ChangeNotifier {
       _falando = false;
     }
 
-    final ok = await _stt.initialize(
-      onStatus: (s) { if (s == 'done' || s == 'notListening') { _ouvindo = false; notifyListeners(); } },
-      onError: (_) { _ouvindo = false; notifyListeners(); },
-    );
+    bool ok = false;
+    try {
+      ok = await _stt.initialize(
+        onStatus: (s) {
+          if (s == 'done' || s == 'notListening') {
+            _ouvindo = false;
+            notifyListeners();
+          }
+        },
+        onError: (err) {
+          _ouvindo = false;
+          _ultimaFalaMax = 'Não captei áudio (${err.errorMsg}). Toque no microfone de novo ou digite abaixo.';
+          notifyListeners();
+        },
+      );
+    } catch (_) {
+      ok = false;
+    }
     if (!ok) {
-      await falar('Não consegui acessar o microfone agora. Você pode digitar aqui embaixo.');
+      _ouvindo = false;
+      _ultimaFalaMax = 'Microfone indisponível neste aparelho. Digite abaixo ou use a tecla de voz do controle.';
+      notifyListeners();
       return;
     }
 
@@ -224,6 +241,11 @@ class MaxAssistantService extends ChangeNotifier {
         }
       }
 
+      _historicoDialogo.add({'role': 'user', 'content': textoLimpo});
+      if (_historicoDialogo.length > 8) {
+        _historicoDialogo.removeRange(0, _historicoDialogo.length - 8);
+      }
+
       final anonKey = await SupabaseService.getAnonKey();
       final resp = await http
           .post(
@@ -237,6 +259,7 @@ class MaxAssistantService extends ChangeNotifier {
               'mensagem': textoLimpo,
               'perfil': MaxMemoryService.instance.nomeAtual,
               'kids': MaxMemoryService.instance.modoKidsAtivo,
+              'historico': _historicoDialogo,
             }),
           )
           .timeout(const Duration(seconds: 20));
@@ -244,6 +267,7 @@ class MaxAssistantService extends ChangeNotifier {
       if (resp.statusCode == 200) {
         final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
         final acao = MaxAcaoComando.fromJson(data);
+        _historicoDialogo.add({'role': 'assistant', 'content': acao.falaResposta});
         if (acao.aguardarConfirmacaoPedido && (acao.titulo ?? '').isNotEmpty) {
           _pendentePedidoCatalogo = acao;
         }

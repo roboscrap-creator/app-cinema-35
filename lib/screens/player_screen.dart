@@ -64,6 +64,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   bool _preAqueceuProx = false;
   int _contagemAutoPlay = 0;
   Timer? _autoPlayTimer;
+  int _introInicio = 5;
+  int _introFim = 0;
+  String _origemIntro = 'padrao';
   final Set<String> _fontesTentadas = {};
   String? _osdTexto;
   IconData? _osdIcone;
@@ -126,6 +129,25 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         }
       }
     }));
+    _subs.add(_player.stream.chapters.listen((caps) {
+      for (int i = 0; i < caps.length; i++) {
+        final t = caps[i].title.toLowerCase().trim();
+        if (t == 'op' || t == 'ed' || t.contains('opening') || t.contains('intro') || t.contains('abertura')) {
+          if (t == 'ed') continue;
+          final ini = caps[i].start.inSeconds;
+          final fim = (i + 1 < caps.length) ? caps[i + 1].start.inSeconds : (ini + 90);
+          if (fim > ini + 15 && ini <= 300 && mounted) {
+            setState(() {
+              _introInicio = ini;
+              _introFim = fim;
+              _origemIntro = 'capitulo_mkv';
+            });
+            _salvarIntroNuvem(ini, fim, 'capitulo_mkv');
+            break;
+          }
+        }
+      }
+    }));
     _subs.add(_player.stream.duration.listen((d) {
       _duracao = d;
       _durNotifier.value = d;
@@ -176,6 +198,44 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     });
   }
 
+  Future<void> _carregarIntroEpisodio() async {
+    if (!widget.obra.isSerie) return;
+    final t = _fonteAtual.temporada ?? 1;
+    final e = _fonteAtual.episodio ?? 1;
+    final chave = '${widget.obra.tmdbId ?? widget.obra.chaveGrupo}_s${t}_e$e';
+    if (mounted) setState(() { _introInicio = 5; _introFim = widget.obra.aberturaSegundos > 0 ? (5 + widget.obra.aberturaSegundos) : 0; _origemIntro = 'padrao'; });
+    try {
+      final key = await SupabaseService.getAnonKey();
+      final uri = Uri.parse('${SupabaseService.baseUrl}/rest/v1/episodio_intros?chave_ep=eq.${Uri.encodeComponent(chave)}&select=inicio_seg,fim_seg,origem');
+      final r = await http.get(uri, headers: {'apikey': key, 'Authorization': 'Bearer $key'}).timeout(const Duration(seconds: 4));
+      if (r.statusCode == 200) {
+        final rows = jsonDecode(utf8.decode(r.bodyBytes)) as List;
+        if (rows.isNotEmpty && rows.first is Map && mounted) {
+          setState(() {
+            _introInicio = (rows.first['inicio_seg'] as num?)?.toInt() ?? 5;
+            _introFim = (rows.first['fim_seg'] as num?)?.toInt() ?? _introFim;
+            _origemIntro = (rows.first['origem'] ?? 'nuvem').toString();
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _salvarIntroNuvem(int ini, int fim, String origem) async {
+    if (!widget.obra.isSerie || fim <= ini + 15) return;
+    final t = _fonteAtual.temporada ?? 1;
+    final e = _fonteAtual.episodio ?? 1;
+    final chave = '${widget.obra.tmdbId ?? widget.obra.chaveGrupo}_s${t}_e$e';
+    try {
+      final key = await SupabaseService.getAnonKey();
+      await http.post(
+        Uri.parse('${SupabaseService.baseUrl}/rest/v1/episodio_intros'),
+        headers: {'apikey': key, 'Authorization': 'Bearer $key', 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates'},
+        body: jsonEncode({'chave_ep': chave, 'tmdb_id': widget.obra.tmdbId, 'temporada': t, 'episodio': e, 'inicio_seg': ini, 'fim_seg': fim, 'origem': origem}),
+      ).timeout(const Duration(seconds: 4));
+    } catch (_) {}
+  }
+
   Future<void> _iniciarFonte(FonteMidia fonte, {bool limparHistoricoTentativas = true}) async {
     if (limparHistoricoTentativas) _fontesTentadas.clear();
     _fontesTentadas.add(fonte.id);
@@ -194,6 +254,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _autoPlayTimer?.cancel();
     _autoPlayTimer = null;
     SupabaseService.registrarVisualizacao(fonte.id);
+    _carregarIntroEpisodio();
     await _abrirMidia(fonte.urlStream);
   }
 
@@ -338,8 +399,11 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   }
 
   void _pularAbertura() {
-    final salto = Duration(seconds: widget.obra.aberturaSegundos);
-    _player.seek(_posicao + salto);
+    final alvo = _introFim > _posicao.inSeconds
+        ? Duration(seconds: _introFim)
+        : (_posicao + Duration(seconds: widget.obra.aberturaSegundos));
+    _player.seek(alvo);
+    _mostrarOsd(Icons.fast_forward, 'Abertura pulada');
     _reiniciarTimerControles();
   }
 
@@ -858,9 +922,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   Widget build(BuildContext context) {
     final podePularAbertura = widget.obra.isSerie &&
         _erroPlayer == null &&
-        widget.obra.aberturaSegundos > 0 &&
-        _posicao.inSeconds >= 5 &&
-        _posicao.inSeconds <= 22;
+        _introFim > _introInicio + 10 &&
+        _posicao.inSeconds >= _introInicio &&
+        _posicao.inSeconds <= (_introFim - 3);
     final prox = _proximoEpisodio;
 
     return Scaffold(
@@ -1138,7 +1202,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                           const Icon(Icons.fast_forward, color: Colors.black),
                           const SizedBox(width: 6),
                           Text(
-                            'Pular Abertura (+${widget.obra.aberturaSegundos}s)',
+                            'Pular Abertura (${(_introFim - _posicao.inSeconds).clamp(1, 240)}s)',
                             style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900),
                           ),
                         ],

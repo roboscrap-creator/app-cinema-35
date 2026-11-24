@@ -19,8 +19,6 @@ jobs:
           java-version: '21'
       - uses: subosito/flutter-action@v2
         with:
-          cache: true
-        with:
           channel: 'stable'
 
       - name: Criar estrutura Android, embutir TorrServer e configurar Auto-Update

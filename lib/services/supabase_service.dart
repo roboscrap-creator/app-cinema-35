@@ -632,7 +632,8 @@ class SupabaseService {
             'sinopse': sinopseTmdb,
             'nota': double.parse(vote.toStringAsFixed(1)),
           };
-          _cacheCreditosTmdb[obra.chaveGrupo] = info;
+          if (_cacheCreditosTmdb.length > 120) { _cacheCreditosTmdb.remove(_cacheCreditosTmdb.keys.first); }
+      _cacheCreditosTmdb[obra.chaveGrupo] = info;
           return obra.copyWith(
             tituloOriginal: orig,
             pais: paisNome,

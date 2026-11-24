@@ -33,8 +33,8 @@ class AppCinema extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    PaintingBinding.instance.imageCache.maximumSize = 90;
-    PaintingBinding.instance.imageCache.maximumSizeBytes = 60 * 1024 * 1024;
+    PaintingBinding.instance.imageCache.maximumSize = 50;
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 35 * 1024 * 1024;
     return Shortcuts(
       shortcuts: <LogicalKeySet, Intent>{
         LogicalKeySet(LogicalKeyboardKey.select): const ActivateIntent(),
@@ -247,7 +247,8 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     _carregarProgresso();
   }
   @override
-  void dispose() { widget.abaExternaNotifier?.removeListener(_onAbaExtM); super.dispose(); }
+  void dispose() {
+    _abaNotifier.dispose(); widget.abaExternaNotifier?.removeListener(_onAbaExtM); super.dispose(); }
 
   Future<void> _carregarProgresso() async {
     final p = await SupabaseService.carregarProgressoAssistido();

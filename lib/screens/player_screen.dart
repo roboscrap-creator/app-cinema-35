@@ -66,6 +66,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   int _segundosTravado = 0;
   int _recuperacoesSessao = 0;
   Timer? _watchdogTimer;
+  bool _operacaoWatchdogEmAndamento = false;
   bool _retomadaAplicada = false;
   bool _mostrarBotaoInicio = false;
   bool _preAqueceuProx = false;
@@ -206,6 +207,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     });
 
     _watchdogTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (_operacaoWatchdogEmAndamento) return;
+      _operacaoWatchdogEmAndamento = true;
+      try {
       if (!mounted || _carregandoStream || _erroPlayer != null || !_tocando) return;
       if (_player.state.buffering) {
         _segundosTravado += 2;
@@ -226,6 +230,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         }
       } else {
         _segundosTravado = 0;
+      }
+      } finally {
+        _operacaoWatchdogEmAndamento = false;
       }
     });
   }

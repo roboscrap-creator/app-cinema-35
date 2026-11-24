@@ -104,7 +104,8 @@ class CdnStreamService {
           final src =
               (data is Map ? data['source'] : null)?.toString() ?? 'torbox';
           if (u.startsWith('http://') || u.startsWith('https://')) {
-            _cache[chave] = _CacheEntry(
+            if (_cache.length > 80) { _cache.remove(_cache.keys.first); }
+      _cache[chave] = _CacheEntry(
               url: u,
               origemBackend: src,
               expiraEm: DateTime.now().add(const Duration(hours: 3, minutes: 30)),

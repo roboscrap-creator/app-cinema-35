@@ -59,6 +59,13 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   String _legendaSelecionada = 'Nenhuma';
 
   int _retryAutoCount = 0;
+  int _geracaoPlayback = 0;
+  String _viaAtual = '';
+  bool _forcandoP2pNaSessao = false;
+  Duration _ultimaPosicaoBoa = Duration.zero;
+  int _segundosTravado = 0;
+  int _recuperacoesSessao = 0;
+  Timer? _watchdogTimer;
   bool _retomadaAplicada = false;
   bool _mostrarBotaoInicio = false;
   bool _preAqueceuProx = false;
@@ -105,6 +112,10 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
     _subs.add(_player.stream.position.listen((p) {
       _posicao = p;
+      if (p.inSeconds > 2) {
+        _ultimaPosicaoBoa = p;
+        _segundosTravado = 0;
+      }
       _posNotifier.value = p;
       final proxEp = _proximoEpisodio;
       if (proxEp != null && _duracao.inSeconds > 90 && _erroPlayer == null) {
@@ -132,7 +143,12 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _subs.add(_player.stream.duration.listen((d) {
       _duracao = d;
       _durNotifier.value = d;
-      if (!_retomadaAplicada && widget.progressoInicial > 0.04 && widget.progressoInicial < 0.94 && d.inSeconds > 60) {
+      if (_ultimaPosicaoBoa.inSeconds > 5 && d > _ultimaPosicaoBoa + const Duration(seconds: 5)) {
+        final alvo = _ultimaPosicaoBoa;
+        _ultimaPosicaoBoa = Duration.zero;
+        _player.seek(alvo);
+        _mostrarOsd(Icons.sync, 'Retomado em ${_formatarTempo(alvo)}');
+      } else if (!_retomadaAplicada && widget.progressoInicial > 0.04 && widget.progressoInicial < 0.94 && d.inSeconds > 60) {
         _retomadaAplicada = true;
         final alvo = Duration(seconds: (d.inSeconds * widget.progressoInicial).round());
         _player.seek(alvo);
@@ -149,22 +165,32 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _subs.add(_player.stream.buffering.listen((b) {
       if (mounted && !b) setState(() => _carregandoStream = false);
     }));
-    _subs.add(_player.stream.error.listen((err) {
+    _subs.add(_player.stream.error.listen((err) async {
       if (!mounted) return;
       final errLow = err.toLowerCase();
-      if (errLow.contains('could not open codec') || errLow.contains('subtitle') || (_tocando && _posicao.inSeconds > 1)) return;
+      if (errLow.contains('could not open codec') || errLow.contains('subtitle')) return;
+      final ger = _geracaoPlayback;
+      if (_posicao.inSeconds > 2) _ultimaPosicaoBoa = _posicao;
+
+      // Se falhou na CDN HTTP, invalida cache e cai imediatamente para P2P TorrServer
+      if (_viaAtual == 'cdn' && !_forcandoP2pNaSessao) {
+        CdnStreamService.invalidarCache(_fonteAtual.urlStream);
+        _forcandoP2pNaSessao = true;
+        if (mounted) setState(() { _carregandoStream = true; _statusCarregamento = 'CDN indisponível, alternando para P2P...'; });
+        if (ger == _geracaoPlayback) await _abrirMidia(_fonteAtual.urlStream, geracao: ger);
+        return;
+      }
+
       if (_retryAutoCount < 1 && (_fonteAtual.urlStream.toLowerCase().startsWith('magnet:') || _fonteAtual.urlStream.toLowerCase().endsWith('.torrent'))) {
         _retryAutoCount++;
         CdnStreamService.invalidarCache(_fonteAtual.urlStream);
-        Future.delayed(const Duration(milliseconds: 1400), () {
-          if (mounted) _abrirMidia(_fonteAtual.urlStream);
-        });
+        await Future.delayed(const Duration(milliseconds: 900));
+        if (mounted && ger == _geracaoPlayback) await _abrirMidia(_fonteAtual.urlStream, geracao: ger);
         return;
       }
-      if (!_tentouBackup && _fonteAtual.urlStreamBackup.isNotEmpty) {
-        _tentouBackup = true;
-        _abrirMidia(_fonteAtual.urlStreamBackup);
-      } else {
+
+      final trocou = await _tentarProximaFonteOuBackup(err, geracao: ger);
+      if (!trocou && mounted && ger == _geracaoPlayback) {
         setState(() {
           _carregandoStream = false;
           _erroPlayer = 'Falha ao reproduzir stream: $err';
@@ -177,6 +203,30 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
     _saveProgressTimer = Timer.periodic(const Duration(seconds: 12), (_) {
       _salvarProgressoAtual();
+    });
+
+    _watchdogTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (!mounted || _carregandoStream || _erroPlayer != null || !_tocando) return;
+      if (_player.state.buffering) {
+        _segundosTravado += 2;
+        if (_segundosTravado >= 12 && _recuperacoesSessao < 2) {
+          _segundosTravado = 0;
+          _recuperacoesSessao++;
+          final ger = _geracaoPlayback;
+          if (_posicao.inSeconds > 2) _ultimaPosicaoBoa = _posicao;
+          if (_viaAtual == 'cdn') {
+            CdnStreamService.invalidarCache(_fonteAtual.urlStream);
+            _forcandoP2pNaSessao = true;
+            _mostrarOsd(Icons.swap_horiz, 'Oscilação na CDN, alternando para P2P...');
+            await _abrirMidia(_fonteAtual.urlStream, geracao: ger);
+          } else {
+            _mostrarOsd(Icons.swap_horiz, 'Buscando fonte mais rápida...');
+            await _tentarProximaFonteOuBackup('Buffering prolongado (>12s)', geracao: ger);
+          }
+        }
+      } else {
+        _segundosTravado = 0;
+      }
     });
   }
 
@@ -219,11 +269,21 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   }
 
   Future<void> _iniciarFonte(FonteMidia fonte, {bool limparHistoricoTentativas = true}) async {
-    if (limparHistoricoTentativas) _fontesTentadas.clear();
+    final ger = ++_geracaoPlayback;
+    if (limparHistoricoTentativas) {
+      _fontesTentadas.clear();
+      _ultimaPosicaoBoa = Duration.zero;
+      _recuperacoesSessao = 0;
+    } else if (_fonteAtual.urlStream.isNotEmpty) {
+      TorrServerService.removerTorrent(_fonteAtual.urlStream);
+    }
     _fontesTentadas.add(fonte.id);
     _retryAutoCount = 0;
+    _forcandoP2pNaSessao = false;
+    _viaAtual = '';
+    _segundosTravado = 0;
     try { await _player.stop(); } catch (_) {}
-    if (!mounted) return;
+    if (!mounted || ger != _geracaoPlayback) return;
     setState(() {
       _fonteAtual = fonte;
       _tentouBackup = false;
@@ -237,14 +297,17 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _autoPlayTimer = null;
     SupabaseService.registrarVisualizacao(fonte.id);
     _carregarIntroEpisodio();
-    await _abrirMidia(fonte.urlStream);
+    await _abrirMidia(fonte.urlStream, geracao: ger);
   }
 
-  Future<bool> _tentarProximaFonteOuBackup(String motivoFalha) async {
+  Future<bool> _tentarProximaFonteOuBackup(String motivoFalha, {int? geracao}) async {
+    final ger = geracao ?? _geracaoPlayback;
+    if (ger != _geracaoPlayback) return true;
     if (!_tentouBackup && _fonteAtual.urlStreamBackup.isNotEmpty) {
       _tentouBackup = true;
-      if (mounted) setState(() { _carregandoStream = true; _erroPlayer = null; });
-      await _abrirMidia(_fonteAtual.urlStreamBackup);
+      _forcandoP2pNaSessao = false;
+      if (mounted) setState(() { _carregandoStream = true; _erroPlayer = null; _statusCarregamento = 'Tentando link alternativo...'; });
+      await _abrirMidia(_fonteAtual.urlStreamBackup, geracao: ger);
       return true;
     }
     final alternativas = widget.obra.fontes.where((f) {
@@ -264,13 +327,14 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     return false;
   }
 
-  Future<void> _abrirMidia(String url) async {
+  Future<void> _abrirMidia(String url, {int? geracao}) async {
+    final ger = geracao ?? _geracaoPlayback;
     try {
       String urlFinal = url.trim();
       if (!SupabaseService.ehLinkValido(urlFinal)) {
-        const motivo = 'Link negado: ausente prefixo obrigatório magnet:?xt=urn:btih:';
-        final trocou = await _tentarProximaFonteOuBackup(motivo);
-        if (!trocou && mounted) {
+        const motivo = 'Link inválido no catálogo';
+        final trocou = await _tentarProximaFonteOuBackup(motivo, geracao: ger);
+        if (!trocou && mounted && ger == _geracaoPlayback) {
           setState(() {
             _carregandoStream = false;
             _erroPlayer = '$motivo\nReportamos automaticamente para correção no catálogo.';
@@ -281,31 +345,33 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       final lower = urlFinal.toLowerCase();
       if (lower.startsWith('magnet:?xt=urn:btih:') || lower.endsWith('.torrent')) {
         CdnResolucaoInfo? cdnInfo;
-        if (lower.startsWith('magnet:?xt=urn:btih:')) {
+        if (lower.startsWith('magnet:?xt=urn:btih:') && !_forcandoP2pNaSessao) {
           if (mounted) setState(() { _statusCarregamento = 'Conectando à Gcore CDN...'; _progressoCarregamento = null; });
           TorrServerService.garantirAtivo();
           cdnInfo = await CdnStreamService.resolverMagnet(urlFinal);
         }
 
-        if (!mounted) return;
+        if (!mounted || ger != _geracaoPlayback) return;
 
         if (cdnInfo != null && cdnInfo.url.isNotEmpty) {
+          _viaAtual = 'cdn';
           if (mounted) setState(() { _statusCarregamento = 'Iniciando via Gcore CDN (${cdnInfo!.latenciaMs}ms)...'; _progressoCarregamento = 0.95; });
           urlFinal = cdnInfo.url;
         } else {
+          _viaAtual = 'p2p';
           final swP2p = Stopwatch()..start();
           final info = await TorrServerService.prepararMagnet(
             urlFinal,
-            onStatus: (st) { if (mounted) setState(() => _statusCarregamento = st); },
-            onProgress: (pr) { if (mounted) setState(() => _progressoCarregamento = pr); },
-            cancelado: () => !mounted,
+            onStatus: (st) { if (mounted && ger == _geracaoPlayback) setState(() => _statusCarregamento = st); },
+            onProgress: (pr) { if (mounted && ger == _geracaoPlayback) setState(() => _progressoCarregamento = pr); },
+            cancelado: () => !mounted || ger != _geracaoPlayback,
           );
           swP2p.stop();
-          if (!mounted) return;
+          if (!mounted || ger != _geracaoPlayback) return;
           if (info == null) {
             final motivo = TorrServerService.ultimoErro.isNotEmpty ? TorrServerService.ultimoErro : 'Não foi possível carregar o stream no momento.';
-            final trocou = await _tentarProximaFonteOuBackup(motivo);
-            if (!trocou && mounted) {
+            final trocou = await _tentarProximaFonteOuBackup(motivo, geracao: ger);
+            if (!trocou && mounted && ger == _geracaoPlayback) {
               setState(() {
                 _carregandoStream = false;
                 _erroPlayer = '$motivo\nReportamos automaticamente para atualização no catálogo.';
@@ -323,10 +389,13 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
               'Origem: P2P Local (TorrServer) | ${swP2p.elapsedMilliseconds}ms';
           urlFinal = info.playUrl;
         }
+      } else {
+        _viaAtual = 'direto';
       }
 
+      if (!mounted || ger != _geracaoPlayback) return;
       final headers = Map<String, String>.from(_fonteAtual.headers);
-      if (!headers.containsKey('User-Agent')) {
+      if (!headers.containsKey('User-Agent') && !urlFinal.startsWith('http://127.0.0.1')) {
         headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
       }
       try {
@@ -335,17 +404,21 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
           await platform.setProperty('network-timeout', '30');
           await platform.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
           await platform.setProperty('cache', 'yes');
-          await platform.setProperty('demuxer-max-bytes', '33554432');
+          await platform.setProperty('demuxer-max-bytes', '25165824');
         }
       } catch (_) {}
+      if (!mounted || ger != _geracaoPlayback) return;
       await _player.open(Media(urlFinal, httpHeaders: headers), play: true);
       await _player.play();
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _carregandoStream = false;
-          _erroPlayer = e.toString();
-        });
+      if (mounted && ger == _geracaoPlayback) {
+        final trocou = await _tentarProximaFonteOuBackup(e.toString(), geracao: ger);
+        if (!trocou && mounted && ger == _geracaoPlayback) {
+          setState(() {
+            _carregandoStream = false;
+            _erroPlayer = e.toString();
+          });
+        }
       }
     }
   }
@@ -402,8 +475,11 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   void dispose() {
     CinemaOrientation.emPlayer = false;
     _salvarProgressoAtual();
+    _geracaoPlayback++;
     _hideTimer?.cancel();
     _osdTimer?.cancel();
+    _watchdogTimer?.cancel();
+    _autoPlayTimer?.cancel();
     _saveProgressTimer?.cancel();
     for (final sub in _subs) { sub.cancel(); }
     _posNotifier.dispose();

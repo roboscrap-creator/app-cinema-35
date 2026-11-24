@@ -138,6 +138,15 @@ class TorrServerService {
     return null;
   }
 
+  static Future<void> removerTorrent(String magnetOuHash) async {
+    try {
+      final hash = magnetOuHash.length == 40 ? magnetOuHash.toLowerCase() : _extrairHash(magnetOuHash);
+      if (hash.length == 40) {
+        await _postJson('/torrents', {'action': 'rem', 'hash': hash});
+      }
+    } catch (_) {}
+  }
+
   static Future<List<int>?> _baixarTorrentCache(String hashHex) async {
     final hUpper = hashHex.toUpperCase();
     final urls = [
@@ -145,23 +154,32 @@ class TorrServerService {
       'https://torrage.info/torrent.php?h=$hUpper',
       'https://btcache.me/torrent/$hUpper',
     ];
+    final completer = Completer<List<int>?>();
+    int pendentes = urls.length;
     for (final u in urls) {
-      final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
-      try {
-        final req = await c.getUrl(Uri.parse(u));
-        req.headers.set('User-Agent', 'Mozilla/5.0');
-        final res = await req.close().timeout(const Duration(seconds: 5));
-        if (res.statusCode == 200) {
-          final bytes = await res.fold<List<int>>([], (prev, el) => prev..addAll(el));
-          if (bytes.length > 100 && bytes.first == 100) return bytes;
-        } else {
-          await res.drain();
+      () async {
+        final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+        try {
+          final req = await c.getUrl(Uri.parse(u));
+          req.headers.set('User-Agent', 'Mozilla/5.0');
+          final res = await req.close().timeout(const Duration(seconds: 5));
+          if (res.statusCode == 200) {
+            final bytes = await res.fold<List<int>>([], (prev, el) => prev..addAll(el));
+            if (bytes.length > 100 && bytes.first == 100 && !completer.isCompleted) {
+              completer.complete(bytes);
+              return;
+            }
+          } else {
+            await res.drain();
+          }
+        } catch (_) {} finally {
+          c.close(force: true);
+          pendentes--;
+          if (pendentes == 0 && !completer.isCompleted) completer.complete(null);
         }
-      } catch (_) {} finally {
-        c.close(force: true);
-      }
+      }();
     }
-    return null;
+    return completer.future;
   }
 
   static Future<bool> _uploadTorrentParaServidor(List<int> bytes, String hashHex) async {

@@ -1009,25 +1009,43 @@ class _TvSubcategoriaScreenState extends State<TvSubcategoriaScreen> {
       body: Row(
         children: [
           if (_menuAberto)
-            Container(
-              width: 210,
-              color: const Color(0xFF11141C),
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                itemCount: widget.subfiltros.length,
-                itemBuilder: (_, idx) {
-                  final f = widget.subfiltros[idx];
-                  final ativo = f == _selecionado;
-                  return ListTile(
-                    selected: ativo,
-                    selectedTileColor: const Color(0xFFF5B82E).withOpacity(0.18),
-                    title: Text(
-                      f,
-                      style: TextStyle(color: ativo ? const Color(0xFFF5B82E) : Colors.white70, fontWeight: ativo ? FontWeight.w800 : FontWeight.w500),
-                    ),
-                    onTap: () => setState(() => _selecionado = f),
-                  );
-                },
+            FocusTraversalGroup(
+              child: Container(
+                width: 220,
+                color: const Color(0xFF11141C),
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                  itemCount: widget.subfiltros.length,
+                  itemBuilder: (_, idx) {
+                    final f = widget.subfiltros[idx];
+                    final ativo = f == _selecionado;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: CinemaFocusBox(
+                        autofocus: ativo,
+                        borderRadius: 10,
+                        scaleOnFocus: 1.03,
+                        onTap: () => setState(() => _selecionado = f),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                          decoration: BoxDecoration(
+                            color: ativo ? const Color(0xFFF5B82E).withOpacity(0.20) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            f,
+                            style: TextStyle(
+                              color: ativo ? const Color(0xFFF5B82E) : Colors.white70,
+                              fontWeight: ativo ? FontWeight.w800 : FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           Expanded(

@@ -27,6 +27,14 @@ class _CacheEntry {
 }
 
 class CdnStreamService {
+  static const String backendBaseUrl = 'https://roboscrap-backend-l9t8.onrender.com';
+  static const String _appSecret = String.fromEnvironment('CINEMAX_APP_SECRET', defaultValue: '');
+
+  static Map<String, String> authHeaders({bool json = false}) => {
+        if (json) 'Content-Type': 'application/json',
+        if (_appSecret.isNotEmpty) 'X-App-Secret': _appSecret,
+      };
+
   static const String _endpoint =
       'https://roboscrap-backend-l9t8.onrender.com/stream-torbox';
   static final Map<String, _CacheEntry> _cache = {};

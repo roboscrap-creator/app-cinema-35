@@ -335,4 +335,16 @@ class MaxAssistantService extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> _descartarAudioPlayer() async {
+    final p = _audioPlayer;
+    _audioPlayer = null;
+    if (p != null) {
+      try {
+        await p.stop();
+        await p.dispose();
+      } catch (_) {}
+    }
+  }
+
 }

@@ -1,3 +1,4 @@
+import '../services/max_assistant_service.dart';
 import '../widgets/max_assistant_overlay.dart';
 import '../widgets/perfis_usuario_screen.dart';
 import '../services/max_memory_service.dart';

@@ -78,7 +78,57 @@ class MaxAssistantService extends ChangeNotifier {
   String get textoReconhecido => _textoReconhecido;
   String get ultimaFalaMax => _ultimaFalaMax;
 
-  void atualizarCatalogo(List<ObraAgrupada> catalogo) {}
+  List<ObraAgrupada> _catalogoMemoria = [];
+
+  void atualizarCatalogo(List<ObraAgrupada> catalogo) {
+    if (catalogo.isNotEmpty) {
+      _catalogoMemoria = List<ObraAgrupada>.from(catalogo);
+    }
+  }
+
+  String _norm(String t) {
+    var r = t.toLowerCase().trim();
+    const ac = "áàâãäéèêëíìîïóòôõöúùûüçñ";
+    const sa = "aaaaaeeeeiiiiooooouuuucn";
+    for (int i = 0; i < ac.length; i++) {
+      r = r.replaceAll(ac[i], sa[i]);
+    }
+    return r.replaceAll(RegExp(r"[^a-z0-9\s]"), " ").replaceAll(RegExp(r"\s+"), " ").trim();
+  }
+
+  Future<ObraAgrupada?> _buscarObraNoCatalogoReal(String termoBruto) async {
+    final q = _norm(termoBruto);
+    if (q.length < 2) return null;
+
+    if (_catalogoMemoria.isEmpty) {
+      try {
+        _catalogoMemoria = await SupabaseService.carregarCatalogoAgrupado(limite: 800);
+      } catch (_) {}
+    }
+
+    ObraAgrupada? acharNaLista(List<ObraAgrupada> lista) {
+      for (final o in lista) {
+        if (_norm(o.titulo) == q) return o;
+      }
+      for (final o in lista) {
+        final nt = _norm(o.titulo);
+        if (nt.contains(q) || (q.length >= 4 && q.contains(nt))) return o;
+      }
+      return null;
+    }
+
+    final local = acharNaLista(_catalogoMemoria);
+    if (local != null) return local;
+
+    try {
+      final remotos = await SupabaseService.buscarComElencoEDiretores(termoBruto.trim());
+      if (remotos.isNotEmpty) {
+        return acharNaLista(remotos) ?? remotos.first;
+      }
+    } catch (_) {}
+
+    return null;
+  }
 
   void _aoTerminarFala() {
     _falando = false;
@@ -311,6 +361,30 @@ class MaxAssistantService extends ChangeNotifier {
       }
 
       _historicoDialogo.add({'role': 'user', 'content': textoLimpo});
+
+      final mAbrir = RegExp(
+        r"^(?:max[,\s]*)?(?:por favor[,\s]*)?(?:abr[ae]|coloc[ae]|bot[ae]|toc[ae]|inici[ae]|reproduz[ae]?|assistir|ver|quero ver|quero assistir|procur[ae]|busc[ae]|encontr[ae]|tem|voc[eê] tem)\s+(?:o\s+|a\s+|os\s+|as\s+)?(?:filme|s[eé]rie|anime|desenho|novela)?\s*(.+)\$",
+        caseSensitive: false,
+      ).firstMatch(textoLimpo);
+
+      if (mAbrir != null) {
+        final termo = (mAbrir.group(1) ?? "").replaceAll(RegExp(r"[?.!]+$"), "").trim();
+        if (termo.length >= 2) {
+          final achada = await _buscarObraNoCatalogoReal(termo);
+          if (achada != null) {
+            final acaoDireta = MaxAcaoComando(
+              tipo: 'abrir_titulo',
+              falaResposta: 'Abrindo ${achada.titulo} agora. Boa sessão!',
+              titulo: achada.titulo,
+              tipoObra: achada.categoria,
+            );
+            _historicoDialogo.add({'role': 'assistant', 'content': acaoDireta.falaResposta});
+            await falar(acaoDireta.falaResposta);
+            onExecutarAcao?.call(acaoDireta);
+            return;
+          }
+        }
+      }
       if (_historicoDialogo.length > 8) {
         _historicoDialogo.removeRange(0, _historicoDialogo.length - 8);
       }
@@ -348,7 +422,20 @@ class MaxAssistantService extends ChangeNotifier {
         final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
         final acao = MaxAcaoComando.fromJson(data);
         _historicoDialogo.add({'role': 'assistant', 'content': acao.falaResposta});
-        if (acao.aguardarConfirmacaoPedido && (acao.titulo ?? '').isNotEmpty) {
+        if ((acao.aguardarConfirmacaoPedido || acao.tipo == 'solicitar_adicao') && (acao.titulo ?? '').isNotEmpty) {
+          final achadaNuvem = await _buscarObraNoCatalogoReal(acao.titulo!);
+          if (achadaNuvem != null) {
+            final acaoCorrigida = MaxAcaoComando(
+              tipo: 'abrir_titulo',
+              falaResposta: 'Achei no nosso catálogo! Abrindo ${achadaNuvem.titulo} agora. Boa sessão!',
+              titulo: achadaNuvem.titulo,
+              tipoObra: achadaNuvem.categoria,
+            );
+            _historicoDialogo.add({'role': 'assistant', 'content': acaoCorrigida.falaResposta});
+            await falar(acaoCorrigida.falaResposta);
+            onExecutarAcao?.call(acaoCorrigida);
+            return;
+          }
           _pendentePedidoCatalogo = acao;
         }
         if (acao.aguardarConfirmacaoAbrir && (acao.titulo ?? '').isNotEmpty) {

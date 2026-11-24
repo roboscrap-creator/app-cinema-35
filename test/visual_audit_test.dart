@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:app_cinema_35/models/obra_agrupada.dart';
-import 'package:app_cinema_35/screens/tv_home_screen.dart';
-import 'package:app_cinema_35/screens/detalhe_obra_screen.dart';
-import 'package:app_cinema_35/screens/tv_aux_screens.dart';
+import 'package:app_cinema/models/midia_model.dart';
+import 'package:app_cinema/screens/detalhe_obra_screen.dart';
+import 'package:app_cinema/screens/tv_aux_screens.dart';
+import 'package:app_cinema/screens/tv_home_screen.dart';
 
 void main() {
   final obraExemplo = ObraAgrupada(
@@ -42,7 +42,7 @@ void main() {
         home: tela,
       ),
     );
-    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(milliseconds: 500));
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/$nomeArquivo'));
   }
 
@@ -66,6 +66,13 @@ void main() {
       const Size(1080, 2400),
       '03_detalhes_celular.png',
       DetalheObraScreen(obra: obraExemplo, catalogoCompleto: [obraExemplo]),
+    );
+
+    await capturarTela(
+      tester,
+      const Size(1080, 2400),
+      '04_historico_favoritos_celular.png',
+      TvTop100RankingScreen(catalogo: [obraExemplo], onAbrirObra: (_) {}),
     );
   });
 }

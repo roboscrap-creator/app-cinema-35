@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'cinema_widgets.dart';
 import '../services/max_assistant_service.dart';
 import '../services/max_memory_service.dart';
 import '../services/pedidos_scrape_service.dart';
@@ -21,12 +22,12 @@ class _MaxMicButtonState extends State<MaxMicButton> {
       builder: (context, _) {
         final max = MaxAssistantService.instance;
         final ativo = max.ouvindo || max.falando || max.processando;
-        return Focus(
-          onFocusChange: (f) => setState(() => _focado = f),
-          child: InkWell(
-            onTap: widget.onPressed,
-            borderRadius: BorderRadius.circular(24),
-            child: AnimatedContainer(
+        return CinemaFocusBox(
+          onTap: widget.onPressed,
+          borderRadius: 24,
+          scaleOnFocus: 1.06,
+          onFocusChanged: (f) { if (mounted) setState(() => _focado = f); },
+          child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               decoration: BoxDecoration(
@@ -61,8 +62,7 @@ class _MaxMicButtonState extends State<MaxMicButton> {
                 ],
               ),
             ),
-          ),
-        );
+          );
       },
     );
   }
@@ -143,9 +143,13 @@ class _PedidosScreenModalState extends State<PedidosScreenModal> {
                     child: Text('Pedidos de Filmes & Séries',
                         style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                  CinemaFocusBox(
+                    borderRadius: 20,
+                    onTap: () => Navigator.pop(context),
+                    child: const Padding(
+                      padding: EdgeInsets.all(6),
+                      child: Icon(Icons.close_rounded, color: Colors.white70),
+                    ),
                   ),
                 ],
               ),
@@ -179,13 +183,14 @@ class _PedidosScreenModalState extends State<PedidosScreenModal> {
                     onChanged: (v) { if (v != null) setState(() => _tipoSelecionado = v); },
                   ),
                   const SizedBox(width: 10),
-                  ElevatedButton(
-                    onPressed: _enviando ? null : _enviar,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFF5B82E),
-                      foregroundColor: const Color(0xFF0B0D12),
+                  CinemaFocusBox(
+                    borderRadius: 10,
+                    onTap: _enviando ? null : _enviar,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(10)),
+                      child: const Text('Pedir', style: TextStyle(color: Color(0xFF0B0D12), fontWeight: FontWeight.w900)),
                     ),
-                    child: const Text('Pedir', style: TextStyle(fontWeight: FontWeight.w900)),
                   ),
                 ],
               ),
@@ -249,6 +254,7 @@ class _MaxAssistantModalState extends State<MaxAssistantModal> {
 
   @override
   void dispose() {
+    MaxAssistantService.instance.pararTudo();
     _textoCtrl.dispose();
     super.dispose();
   }
@@ -287,20 +293,29 @@ class _MaxAssistantModalState extends State<MaxAssistantModal> {
                         style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w900, fontSize: 16),
                       ),
                     ),
-                    TextButton(
-                      onPressed: () {
+                    CinemaFocusBox(
+                      borderRadius: 14,
+                      onTap: () {
                         Navigator.pop(context);
                         PedidosScreenModal.abrir(context);
                       },
-                      child: const Text('Pedidos', style: TextStyle(color: Color(0xFFF5B82E))),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        child: Text('Pedidos', style: TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w800)),
+                      ),
                     ),
-                    IconButton(
+                    const SizedBox(width: 6),
+                    CinemaFocusBox(
                       autofocus: true,
-                      onPressed: () => max.ouvindo ? max.pararTudo() : max.iniciarEscuta(),
-                      icon: Icon(
-                        max.ouvindo ? Icons.stop_circle_rounded : Icons.mic_rounded,
-                        color: const Color(0xFFF5B82E),
-                        size: 30,
+                      borderRadius: 24,
+                      onTap: () => max.ouvindo ? max.pararTudo() : max.iniciarEscuta(),
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Icon(
+                          max.ouvindo ? Icons.stop_circle_rounded : Icons.mic_rounded,
+                          color: const Color(0xFFF5B82E),
+                          size: 30,
+                        ),
                       ),
                     ),
                   ],
@@ -346,15 +361,20 @@ class _MaxAssistantModalState extends State<MaxAssistantModal> {
                         },
                       ),
                     ),
-                    IconButton(
-                      onPressed: () {
+                    const SizedBox(width: 6),
+                    CinemaFocusBox(
+                      borderRadius: 20,
+                      onTap: () {
                         final v = _textoCtrl.text.trim();
                         if (v.isNotEmpty) {
                           _textoCtrl.clear();
                           max.processarComando(v);
                         }
                       },
-                      icon: const Icon(Icons.send_rounded, color: Color(0xFFF5B82E)),
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(Icons.send_rounded, color: Color(0xFFF5B82E)),
+                      ),
                     ),
                   ],
                 ),

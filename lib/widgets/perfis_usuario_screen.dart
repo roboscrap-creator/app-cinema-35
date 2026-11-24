@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../services/max_assistant_service.dart';
 import '../services/max_memory_service.dart';
 import 'cinema_widgets.dart';
@@ -9,6 +10,7 @@ class AvatarTematico {
   final String categoria;
   final String emoji;
   final List<Color> cores;
+  final String? imageUrl;
 
   const AvatarTematico({
     required this.id,
@@ -16,6 +18,7 @@ class AvatarTematico {
     required this.categoria,
     required this.emoji,
     required this.cores,
+    this.imageUrl,
   });
 }
 
@@ -35,6 +38,18 @@ const List<AvatarTematico> kAvataresCineMax = [
   AvatarTematico(id: 'desenho_robo', nome: 'Robozinho', categoria: 'Desenhos', emoji: '🤖', cores: [Color(0xFF00B4DB), Color(0xFF0083B0)]),
   AvatarTematico(id: 'desenho_dino', nome: 'Dino Kids', categoria: 'Desenhos', emoji: '🦖', cores: [Color(0xFF56AB2F), Color(0xFFA8E063)]),
   AvatarTematico(id: 'desenho_unicornio', nome: 'Mágico', categoria: 'Desenhos', emoji: '🦄', cores: [Color(0xFFFC5C7D), Color(0xFF6A82FB)]),
+  AvatarTematico(id: 'ator_rdj', nome: 'Tony Stark', categoria: 'Filmes', emoji: '🦾', cores: [Color(0xFFB71C1C), Color(0xFFF5B82E)], imageUrl: 'https://image.tmdb.org/t/p/w185/5qHNjhtjMD4YWH3UP0rm4tKwxCL.jpg'),
+  AvatarTematico(id: 'ator_keanu', nome: 'John Wick', categoria: 'Filmes', emoji: '🕶️', cores: [Color(0xFF232526), Color(0xFF414345)], imageUrl: 'https://image.tmdb.org/t/p/w185/4D0PpNI0kmP58hgrwGC3wCjxhnm.jpg'),
+  AvatarTematico(id: 'ator_bale', nome: 'Batman', categoria: 'Filmes', emoji: '🦇', cores: [Color(0xFF141E30), Color(0xFF243B55)], imageUrl: 'https://image.tmdb.org/t/p/w185/qCpZn2e3dimwbryLnqxZuI88PTi.jpg'),
+  AvatarTematico(id: 'ator_depp', nome: 'Jack Sparrow', categoria: 'Filmes', emoji: '🏴‍☠️', cores: [Color(0xFF5D4157), Color(0xFFA8CABA)], imageUrl: 'https://image.tmdb.org/t/p/w185/ilPBHd3r3ahlipN1T4VWSPouMR.jpg'),
+  AvatarTematico(id: 'ator_scarlett', nome: 'Viúva Negra', categoria: 'Filmes', emoji: '🕷️', cores: [Color(0xFF8E0E00), Color(0xFF1F1C18)], imageUrl: 'https://image.tmdb.org/t/p/w185/6NsMbJXRlDZuDzatN2akFdGuTvx.jpg'),
+  AvatarTematico(id: 'ator_dicaprio', nome: 'DiCaprio', categoria: 'Filmes', emoji: '🎭', cores: [Color(0xFF1E3C72), Color(0xFF2A5298)], imageUrl: 'https://image.tmdb.org/t/p/w185/wo2hJpn04vbtmh0B9utCFdsQhxM.jpg'),
+  AvatarTematico(id: 'serie_walter', nome: 'Walter White', categoria: 'Séries', emoji: '🧪', cores: [Color(0xFF134E5E), Color(0xFF71B280)], imageUrl: 'https://image.tmdb.org/t/p/w185/7Jahy5LZX2Fo8fGJltMreAI49hC.jpg'),
+  AvatarTematico(id: 'serie_eleven', nome: 'Eleven', categoria: 'Séries', emoji: '⚡', cores: [Color(0xFF4A00E0), Color(0xFF8E2DE2)], imageUrl: 'https://image.tmdb.org/t/p/w185/2685xGmq68G6tmnzbfgSR6ctINZ.jpg'),
+  AvatarTematico(id: 'serie_wandinha', nome: 'Wandinha', categoria: 'Séries', emoji: '🖤', cores: [Color(0xFF2C3E50), Color(0xFF000000)], imageUrl: 'https://image.tmdb.org/t/p/w185/q1NRzyZQlYkxLY07GO9NVPkQnu8.jpg'),
+  AvatarTematico(id: 'serie_shelby', nome: 'Tommy Shelby', categoria: 'Séries', emoji: '🎩', cores: [Color(0xFF373B44), Color(0xFF4286F4)], imageUrl: 'https://image.tmdb.org/t/p/w185/llkbyWKwpfowZ6C8peBjIV9jj99.jpg'),
+  AvatarTematico(id: 'serie_pascal', nome: 'Joel / Mando', categoria: 'Séries', emoji: '🛡️', cores: [Color(0xFF603813), Color(0xFFB29F94)], imageUrl: 'https://image.tmdb.org/t/p/w185/9VYK7oxcqhjd5LAH6ZFJ3XzOlID.jpg'),
+  AvatarTematico(id: 'serie_jonsnow', nome: 'Jon Snow', categoria: 'Séries', emoji: '🐺', cores: [Color(0xFF232526), Color(0xFF606C88)], imageUrl: 'https://image.tmdb.org/t/p/w185/htGBMno71iVwih8LiQhWuJGjjmy.jpg'),
 ];
 
 AvatarTematico buscarAvatarPorId(String id) {
@@ -66,7 +81,19 @@ class AvatarIlustradoWidget extends StatelessWidget {
             gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: av.cores),
             boxShadow: [BoxShadow(color: av.cores.first.withOpacity(0.35), blurRadius: 10, offset: const Offset(0, 4))],
           ),
-          child: Text(av.emoji, style: TextStyle(fontSize: size * 0.48)),
+          clipBehavior: Clip.antiAlias,
+          child: (av.imageUrl != null && av.imageUrl!.isNotEmpty)
+              ? CachedNetworkImage(
+                  imageUrl: av.imageUrl!,
+                  width: size,
+                  height: size,
+                  fit: BoxFit.cover,
+                  memCacheWidth: 160,
+                  fadeInDuration: Duration.zero,
+                  placeholder: (_, __) => Center(child: Text(av.emoji, style: TextStyle(fontSize: size * 0.48))),
+                  errorWidget: (_, __, ___) => Center(child: Text(av.emoji, style: TextStyle(fontSize: size * 0.48))),
+                )
+              : Text(av.emoji, style: TextStyle(fontSize: size * 0.48)),
         ),
         if (infantil)
           Positioned(
@@ -109,7 +136,7 @@ class _PerfilChipTopButtonState extends State<PerfilChipTopButton> {
       onTap: widget.onTap,
       borderRadius: 22,
       scaleOnFocus: 1.06,
-      onFocusChanged: (f) => setState(() => _focado = f),
+      onFocusChanged: (f) { if (mounted) setState(() => _focado = f); },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
@@ -139,6 +166,7 @@ class PerfisSelectionOverlay extends StatefulWidget {
   static Future<void> abrir(BuildContext context, {VoidCallback? onPerfilSelecionado}) async {
     await MaxMemoryService.instance.inicializar();
     if (!context.mounted) return;
+    try {
     await showDialog(
       context: context,
       barrierDismissible: true,
@@ -191,8 +219,8 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
               ehEdicao ? 'Editar Perfil' : 'Novo Perfil CineMax',
               style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w900),
             ),
-            content: SizedBox(
-              width: 420,
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -234,11 +262,18 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
                         itemBuilder: (_, idx) {
                           final cat = categorias[idx];
                           final ativo = cat == categoriaFiltro;
-                          return ChoiceChip(
-                            label: Text(cat, style: TextStyle(fontSize: 11.5, color: ativo ? Colors.black : Colors.white)),
-                            selected: ativo,
-                            selectedColor: const Color(0xFFF5B82E),
-                            onSelected: (_) => setLocal(() => categoriaFiltro = cat),
+                          return CinemaFocusBox(
+                            borderRadius: 16,
+                            onTap: () => setLocal(() => categoriaFiltro = cat),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: ativo ? const Color(0xFFF5B82E) : Colors.white12,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(cat, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: ativo ? Colors.black : Colors.white)),
+                            ),
                           );
                         },
                       ),
@@ -277,21 +312,37 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
             ),
             actions: [
               if (ehEdicao && !ehGeral)
-                TextButton.icon(
-                  style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
-                  onPressed: () async {
+                CinemaFocusBox(
+                  borderRadius: 10,
+                  onTap: () async {
                     await MaxMemoryService.instance.excluirPerfil(editar!.nome);
                     if (ctx.mounted) Navigator.pop(ctx);
                     if (mounted) setState(() {});
                     widget.onPerfilSelecionado?.call();
                   },
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  label: const Text('Excluir', style: TextStyle(fontWeight: FontWeight.w800)),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                        SizedBox(width: 4),
+                        Text('Excluir', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+                  ),
                 ),
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF5B82E), foregroundColor: Colors.black),
-                onPressed: () async {
+              CinemaFocusBox(
+                borderRadius: 10,
+                onTap: () => Navigator.pop(ctx),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Text('Cancelar', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              CinemaFocusBox(
+                borderRadius: 10,
+                onTap: () async {
                   final nome = nomeCtrl.text.trim();
                   if (nome.isEmpty) return;
                   if (ehEdicao) {
@@ -312,13 +363,20 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
                     if (!widget.obrigatorio && mounted) Navigator.pop(context);
                   }
                 },
-                child: const Text('Salvar', style: TextStyle(fontWeight: FontWeight.w900)),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                  decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(10)),
+                  child: const Text('Salvar', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900)),
+                ),
               ),
             ],
           );
         },
       ),
     );
+    } finally {
+      nomeCtrl.dispose();
+    }
   }
 
   Widget _buildConteudo() {

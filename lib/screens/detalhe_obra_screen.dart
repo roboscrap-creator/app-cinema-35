@@ -400,7 +400,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
         ),
         const SizedBox(height: 12),
         Text(
-          _obraAtual.sinopse.isNotEmpty ? _obraAtual.sinopse : 'Sinopse indisponível.',
+          (_obraAtual.sinopse.isNotEmpty && !_obraAtual.sinopse.trim().startsWith('Classificação:') && !_obraAtual.sinopse.trim().startsWith('Direção:') && !_obraAtual.sinopse.trim().startsWith('Elenco:')) ? _obraAtual.sinopse : 'Sinopse indisponível.',
           maxLines: 4,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),

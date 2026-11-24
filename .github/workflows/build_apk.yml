@@ -30,7 +30,7 @@ jobs:
           fi
           cp cinema-release.jks android/app/cinema-release.jks
 
-          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.RECORD_AUDIO"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/><uses-feature android:name="android.software.leanback" android:required="false"/><uses-feature android:name="android.hardware.touchscreen" android:required="false"/><application android:banner="@drawable/tv_banner" android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.RECORD_AUDIO"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/><uses-feature android:name="android.software.leanback" android:required="false"/><uses-feature android:name="android.hardware.touchscreen" android:required="false"/><application android:banner="@drawable/tv_banner" android:networkSecurityConfig="@xml/network_security_config"|' android/app/src/main/AndroidManifest.xml
           sed -i 's|android.intent.category.LAUNCHER" />|android.intent.category.LAUNCHER" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" />|' android/app/src/main/AndroidManifest.xml
           sed -i 's/android:label="app_cinema"/android:label="CineMax"/' android/app/src/main/AndroidManifest.xml
 
@@ -45,6 +45,17 @@ jobs:
               <cache-path name="cache_updates" path="." />
           </paths>
           XMLEOF
+
+          cat << 'NETEOF' > android/app/src/main/res/xml/network_security_config.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <network-security-config>
+              <base-config cleartextTrafficPermitted="false" />
+              <domain-config cleartextTrafficPermitted="true">
+                  <domain includeSubdomains="false">127.0.0.1</domain>
+                  <domain includeSubdomains="false">localhost</domain>
+              </domain-config>
+          </network-security-config>
+          NETEOF
 
           # Configurar assinatura fixa release no Gradle
           cat << 'PROPEOF' > android/key.properties
@@ -199,7 +210,7 @@ jobs:
           done
       - name: Compilar APK Release (arm64)
         run: |
-          flutter build apk --config-only --release --target-platform android-arm64 --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} --dart-define=GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }}
+          mkdir -p build/debug-info && flutter build apk --config-only --release --obfuscate --split-debug-info=build/debug-info --target-platform android-arm64 --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} --dart-define=GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }}
           cd android && ./gradlew assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
 
       - name: Gerar version.json OTA

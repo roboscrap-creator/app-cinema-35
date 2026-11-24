@@ -133,26 +133,32 @@ class AppUpdaterService {
                 }
 
                 final client = http.Client();
-                final req = http.Request('GET', Uri.parse(downloadUrl));
-                final streamed = await client.send(req);
-                final total = streamed.contentLength ?? sizeBytes;
-                int recebido = 0;
+                try {
+                  final req = http.Request('GET', Uri.parse(downloadUrl));
+                  final streamed = await client.send(req);
+                  final total = streamed.contentLength ?? sizeBytes;
+                  int recebido = 0;
 
-                final sink = apkFile.openWrite();
-                await for (final chunk in streamed.stream) {
-                  sink.add(chunk);
-                  recebido += chunk.length;
-                  if (total > 0 && ctx.mounted) {
-                    final pct = (recebido / total).clamp(0.0, 1.0);
-                    setModal(() {
-                      progresso = pct;
-                      status = 'Baixando atualização... ${(pct * 100).toStringAsFixed(0)}%';
-                    });
+                  final sink = apkFile.openWrite();
+                  try {
+                    await for (final chunk in streamed.stream) {
+                      sink.add(chunk);
+                      recebido += chunk.length;
+                      if (total > 0 && ctx.mounted) {
+                        final pct = (recebido / total).clamp(0.0, 1.0);
+                        setModal(() {
+                          progresso = pct;
+                          status = 'Baixando atualização... ${(pct * 100).toStringAsFixed(0)}%';
+                        });
+                      }
+                    }
+                    await sink.flush();
+                  } finally {
+                    await sink.close();
                   }
+                } finally {
+                  client.close();
                 }
-                await sink.flush();
-                await sink.close();
-                client.close();
 
                 if (ctx.mounted) {
                   setModal(() {

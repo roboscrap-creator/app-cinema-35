@@ -1,3 +1,4 @@
+import 'dart:async';
 import '../widgets/max_assistant_overlay.dart';
 import '../widgets/perfis_usuario_screen.dart';
 import '../services/max_memory_service.dart';
@@ -24,6 +25,8 @@ class TvBuscaScreen extends StatefulWidget {
 
 class _TvBuscaScreenState extends State<TvBuscaScreen> {
   final TextEditingController _ctrl = TextEditingController();
+  Timer? _debounceBusca;
+  int _tokenBusca = 0;
   bool _modoNumeros = false;
   bool _buscando = false;
   List<ObraAgrupada> _resultados = [];
@@ -47,6 +50,13 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
     _atualizarPopulares();
   }
 
+  @override
+  void dispose() {
+    _debounceBusca?.cancel();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
   void _atualizarPopulares() {
     final ordenados = List<ObraAgrupada>.from(widget.catalogo)
       ..sort((a, b) => b.scorePopularidade.compareTo(a.scorePopularidade));
@@ -54,15 +64,33 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
     setState(() => _populares = top.take(10).toList());
   }
 
+  void _agendarBusca() {
+    _debounceBusca?.cancel();
+    final q = _ctrl.text.trim();
+    if (q.isEmpty) {
+      _tokenBusca++;
+      setState(() {
+        _resultados = [];
+        _buscando = false;
+      });
+      return;
+    }
+    _debounceBusca = Timer(const Duration(milliseconds: 350), _executarBusca);
+  }
+
   Future<void> _executarBusca() async {
     final q = _ctrl.text.trim();
     if (q.isEmpty) {
-      setState(() => _resultados = []);
+      setState(() {
+        _resultados = [];
+        _buscando = false;
+      });
       return;
     }
+    final tok = ++_tokenBusca;
     setState(() => _buscando = true);
     final res = await SupabaseService.buscarComElencoEDiretores(q, widget.catalogo);
-    if (mounted) {
+    if (mounted && tok == _tokenBusca) {
       setState(() {
         _resultados = res;
         _buscando = false;
@@ -72,13 +100,13 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
 
   void _digitar(String char) {
     _ctrl.text = '${_ctrl.text}$char';
-    _executarBusca();
+    _agendarBusca();
   }
 
   void _apagarUltimo() {
     if (_ctrl.text.isNotEmpty) {
       _ctrl.text = _ctrl.text.substring(0, _ctrl.text.length - 1);
-      _executarBusca();
+      _agendarBusca();
     }
   }
 
@@ -120,7 +148,7 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
                   onEditingComplete: () => FocusScope.of(context).nextFocus(),
                   onChanged: (_) {
                   setState(() {});
-                  _executarBusca();
+                  _agendarBusca();
                 },
                 style: const TextStyle(color: Colors.white, fontSize: 15),
                 decoration: InputDecoration(
@@ -211,7 +239,7 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
               children: [
                 TextField(
                   controller: _ctrl,
-                  onChanged: (_) => _executarBusca(),
+                  onChanged: (_) => _agendarBusca(),
                   style: const TextStyle(color: Colors.white, fontSize: 15),
                   decoration: InputDecoration(
                     hintText: 'Pesquise filmes, séries ou diretores.',

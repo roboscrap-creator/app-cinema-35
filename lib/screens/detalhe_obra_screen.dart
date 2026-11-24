@@ -238,52 +238,59 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
                       const Text('Temporadas:', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: SizedBox(
-                          height: 38,
-                          child: ListView.separated(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: _obraAtual.temporadasDisponiveis.length,
-                            separatorBuilder: (_, __) => const SizedBox(width: 8),
-                            itemBuilder: (_, idx) {
-                              final t = _obraAtual.temporadasDisponiveis[idx];
+                        child: FocusTraversalGroup(
+                          child: Wrap(
+                            spacing: 10,
+                            runSpacing: 8,
+                            children: _obraAtual.temporadasDisponiveis.map((t) {
                               final ativo = t == _temporadaSelecionada;
-                              return ChoiceChip(
-                                label: Text('Temp. $t'),
-                                selected: ativo,
-                                selectedColor: const Color(0xFFF5B82E),
-                                labelStyle: TextStyle(color: ativo ? Colors.black : Colors.white, fontWeight: FontWeight.w800),
-                                onSelected: (_) => setState(() => _temporadaSelecionada = t),
+                              return CinemaFocusBox(
+                                borderRadius: 18,
+                                onTap: () => setState(() => _temporadaSelecionada = t),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                                  decoration: BoxDecoration(
+                                    color: ativo ? const Color(0xFFF5B82E) : const Color(0xFF1A202E),
+                                    borderRadius: BorderRadius.circular(18),
+                                  ),
+                                  child: Text(
+                                    'Temp. $t',
+                                    style: TextStyle(color: ativo ? Colors.black : Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
+                                  ),
+                                ),
                               );
-                            },
+                            }).toList(),
                           ),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 14),
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 190,
-                      mainAxisExtent: 54,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
+                  FocusTraversalGroup(
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: List.generate(listaEps.length, (idx) {
+                        final ep = listaEps[idx];
+                        final label = ep.etiquetaEpisodio.isNotEmpty ? ep.etiquetaEpisodio : 'Episódio ${idx + 1}';
+                        return CinemaFocusBox(
+                          borderRadius: 8,
+                          scaleOnFocus: 1.05,
+                          onTap: () => _reproduzir(_escolherMelhorFonte(ep.episodio) ?? ep),
+                          child: Container(
+                            width: 156,
+                            height: 48,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF171C26),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13.5)),
+                          ),
+                        );
+                      }),
                     ),
-                    itemCount: listaEps.length,
-                    itemBuilder: (_, idx) {
-                      final ep = listaEps[idx];
-                      final label = ep.etiquetaEpisodio.isNotEmpty ? ep.etiquetaEpisodio : 'Episódio ${idx + 1}';
-                      return CinemaFocusBox(
-                        borderRadius: 8,
-                        onTap: () => _reproduzir(_escolherMelhorFonte(ep.episodio) ?? ep),
-                        child: Container(
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(color: const Color(0xFF171C26), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white12)),
-                          child: Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                        ),
-                      );
-                    },
                   ),
                 ],
                 if (_relacionados.isNotEmpty) ...[

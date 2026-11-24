@@ -52,7 +52,7 @@ class MaxAssistantService extends ChangeNotifier {
 
   final SpeechToText _stt = SpeechToText();
   final FlutterTts _tts = FlutterTts();
-  final Player _audioPlayer = Player();
+  Player? _audioPlayer;
 
   bool _inicializado = false;
   bool _ouvindo = false;
@@ -122,9 +122,7 @@ class MaxAssistantService extends ChangeNotifier {
       _tts.setStartHandler(() { _falando = true; notifyListeners(); });
       _tts.setCompletionHandler(_aoTerminarFala);
       _tts.setErrorHandler((_) { _falando = false; notifyListeners(); });
-      _audioPlayer.stream.completed.listen((done) {
-        if (done && _falando) _aoTerminarFala();
-      });
+
     } catch (_) {}
     _inicializado = true;
   }
@@ -142,15 +140,23 @@ class MaxAssistantService extends ChangeNotifier {
 
     try {
       await _tts.stop();
-      await _audioPlayer.stop();
+      await _descartarAudioPlayer();
 
       if (audioBase64 != null && audioBase64.isNotEmpty) {
         final bytes = base64Decode(audioBase64);
         final file = File('${Directory.systemTemp.path}/max_voz_neural.mp3');
         await file.writeAsBytes(bytes, flush: true);
+        final p = Player();
+        _audioPlayer = p;
+        p.stream.completed.listen((done) {
+          if (done && _falando) {
+            _descartarAudioPlayer();
+            _aoTerminarFala();
+          }
+        });
         _falando = true;
         notifyListeners();
-        await _audioPlayer.open(Media(file.path), play: true);
+        await p.open(Media(file.path), play: true);
         return;
       }
 
@@ -170,7 +176,7 @@ class MaxAssistantService extends ChangeNotifier {
     _pendentePedidoCatalogo = null;
     if (_ouvindo) { await _stt.stop(); _ouvindo = false; }
     await _tts.stop();
-    try { await _audioPlayer.stop(); } catch (_) {}
+    await _descartarAudioPlayer();
     _falando = false;
     _processando = false;
     notifyListeners();
@@ -180,7 +186,7 @@ class MaxAssistantService extends ChangeNotifier {
     await inicializar();
     if (_falando) {
       await _tts.stop();
-      try { await _audioPlayer.stop(); } catch (_) {}
+      await _descartarAudioPlayer();
       _falando = false;
     }
 

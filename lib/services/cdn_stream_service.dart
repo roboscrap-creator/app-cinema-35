@@ -97,7 +97,7 @@ class CdnStreamService {
         final res = await http
             .post(
               Uri.parse(_endpoint),
-              headers: {'Content-Type': 'application/json'},
+              headers: authHeaders(json: true),
               body: jsonEncode({'magnet': magnet}),
             )
             .timeout(const Duration(seconds: 10));

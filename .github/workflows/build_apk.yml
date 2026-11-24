@@ -222,7 +222,7 @@ jobs:
 
       - name: Compilar APK Release (arm64)
         run: |
-          mkdir -p build/debug-info && flutter build apk --config-only --release --obfuscate --split-debug-info=build/debug-info --target-platform android-arm64 --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} --dart-define=GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }}
+          mkdir -p build/debug-info && flutter build apk --config-only --release --obfuscate --split-debug-info=build/debug-info --target-platform android-arm64 --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} --dart-define=GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }} --dart-define=CINEMAX_APP_SECRET=${{ secrets.CINEMAX_APP_SECRET }}
           cd android && ./gradlew assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
 
       - name: Gerar version.json OTA

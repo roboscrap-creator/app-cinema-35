@@ -11,6 +11,7 @@ import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
 import '../services/torrserver_service.dart';
 import '../services/cdn_stream_service.dart';
+import '../services/subtitle_service.dart';
 import '../services/catalog_audit_service.dart';
 
 class CinemaPlayerScreen extends StatefulWidget {

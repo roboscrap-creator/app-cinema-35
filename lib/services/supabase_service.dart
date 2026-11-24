@@ -1,3 +1,4 @@
+import 'cdn_stream_service.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,7 +8,7 @@ class SupabaseService {
   static const String baseUrl = 'https://kuziampmbltqdqkqyrlb.supabase.co';
   static const String defaultAnonKey =
       'sb_publishable_ts3-fnYSelSkjp6GIY8jVw_-ZZTkD_5';
-  static const String tmdbApiKey = '2dca580c2a14b55200e784d157207b4d';
+  static const String tmdbApiKey = String.fromEnvironment('TMDB_API_KEY', defaultValue: '');
 
   static List<ObraAgrupada>? _memoriaRapida;
   static final Map<String, Map<String, dynamic>> _cacheCreditosTmdb = {};

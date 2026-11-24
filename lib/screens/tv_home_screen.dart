@@ -549,7 +549,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                       ),
                     ],
                   ),
-                  if (obra.sinopse.isNotEmpty) ...[
+                  if (obra.sinopse.isNotEmpty && !obra.sinopse.trim().startsWith('Classificação:') && !obra.sinopse.trim().startsWith('Direção:') && !obra.sinopse.trim().startsWith('Elenco:')) ...[
                     const SizedBox(height: 4),
                     Text(
                       obra.sinopse,

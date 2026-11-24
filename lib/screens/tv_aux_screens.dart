@@ -688,7 +688,7 @@ class _TvHistoricoFavoritosScreenState extends State<TvHistoricoFavoritosScreen>
       backgroundColor: const Color(0xFF0E141B),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        title: Text(_abaLateral == 0 ? 'Histórico' : 'Meus Favoritos'),
+        title: Text(_abaLateral == 0 ? 'Histórico' : 'Favoritos'),
       ),
       body: Row(
         children: [
@@ -1039,7 +1039,7 @@ class _TvSubcategoriaScreenState extends State<TvSubcategoriaScreen> {
           if (_menuAberto)
             FocusTraversalGroup(
               child: Container(
-                width: 220,
+                width: 112,
                 color: const Color(0xFF11141C),
                 child: ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),

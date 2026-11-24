@@ -124,6 +124,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
         setState(() => _obraAtual = _obraAtual.copyWith(fontes: fontesNuvem));
       }
     }
+    if (!mounted) return;
     final alvo = fonteEspecifica ?? _escolherMelhorFonte();
     if (alvo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -181,6 +182,8 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
             CachedNetworkImage(
               imageUrl: bgImg,
               fit: BoxFit.cover,
+              memCacheWidth: 540,
+              fadeInDuration: Duration.zero,
               color: Colors.black.withOpacity(0.76),
               colorBlendMode: BlendMode.darken,
             ),
@@ -199,9 +202,13 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
               children: [
                 Row(
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
+                    CinemaFocusBox(
+                      borderRadius: 24,
+                      onTap: () => Navigator.pop(context),
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(Icons.arrow_back, color: Colors.white),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -297,25 +304,28 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
                   const SizedBox(height: 28),
                   const Text('Você também pode gostar', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 12),
-                  SizedBox(
-                    height: 248,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _relacionados.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 14),
-                      itemBuilder: (_, idx) => TvPosterCard(
-                        obra: _relacionados[idx],
-                        onTap: () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => DetalheObraScreen(
-                                obra: _relacionados[idx],
-                                catalogoCompleto: widget.catalogoCompleto,
+                  FocusTraversalGroup(
+                    child: SizedBox(
+                      height: 248,
+                      child: ListView.separated(
+                        clipBehavior: Clip.none,
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _relacionados.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 14),
+                        itemBuilder: (_, idx) => TvPosterCard(
+                          obra: _relacionados[idx],
+                          onTap: () {
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => DetalheObraScreen(
+                                  obra: _relacionados[idx],
+                                  catalogoCompleto: widget.catalogoCompleto,
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
                     ),
                   ),
@@ -341,7 +351,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
             fit: StackFit.expand,
             children: [
               if (img.isNotEmpty)
-                CachedNetworkImage(imageUrl: img, fit: BoxFit.cover)
+                CachedNetworkImage(imageUrl: img, fit: BoxFit.cover, memCacheWidth: 540, fadeInDuration: Duration.zero)
               else
                 Container(color: const Color(0xFF161A23)),
               Container(color: Colors.black38),
@@ -420,21 +430,31 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
             runSpacing: 8,
             children: [
               ..._obraAtual.audiosDisponiveis.map(
-                (a) => ChoiceChip(
-                  label: Text(a),
-                  selected: _audioSelecionado == a,
-                  selectedColor: const Color(0xFFF5B82E),
-                  labelStyle: TextStyle(color: _audioSelecionado == a ? Colors.black : Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
-                  onSelected: (_) => setState(() => _audioSelecionado = a),
+                (a) => CinemaFocusBox(
+                  borderRadius: 18,
+                  onTap: () => setState(() => _audioSelecionado = a),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _audioSelecionado == a ? const Color(0xFFF5B82E) : Colors.white12,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Text(a, style: TextStyle(color: _audioSelecionado == a ? Colors.black : Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+                  ),
                 ),
               ),
               ..._obraAtual.resolucoesDisponiveis.map(
-                (r) => ChoiceChip(
-                  label: Text(r),
-                  selected: _resolucaoSelecionada == r,
-                  selectedColor: Colors.white24,
-                  labelStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
-                  onSelected: (_) => setState(() => _resolucaoSelecionada = r),
+                (r) => CinemaFocusBox(
+                  borderRadius: 18,
+                  onTap: () => setState(() => _resolucaoSelecionada = r),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _resolucaoSelecionada == r ? Colors.white24 : Colors.white10,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Text(r, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+                  ),
                 ),
               ),
             ],

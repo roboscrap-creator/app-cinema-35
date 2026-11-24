@@ -25,6 +25,7 @@ class TvBuscaScreen extends StatefulWidget {
 
 class _TvBuscaScreenState extends State<TvBuscaScreen> {
   final TextEditingController _ctrl = TextEditingController();
+  final FocusNode _tvInputFocus = FocusNode(canRequestFocus: false, skipTraversal: true);
   Timer? _debounceBusca;
   int _tokenBusca = 0;
   bool _modoNumeros = false;
@@ -54,6 +55,7 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
   void dispose() {
     _debounceBusca?.cancel();
     _ctrl.dispose();
+    _tvInputFocus.dispose();
     super.dispose();
   }
 
@@ -134,6 +136,8 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Focus(
+                canRequestFocus: false,
+                skipTraversal: true,
                 onKeyEvent: (node, event) {
                   if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.arrowDown) {
                     FocusScope.of(context).nextFocus();
@@ -239,6 +243,8 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
               children: [
                 TextField(
                   controller: _ctrl,
+                  focusNode: _tvInputFocus,
+                  readOnly: true,
                   onChanged: (_) => _agendarBusca(),
                   style: const TextStyle(color: Colors.white, fontSize: 15),
                   decoration: InputDecoration(
@@ -263,14 +269,15 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
                     ),
                     _teclaEspecial(icon: Icons.delete_outline, onTap: _limpar),
                     _teclaEspecial(icon: Icons.backspace_outlined, onTap: _apagarUltimo),
-                    ElevatedButton(
-                      onPressed: _executarBusca,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.22),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    CinemaFocusBox(
+                      onTap: _executarBusca,
+                      borderRadius: 6,
+                      scaleOnFocus: 1.07,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                        decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(6)),
+                        child: const Text('Buscar', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w800)),
                       ),
-                      child: const Text('Buscar', style: TextStyle(fontWeight: FontWeight.w700)),
                     ),
                   ],
                 ),
@@ -283,6 +290,7 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
                     children: [
                       ...(_modoNumeros ? _numeros : _letras).map(
                         (ch) => CinemaFocusBox(
+                          autofocus: ch == 'A' || ch == '1',
                           onTap: () => _digitar(ch),
                           borderRadius: 6,
                           scaleOnFocus: 1.08,
@@ -315,20 +323,19 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
                     ],
                   ),
                 ),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Pedido registrado! Nossa equipe atualiza o catálogo diariamente.')),
-                      );
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      side: const BorderSide(color: Colors.white24),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    child: const Text('Feedback / Pedir Título'),
+                CinemaFocusBox(
+                  borderRadius: 8,
+                  onTap: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Pedido registrado! Nossa equipe atualiza o catálogo diariamente.')),
+                    );
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    decoration: BoxDecoration(border: Border.all(color: Colors.white24), borderRadius: BorderRadius.circular(8)),
+                    child: const Text('Feedback / Pedir Título', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
                   ),
                 ),
               ],
@@ -348,11 +355,14 @@ class _TvBuscaScreenState extends State<TvBuscaScreen> {
                       ),
                       const SizedBox(width: 14),
                       if (!emBusca)
-                        ActionChip(
-                          label: const Text('Atualizar'),
-                          backgroundColor: Colors.white12,
-                          labelStyle: const TextStyle(color: Colors.white),
-                          onPressed: _atualizarPopulares,
+                        CinemaFocusBox(
+                          borderRadius: 16,
+                          onTap: _atualizarPopulares,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(16)),
+                            child: const Text('Atualizar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                          ),
                         ),
                       const Spacer(),
                       Text(
@@ -503,7 +513,7 @@ class _TvFiltroScreenState extends State<TvFiltroScreen> {
     }).toList();
   }
 
-  Widget _linhaFiltro({required String titulo, required List<String> opcoes, required String selecionado, required void Function(String) onSelect}) {
+  Widget _linhaFiltro({required String titulo, required List<String> opcoes, required String selecionado, required void Function(String) onSelect, bool autofocusPrimeiro = false}) {
     return SizedBox(
       height: 36,
       child: Row(
@@ -518,6 +528,7 @@ class _TvFiltroScreenState extends State<TvFiltroScreen> {
                 final item = opcoes[i];
                 final ativo = item == selecionado;
                 return CinemaFocusBox(
+                  autofocus: autofocusPrimeiro && i == 0,
                   onTap: () => onSelect(item),
                   borderRadius: 18,
                   child: Container(
@@ -554,7 +565,7 @@ class _TvFiltroScreenState extends State<TvFiltroScreen> {
         padding: const EdgeInsets.fromLTRB(24, 6, 24, 16),
         child: Column(
           children: [
-            _linhaFiltro(titulo: 'Tipo', opcoes: _tipos, selecionado: _tipo, onSelect: (v) => setState(() => _tipo = v)),
+            _linhaFiltro(titulo: 'Tipo', opcoes: _tipos, selecionado: _tipo, onSelect: (v) => setState(() => _tipo = v), autofocusPrimeiro: true),
             const SizedBox(height: 6),
             _linhaFiltro(titulo: 'Gênero', opcoes: _generos, selecionado: _genero, onSelect: (v) => setState(() => _genero = v)),
             const SizedBox(height: 6),
@@ -702,6 +713,7 @@ class _TvHistoricoFavoritosScreenState extends State<TvHistoricoFavoritosScreen>
                 _itemMenuLateral(
                   titulo: 'Histórico',
                   ativo: _abaLateral == 0,
+                  autofocus: true,
                   onTap: () => setState(() {
                     _abaLateral = 0;
                     _modoEdicao = false;
@@ -738,18 +750,25 @@ class _TvHistoricoFavoritosScreenState extends State<TvHistoricoFavoritosScreen>
                         decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(20)),
                         child: Row(
                           children: [
-                            IconButton(
-                              tooltip: 'Selecionar itens para remover',
-                              icon: Icon(Icons.edit_note, color: _modoEdicao ? const Color(0xFFF5B82E) : Colors.white),
-                              onPressed: () => setState(() {
+                            CinemaFocusBox(
+                              borderRadius: 18,
+                              onTap: () => setState(() {
                                 _modoEdicao = !_modoEdicao;
                                 _selecionados.clear();
                               }),
+                              child: Padding(
+                                padding: const EdgeInsets.all(6),
+                                child: Icon(Icons.edit_note, color: _modoEdicao ? const Color(0xFFF5B82E) : Colors.white),
+                              ),
                             ),
-                            IconButton(
-                              tooltip: 'Excluir tudo',
-                              icon: const Icon(Icons.delete_outline, color: Colors.white),
-                              onPressed: _limparTudo,
+                            const SizedBox(width: 6),
+                            CinemaFocusBox(
+                              borderRadius: 18,
+                              onTap: _limparTudo,
+                              child: const Padding(
+                                padding: EdgeInsets.all(6),
+                                child: Icon(Icons.delete_outline, color: Colors.white),
+                              ),
                             ),
                           ],
                         ),
@@ -825,8 +844,9 @@ class _TvHistoricoFavoritosScreenState extends State<TvHistoricoFavoritosScreen>
     );
   }
 
-  Widget _itemMenuLateral({required String titulo, required bool ativo, required VoidCallback onTap}) {
+  Widget _itemMenuLateral({required String titulo, required bool ativo, required VoidCallback onTap, bool autofocus = false}) {
     return CinemaFocusBox(
+      autofocus: autofocus,
       onTap: onTap,
       borderRadius: 8,
       scaleOnFocus: 1.02,
@@ -924,15 +944,21 @@ class _TvTop100RankingScreenState extends State<TvTop100RankingScreen> {
               itemBuilder: (_, idx) {
                 final c = _cats[idx];
                 final ativo = c == _categoria;
-                return ChoiceChip(
-                  label: Text(c),
-                  selected: ativo,
-                  selectedColor: const Color(0xFFF5B82E),
-                  labelStyle: TextStyle(color: ativo ? Colors.black : Colors.white, fontWeight: FontWeight.w700),
-                  onSelected: (_) {
+                return CinemaFocusBox(
+                  autofocus: ativo,
+                  borderRadius: 18,
+                  onTap: () {
                     setState(() => _categoria = c);
                     _carregar();
                   },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: ativo ? const Color(0xFFF5B82E) : Colors.white12,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Text(c, style: TextStyle(color: ativo ? Colors.black : Colors.white, fontWeight: FontWeight.w700)),
+                  ),
                 );
               },
             ),

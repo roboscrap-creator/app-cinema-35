@@ -17,12 +17,14 @@ class CinemaPlayerScreen extends StatefulWidget {
   final ObraAgrupada obra;
   final FonteMidia fonteInicial;
   final List<FonteMidia> listaEpisodios;
+  final double progressoInicial;
 
   const CinemaPlayerScreen({
     super.key,
     required this.obra,
     required this.fonteInicial,
     this.listaEpisodios = const [],
+    this.progressoInicial = 0.0,
   });
 
   @override
@@ -57,6 +59,11 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   String _legendaSelecionada = 'Nenhuma';
 
   int _retryAutoCount = 0;
+  bool _retomadaAplicada = false;
+  bool _mostrarBotaoInicio = false;
+  bool _preAqueceuProx = false;
+  int _contagemAutoPlay = 0;
+  Timer? _autoPlayTimer;
   final Set<String> _fontesTentadas = {};
   String? _osdTexto;
   IconData? _osdIcone;
@@ -96,10 +103,42 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _subs.add(_player.stream.position.listen((p) {
       _posicao = p;
       _posNotifier.value = p;
+      final proxEp = _proximoEpisodio;
+      if (proxEp != null && _duracao.inSeconds > 90 && _erroPlayer == null) {
+        final faltam = _duracao.inSeconds - p.inSeconds;
+        if (faltam <= 35 && !_preAqueceuProx) {
+          _preAqueceuProx = true;
+          CdnStreamService.preAquecerMagnet(proxEp.urlStream);
+        }
+        if (faltam <= 15 && faltam > 0 && _contagemAutoPlay == 0 && _autoPlayTimer == null && mounted) {
+          setState(() => _contagemAutoPlay = 10);
+          _autoPlayTimer = Timer.periodic(const Duration(seconds: 1), (tm) {
+            if (!mounted) { tm.cancel(); return; }
+            if (_contagemAutoPlay <= 1) {
+              tm.cancel();
+              _autoPlayTimer = null;
+              setState(() => _contagemAutoPlay = 0);
+              _iniciarFonte(proxEp);
+            } else {
+              setState(() => _contagemAutoPlay--);
+            }
+          });
+        }
+      }
     }));
     _subs.add(_player.stream.duration.listen((d) {
       _duracao = d;
       _durNotifier.value = d;
+      if (!_retomadaAplicada && widget.progressoInicial > 0.04 && widget.progressoInicial < 0.94 && d.inSeconds > 60) {
+        _retomadaAplicada = true;
+        final alvo = Duration(seconds: (d.inSeconds * widget.progressoInicial).round());
+        _player.seek(alvo);
+        if (mounted) {
+          setState(() => _mostrarBotaoInicio = true);
+          _mostrarOsd(Icons.history, 'Retomado de ${_formatarTempo(alvo)}');
+          Future.delayed(const Duration(seconds: 8), () { if (mounted) setState(() => _mostrarBotaoInicio = false); });
+        }
+      }
     }));
     _player.stream.playing.listen((pl) {
       if (mounted) setState(() { _tocando = pl; if (pl) { _erroPlayer = null; _carregandoStream = false; } });
@@ -149,7 +188,11 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       _carregandoStream = true;
       _erroPlayer = null;
       _osdTexto = null;
+      _preAqueceuProx = false;
+      _contagemAutoPlay = 0;
     });
+    _autoPlayTimer?.cancel();
+    _autoPlayTimer = null;
     SupabaseService.registrarVisualizacao(fonte.id);
     await _abrirMidia(fonte.urlStream);
   }
@@ -274,6 +317,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   }
 
   void _reiniciarTimerControles() {
+    _autoPlayTimer?.cancel();
     _hideTimer?.cancel();
     if (!mounted) return;
     setState(() => _controlesVisiveis = true);
@@ -531,7 +575,37 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
+                  Builder(builder: (_) {
+                    final subsInternas = _player.state.tracks.subtitle.where((t) => t.id != 'no' && t.id != 'auto').toList();
+                    if (subsInternas.isEmpty) return const SizedBox.shrink();
+                    return SizedBox(
+                      height: 36,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          const Center(child: Text('Embutidas: ', style: TextStyle(color: Color(0xFFF5B82E), fontSize: 12, fontWeight: FontWeight.w800))),
+                          ...subsInternas.map((st) => Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: CinemaFocusBox(
+                              borderRadius: 14,
+                              onTap: () async {
+                                await _player.setSubtitleTrack(st);
+                                setState(() { _legendaAtiva = true; _legendaSelecionada = st.title ?? st.language ?? 'Interna'; });
+                                if (ctx.mounted) Navigator.pop(ctx);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(14)),
+                                child: Text('${st.title ?? "Legenda"} (${(st.language ?? st.id).toUpperCase()})', style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700)),
+                              ),
+                            ),
+                          )),
+                        ],
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 8),
                   Expanded(
                     child: carregandoSub
                         ? const Center(
@@ -658,13 +732,33 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       return true;
     }).toList();
 
+    final faixasAudio = _player.state.tracks.audio.where((t) => t.id != 'no' && t.id != 'auto').toList();
+    final audioAtualId = _player.state.track.audio.id;
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF141822),
       builder: (ctx) => ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text('Resolução e Áudio', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
+          if (faixasAudio.isNotEmpty) ...[
+            const Text('Faixas de Áudio do Vídeo (Dublagem / Original)', style: TextStyle(color: Color(0xFFF5B82E), fontSize: 15, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            ...faixasAudio.map((tr) => CinemaFocusBox(
+              borderRadius: 8,
+              onTap: () async {
+                await _player.setAudioTrack(tr);
+                if (ctx.mounted) Navigator.pop(ctx);
+                _mostrarOsd(Icons.audiotrack, 'Áudio: ${tr.title ?? tr.language ?? tr.id}');
+              },
+              child: ListTile(
+                dense: true,
+                leading: Icon(tr.id == audioAtualId ? Icons.check_circle : Icons.audiotrack, color: tr.id == audioAtualId ? const Color(0xFFF5B82E) : Colors.white54),
+                title: Text('${tr.title ?? "Faixa"} (${(tr.language ?? tr.id).toUpperCase()})', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              ),
+            )),
+            const Divider(color: Colors.white12, height: 24),
+          ],
+          const Text('Resolução e Fontes', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
           const SizedBox(height: 12),
           ...fontesMesmoEp.map(
             (f) => ListTile(
@@ -953,6 +1047,77 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         ),
                       ],
                     ),
+                  ),
+                ),
+              if (_mostrarBotaoInicio && _erroPlayer == null)
+                Positioned(
+                  left: 28,
+                  bottom: 92,
+                  child: CinemaFocusBox(
+                    borderRadius: 8,
+                    onTap: () {
+                      _player.seek(Duration.zero);
+                      setState(() => _mostrarBotaoInicio = false);
+                      _mostrarOsd(Icons.replay, 'Reiniciado do início');
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFF5B82E))),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.replay, color: Color(0xFFF5B82E), size: 18),
+                          SizedBox(width: 6),
+                          Text('Assistir do início', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12.5)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              if (_contagemAutoPlay > 0 && prox != null && _erroPlayer == null)
+                Positioned(
+                  right: 28,
+                  bottom: 92,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CinemaFocusBox(
+                        borderRadius: 8,
+                        onTap: () {
+                          _autoPlayTimer?.cancel();
+                          _autoPlayTimer = null;
+                          setState(() => _contagemAutoPlay = 0);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                          decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white30)),
+                          child: const Text('Cancelar', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      CinemaFocusBox(
+                        autofocus: true,
+                        borderRadius: 8,
+                        onTap: () {
+                          _autoPlayTimer?.cancel();
+                          _autoPlayTimer = null;
+                          setState(() => _contagemAutoPlay = 0);
+                          _iniciarFonte(prox);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                          decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(8)),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.skip_next, color: Colors.black),
+                              const SizedBox(width: 6),
+                              Text('Próximo (${prox.etiquetaEpisodio}) em ${_contagemAutoPlay}s', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               if (podePularAbertura)

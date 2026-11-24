@@ -25,6 +25,7 @@ class DetalheObraScreen extends StatefulWidget {
 class _DetalheObraScreenState extends State<DetalheObraScreen> {
   late ObraAgrupada _obraAtual;
   bool _favorito = false;
+  double _progressoSalvo = 0.0;
   int _temporadaSelecionada = 1;
   String _audioSelecionado = '';
   String _resolucaoSelecionada = '';
@@ -67,8 +68,10 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
       }
     }
     final favs = await SupabaseService.carregarFavoritos();
+    final progMap = await SupabaseService.carregarProgressoAssistido();
+    final progVal = (progMap[_obraAtual.chaveGrupo]?['progresso'] as num?)?.toDouble() ?? 0.0;
     if (mounted) {
-      setState(() => _favorito = favs.contains(_obraAtual.chaveGrupo));
+      setState(() { _favorito = favs.contains(_obraAtual.chaveGrupo); _progressoSalvo = progVal; });
     }
     final enriquecido = await SupabaseService.enriquecerComTmdb(_obraAtual);
     if (mounted) {
@@ -136,6 +139,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
           obra: _obraAtual,
           fonteInicial: alvo,
           listaEpisodios: eps,
+          progressoInicial: fonteEspecifica == null ? _progressoSalvo : 0.0,
         ),
       ),
     );

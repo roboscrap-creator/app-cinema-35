@@ -85,20 +85,35 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
     _inicializar();
   }
 
+  @override
+  void dispose() {
+    if (MaxAssistantService.instance.onExecutarAcao == _executarAcaoMax) {
+      MaxAssistantService.instance.onExecutarAcao = null;
+    }
+    _abaNotifier.dispose();
+    super.dispose();
+  }
+
   Future<void> _inicializar() async {
-    await MaxMemoryService.instance.inicializar();
-    await MaxAssistantService.instance.inicializar();
-    final prefs = await SharedPreferences.getInstance();
-    final modoSalvo = prefs.getBool('modo_tv_forcado');
-    final obras = await SupabaseService.carregarCatalogoAgrupado();
-    MaxAssistantService.instance.atualizarCatalogo(obras);
-    MaxAssistantService.instance.onExecutarAcao = _executarAcaoMax;
-    if (mounted) {
-      setState(() {
-        _modoTvForcado = modoSalvo;
-        _catalogo = obras;
-        _carregando = false;
-      });
+    bool? modoSalvo;
+    List<ObraAgrupada> obras = _catalogo;
+    try {
+      await MaxMemoryService.instance.inicializar();
+      await MaxAssistantService.instance.inicializar();
+      final prefs = await SharedPreferences.getInstance();
+      modoSalvo = prefs.getBool('modo_tv_forcado');
+      obras = await SupabaseService.carregarCatalogoAgrupado();
+      MaxAssistantService.instance.atualizarCatalogo(obras);
+      MaxAssistantService.instance.onExecutarAcao = _executarAcaoMax;
+    } catch (_) {
+    } finally {
+      if (mounted) {
+        setState(() {
+          _modoTvForcado = modoSalvo;
+          _catalogo = obras;
+          _carregando = false;
+        });
+      }
     }
   }
 
@@ -148,20 +163,25 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
   }
 
   Future<void> _recarregarCatalogo() async {
-    setState(() => _carregando = true);
-    final obras = await SupabaseService.carregarCatalogoAgrupado(forcarRefresh: true);
-    if (mounted) {
-      setState(() {
-        _catalogo = obras;
-        _carregando = false;
-      });
+    if (mounted) setState(() => _carregando = true);
+    List<ObraAgrupada> obras = _catalogo;
+    try {
+      obras = await SupabaseService.carregarCatalogoAgrupado(forcarRefresh: true);
+    } catch (_) {
+    } finally {
+      if (mounted) {
+        setState(() {
+          _catalogo = obras;
+          _carregando = false;
+        });
+      }
     }
   }
 
   Future<void> _alternarModo(bool paraTv) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('modo_tv_forcado', paraTv);
-    setState(() => _modoTvForcado = paraTv);
+    if (mounted) setState(() => _modoTvForcado = paraTv);
   }
 
   void _abrirObra(ObraAgrupada obra) {
@@ -395,7 +415,7 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
                                 fit: StackFit.expand,
                                 children: [
                                   if (img.isNotEmpty)
-                                    CachedNetworkImage(imageUrl: img, fit: BoxFit.cover)
+                                    CachedNetworkImage(imageUrl: img, fit: BoxFit.cover, memCacheWidth: 540, fadeInDuration: Duration.zero)
                                   else
                                     Container(color: const Color(0xFF161B26)),
                                   Container(

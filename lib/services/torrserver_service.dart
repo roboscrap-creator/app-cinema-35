@@ -28,9 +28,16 @@ class TorrServerService {
   static const String baseUrl = 'http://127.0.0.1:8090';
   static Process? _process;
   static bool _configurado = false;
+  static Future<bool>? _iniciandoFuture;
   static String ultimoErro = '';
 
-  static void encerrar() { try { _process?.kill(); _process = null; } catch (_) {} }
+  static void encerrar() {
+    try {
+      _process?.kill();
+      _process = null;
+      _configurado = false;
+    } catch (_) {}
+  }
 
   static Future<bool> _portaAberta() async {
     try {
@@ -48,7 +55,7 @@ class TorrServerService {
       await _postJson('/settings', {
         'action': 'set',
         'sets': {
-          'CacheSize': 33554432,
+          'CacheSize': 16777216,
           'ReaderReadAHead': 95,
           'PreloadCache': 2,
           'UseDisk': false,
@@ -62,7 +69,7 @@ class TorrServerService {
           'DisableDHT': false,
           'DisablePEX': false,
           'DisableUpload': false,
-          'ConnectionsLimit': 150,
+          'ConnectionsLimit': 60,
           'PeersListenPort': 0,
         },
       });
@@ -70,7 +77,13 @@ class TorrServerService {
     } catch (_) {}
   }
 
-  static Future<bool> garantirAtivo() async {
+  static Future<bool> garantirAtivo() {
+    if (_iniciandoFuture != null) return _iniciandoFuture!;
+    _iniciandoFuture = _garantirAtivoInterno().whenComplete(() => _iniciandoFuture = null);
+    return _iniciandoFuture!;
+  }
+
+  static Future<bool> _garantirAtivoInterno() async {
     if (await _portaAberta()) {
       await _aplicarConfiguracoes();
       return true;
@@ -106,6 +119,8 @@ class TorrServerService {
             'GODEBUG': 'netdns=go',
           },
         );
+        _process!.stdout.listen((_) {}, onError: (_) {});
+        _process!.stderr.listen((_) {}, onError: (_) {});
         for (int i = 0; i < 16; i++) {
           await Future.delayed(const Duration(milliseconds: 200));
           if (await _portaAberta()) {

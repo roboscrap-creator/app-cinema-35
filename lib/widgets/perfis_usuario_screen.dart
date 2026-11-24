@@ -166,7 +166,6 @@ class PerfisSelectionOverlay extends StatefulWidget {
   static Future<void> abrir(BuildContext context, {VoidCallback? onPerfilSelecionado}) async {
     await MaxMemoryService.instance.inicializar();
     if (!context.mounted) return;
-    try {
     await showDialog(
       context: context,
       barrierDismissible: true,
@@ -204,6 +203,7 @@ class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
     String avatarSelecionado = editar?.avatarId ?? 'geral_pipoca';
     const categorias = ['Todos', 'Filmes', 'Séries', 'Animes', 'Desenhos', 'Geral'];
 
+    try {
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(

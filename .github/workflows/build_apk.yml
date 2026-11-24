@@ -19,6 +19,8 @@ jobs:
           java-version: '21'
       - uses: subosito/flutter-action@v2
         with:
+          cache: true
+        with:
           channel: 'stable'
 
       - name: Criar estrutura Android, embutir TorrServer e configurar Auto-Update
@@ -188,6 +190,14 @@ jobs:
           grep "^version:" pubspec.yaml
 
 
+      - name: Configurar Google Maven Mirror (evitar erro 429)
+        run: |
+          for f in android/settings.gradle.kts android/settings.gradle; do
+            if [ -f "$f" ]; then
+              sed -i 's|mavenCentral()|maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }\n        mavenCentral()|g' "$f"
+              sed -i 's|gradlePluginPortal()|maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }\n        gradlePluginPortal()|g' "$f"
+            fi
+          done
       - name: Compilar APK Release (arm64)
         run: |
           flutter build apk --config-only --release --target-platform android-arm64 --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} --dart-define=GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }}

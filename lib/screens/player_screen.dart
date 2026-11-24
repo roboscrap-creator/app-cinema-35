@@ -62,7 +62,10 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   IconData? _osdIcone;
   Timer? _osdTimer;
   final FocusNode _playerRootFocus = FocusNode();
+  final FocusNode _voltarFocus = FocusNode();
   final FocusNode _centroControlsFocus = FocusNode();
+  DateTime _ultSeek = DateTime.fromMillisecondsSinceEpoch(0);
+  int _ultDir = 0;
   final FocusNode _sliderFocus = FocusNode();
   final FocusNode _barraInferiorFocus = FocusNode();
 
@@ -313,6 +316,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     for (final sub in _subs) { sub.cancel(); }
     _posNotifier.dispose();
     _durNotifier.dispose();
+    _voltarFocus.dispose();
     _centroControlsFocus.dispose();
     _sliderFocus.dispose();
     _barraInferiorFocus.dispose();
@@ -992,12 +996,16 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
                         child: Row(
                           children: [
-                            CinemaFocusBox(
+                            Focus(
+                              focusNode: _voltarFocus,
+                              onKeyEvent: (_, e) { if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.arrowDown) { _centroControlsFocus.requestFocus(); _reiniciarTimerControles(); return KeyEventResult.handled; } return KeyEventResult.ignored; },
+                              child: CinemaFocusBox(
                               borderRadius: 24,
                               onTap: () => Navigator.pop(context),
                               child: const Padding(
                                 padding: EdgeInsets.all(8),
                                 child: Icon(Icons.arrow_back, color: Colors.white, size: 26),
+                              ),
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -1025,10 +1033,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                       Focus(
                         focusNode: _centroControlsFocus,
                         onKeyEvent: (_, event) {
-                          if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.arrowDown) {
-                            _sliderFocus.requestFocus();
-                            _reiniciarTimerControles();
-                            return KeyEventResult.handled;
+                          if (event is KeyDownEvent) {
+                            if (event.logicalKey == LogicalKeyboardKey.arrowUp) { _voltarFocus.requestFocus(); _reiniciarTimerControles(); return KeyEventResult.handled; }
+                            if (event.logicalKey == LogicalKeyboardKey.arrowDown) { _sliderFocus.requestFocus(); _reiniciarTimerControles(); return KeyEventResult.handled; }
                           }
                           return KeyEventResult.ignored;
                         },
@@ -1081,24 +1088,13 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                 return Focus(
                                   focusNode: _sliderFocus,
                                   onKeyEvent: (node, event) {
-                                    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-                                    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-                                      _barraInferiorFocus.requestFocus();
-                                      _reiniciarTimerControles();
-                                      return KeyEventResult.handled;
-                                    }
-                                    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-                                      _centroControlsFocus.requestFocus();
-                                      _reiniciarTimerControles();
-                                      return KeyEventResult.handled;
-                                    }
-                                    if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-                                      _buscarRelativo(15);
-                                      return KeyEventResult.handled;
-                                    }
-                                    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-                                      _buscarRelativo(-15);
-                                      return KeyEventResult.handled;
+                                    if (event is KeyDownEvent) {
+                                      if (event.logicalKey == LogicalKeyboardKey.arrowDown) { _barraInferiorFocus.requestFocus(); WidgetsBinding.instance.addPostFrameCallback((_) => _barraInferiorFocus.nextFocus()); _reiniciarTimerControles(); return KeyEventResult.handled; }
+                                      if (event.logicalKey == LogicalKeyboardKey.arrowUp) { _centroControlsFocus.requestFocus(); _reiniciarTimerControles(); return KeyEventResult.handled; }
+                                      if (event.logicalKey == LogicalKeyboardKey.arrowRight || event.logicalKey == LogicalKeyboardKey.arrowLeft) { final d = event.logicalKey == LogicalKeyboardKey.arrowRight ? 1 : -1; final now = DateTime.now(); final dbl = _ultDir == d && now.difference(_ultSeek).inMilliseconds < 380; _ultSeek = now; _ultDir = d; _buscarRelativo(dbl ? 30 * d : 15 * d); return KeyEventResult.handled; }
+                                    } else if (event is KeyRepeatEvent) {
+                                      if (event.logicalKey == LogicalKeyboardKey.arrowRight) { _buscarRelativo(45); return KeyEventResult.handled; }
+                                      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) { _buscarRelativo(-45); return KeyEventResult.handled; }
                                     }
                                     return KeyEventResult.ignored;
                                   },

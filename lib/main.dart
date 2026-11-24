@@ -73,6 +73,7 @@ class CinemaBootstrapScreen extends StatefulWidget {
 }
 
 class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
+  final ValueNotifier<int> _abaNotifier = ValueNotifier<int>(0);
   List<ObraAgrupada> _catalogo = [];
   bool _carregando = true;
   bool _perfilSelecionado = false;
@@ -109,8 +110,14 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
     });
   }
 
+  void _irAba(int i, String n) { Navigator.of(context).popUntil((r) => r.isFirst); _abaNotifier.value = i; MaxAssistantService.instance.definirObraEmVisualizacao(null); MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: n); }
   void _executarAcaoMax(MaxAcaoComando acao) {
     if (!mounted) return;
+    if (acao.tipo == 'ir_inicio') { _irAba(0, 'Início'); return; }
+    if (acao.tipo == 'ir_filmes') { _irAba(1, 'Filmes'); return; }
+    if (acao.tipo == 'ir_series') { _irAba(2, 'Séries'); return; }
+    if (acao.tipo == 'ir_kids') { _irAba(3, 'Kids'); return; }
+    if (acao.tipo == 'ir_anime') { _irAba(4, 'Anime'); return; }
     final listaAtual = _catalogoFiltradoPerfil;
     if (acao.tipo == 'abrir_titulo' && (acao.titulo ?? '').isNotEmpty) {
       final q = SupabaseService.normalizarTexto(acao.titulo!);
@@ -197,12 +204,12 @@ class _CinemaBootstrapScreenState extends State<CinemaBootstrapScreen> {
 
     if (usarLayoutTv) {
       SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
-      return TvHomeScreen(catalogo: catalogoAtivo, onRefresh: _recarregarCatalogo, onAbrirObra: _abrirObra, onAlternarModoMobile: () => _alternarModo(false));
+      return TvHomeScreen(catalogo: catalogoAtivo, onRefresh: _recarregarCatalogo, onAbrirObra: _abrirObra, onAlternarModoMobile: () => _alternarModo(false), abaExternaNotifier: _abaNotifier);
     }
     if (!CinemaOrientation.emPlayer) {
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     }
-    return MobileHomeScreen(catalogo: catalogoAtivo, onRefresh: _recarregarCatalogo, onAbrirObra: _abrirObra, onAlternarModoTv: () => _alternarModo(true));
+    return MobileHomeScreen(catalogo: catalogoAtivo, onRefresh: _recarregarCatalogo, onAbrirObra: _abrirObra, onAlternarModoTv: () => _alternarModo(true), abaExternaNotifier: _abaNotifier);
   }
 }
 
@@ -211,6 +218,7 @@ class MobileHomeScreen extends StatefulWidget {
   final Future<void> Function() onRefresh;
   final void Function(ObraAgrupada) onAbrirObra;
   final VoidCallback onAlternarModoTv;
+  final ValueNotifier<int>? abaExternaNotifier;
 
   const MobileHomeScreen({
     super.key,
@@ -218,6 +226,7 @@ class MobileHomeScreen extends StatefulWidget {
     required this.onRefresh,
     required this.onAbrirObra,
     required this.onAlternarModoTv,
+    this.abaExternaNotifier,
   });
 
   @override
@@ -229,11 +238,16 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
   Map<String, Map<String, dynamic>> _progressoMap = {};
   static const List<String> _abas = ['Início', 'Filmes', 'Séries', 'Kids', 'Anime'];
 
+  void _onAbaExtM() { final i = widget.abaExternaNotifier?.value; if (i != null && i != _abaIndex && mounted) { setState(() => _abaIndex = i); MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[i]); } }
   @override
   void initState() {
     super.initState();
+    widget.abaExternaNotifier?.addListener(_onAbaExtM);
+    MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[_abaIndex]);
     _carregarProgresso();
   }
+  @override
+  void dispose() { widget.abaExternaNotifier?.removeListener(_onAbaExtM); super.dispose(); }
 
   Future<void> _carregarProgresso() async {
     final p = await SupabaseService.carregarProgressoAssistido();
@@ -284,7 +298,7 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final base = _listaAba;
-    final baseComCapa = base.where((o) => o.capaUrl.isNotEmpty || o.bannerUrl.isNotEmpty).toList();
+    final vm = <String>{}; final baseComCapa = base.where((o) { if (o.capaUrl.isEmpty && o.bannerUrl.isEmpty) return false; final k = SupabaseService.normalizarTexto(o.titulo).replaceAll(RegExp(r'[^a-z0-9]'), ''); return k.isNotEmpty && vm.add(k); }).toList();
     final listaVitrine = baseComCapa.isNotEmpty ? baseComCapa : base;
     final destaques = listaVitrine.where((o) => o.emDestaque).take(6).toList();
     if (destaques.isEmpty && listaVitrine.isNotEmpty) {
@@ -352,7 +366,7 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
                   selected: ativo,
                   selectedColor: const Color(0xFFF5B82E),
                   labelStyle: TextStyle(color: ativo ? Colors.black : Colors.white, fontWeight: FontWeight.w800),
-                  onSelected: (_) => setState(() => _abaIndex = idx),
+                  onSelected: (_) { setState(() => _abaIndex = idx); MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[idx]); },
                 );
               },
             ),

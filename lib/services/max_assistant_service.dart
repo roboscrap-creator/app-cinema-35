@@ -64,9 +64,10 @@ class MaxAssistantService extends ChangeNotifier {
   MaxAcaoComando? _pendentePedidoCatalogo;
   ObraAgrupada? _obraEmVisualizacao;
 
-  void definirObraEmVisualizacao(ObraAgrupada? obra) {
-    _obraEmVisualizacao = obra;
-  }
+  String _telaAtual = 'home';
+  String _abaAtual = 'Início';
+  void definirContextoTela({String? tela, String? aba}) { if (tela != null) _telaAtual = tela; if (aba != null) _abaAtual = aba; }
+  void definirObraEmVisualizacao(ObraAgrupada? obra) { _obraEmVisualizacao = obra; _telaAtual = obra != null ? 'detalhe_obra' : 'home'; }
   final List<Map<String, String>> _historicoDialogo = [];
 
   void Function(MaxAcaoComando acao)? onExecutarAcao;
@@ -288,7 +289,7 @@ class MaxAssistantService extends ChangeNotifier {
               'mensagem': textoLimpo,
               'perfil': MaxMemoryService.instance.nomeAtual,
               'kids': MaxMemoryService.instance.modoKidsAtivo,
-              'historico': _historicoDialogo,
+              'historico': _historicoDialogo, 'tela_atual': _telaAtual, 'aba_atual': _abaAtual,
               if (_obraEmVisualizacao != null)
                 'obra_atual': {
                   'titulo': _obraEmVisualizacao!.titulo,

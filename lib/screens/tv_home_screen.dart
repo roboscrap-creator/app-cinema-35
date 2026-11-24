@@ -16,6 +16,7 @@ class TvHomeScreen extends StatefulWidget {
   final VoidCallback onRefresh;
   final void Function(ObraAgrupada) onAbrirObra;
   final VoidCallback onAlternarModoMobile;
+  final ValueNotifier<int>? abaExternaNotifier;
 
   const TvHomeScreen({
     super.key,
@@ -23,6 +24,7 @@ class TvHomeScreen extends StatefulWidget {
     required this.onRefresh,
     required this.onAbrirObra,
     required this.onAlternarModoMobile,
+    this.abaExternaNotifier,
   });
 
   @override
@@ -40,9 +42,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
   static const List<String> _abas = ['INÍCIO', 'FILMES', 'SÉRIES', 'KIDS', 'ANIME'];
 
+  void _onAbaExt() { final i = widget.abaExternaNotifier?.value; if (i != null && i != _abaIndex && mounted) { setState(() => _abaIndex = i); MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[i]); } }
   @override
   void initState() {
     super.initState();
+    widget.abaExternaNotifier?.addListener(_onAbaExt);
+    MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[_abaIndex]);
     _carregarProgresso();
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) AppUpdaterService.verificarAtualizacao(context, silencioso: true);
@@ -57,18 +62,18 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
   @override
   void dispose() {
+    widget.abaExternaNotifier?.removeListener(_onAbaExt);
     _autoPlayTimer?.cancel();
     _bannerFilmesCtrl.dispose();
     _bannerSeriesCtrl.dispose();
     super.dispose();
   }
 
-  List<ObraAgrupada> get _filmes => widget.catalogo
-      .where((o) => o.categoria.toLowerCase().contains('filme') && !o.isSerie)
-      .toList();
+  List<ObraAgrupada> _dedup(Iterable<ObraAgrupada> src) { final v = <String>{}; return src.where((o) { if (o.capaUrl.isEmpty && o.bannerUrl.isEmpty) return false; final k = SupabaseService.normalizarTexto(o.titulo).replaceAll(RegExp(r'[^a-z0-9]'), ''); return k.isNotEmpty && v.add(k); }).toList(); }
+  List<ObraAgrupada> get _filmes => _dedup(widget.catalogo.where((o) => o.categoria.toLowerCase().contains('filme') && !o.isSerie));
 
   List<ObraAgrupada> get _series =>
-      widget.catalogo.where((o) => o.isSerie).toList();
+      _dedup(widget.catalogo.where((o) => o.isSerie));
 
   bool _ehAnime(ObraAgrupada o) {
     final c = SupabaseService.normalizarTexto(o.categoria);
@@ -84,15 +89,15 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
   }
 
-  List<ObraAgrupada> get _kids => widget.catalogo.where((o) {
+  List<ObraAgrupada> get _kids => _dedup(widget.catalogo.where((o) {
         if (_ehAnime(o)) return false;
         final c = SupabaseService.normalizarTexto(o.categoria);
         final g = SupabaseService.normalizarTexto(o.genero);
         final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
         return c.contains('infantil') || c.contains('kids') || g.contains('infantil') || g.contains('animacao') || t.contains('kids');
-      }).toList();
+      }));
 
-  List<ObraAgrupada> get _animes => widget.catalogo.where(_ehAnime).toList();
+  List<ObraAgrupada> get _animes => _dedup(widget.catalogo.where(_ehAnime));
 
   List<ObraAgrupada> _filtrarTagOuGenero(List<ObraAgrupada> base, String termo) {
     final q = SupabaseService.normalizarTexto(termo);
@@ -227,7 +232,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             return Padding(
               padding: const EdgeInsets.only(right: 10),
               child: CinemaFocusBox(
-                onTap: () => setState(() => _abaIndex = i),
+                onTap: () { setState(() => _abaIndex = i); MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[i]); },
                 borderRadius: 20,
                 scaleOnFocus: 1.06,
                 child: AnimatedContainer(

@@ -129,25 +129,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         }
       }
     }));
-    _subs.add(_player.stream.chapters.listen((caps) {
-      for (int i = 0; i < caps.length; i++) {
-        final t = caps[i].title.toLowerCase().trim();
-        if (t == 'op' || t == 'ed' || t.contains('opening') || t.contains('intro') || t.contains('abertura')) {
-          if (t == 'ed') continue;
-          final ini = caps[i].start.inSeconds;
-          final fim = (i + 1 < caps.length) ? caps[i + 1].start.inSeconds : (ini + 90);
-          if (fim > ini + 15 && ini <= 300 && mounted) {
-            setState(() {
-              _introInicio = ini;
-              _introFim = fim;
-              _origemIntro = 'capitulo_mkv';
-            });
-            _salvarIntroNuvem(ini, fim, 'capitulo_mkv');
-            break;
-          }
-        }
-      }
-    }));
     _subs.add(_player.stream.duration.listen((d) {
       _duracao = d;
       _durNotifier.value = d;
@@ -155,6 +136,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         _retomadaAplicada = true;
         final alvo = Duration(seconds: (d.inSeconds * widget.progressoInicial).round());
         _player.seek(alvo);
+    _salvarIntroNuvem(_introInicio, alvo.inSeconds, 'usuario_nuvem');
         if (mounted) {
           setState(() => _mostrarBotaoInicio = true);
           _mostrarOsd(Icons.history, 'Retomado de ${_formatarTempo(alvo)}');

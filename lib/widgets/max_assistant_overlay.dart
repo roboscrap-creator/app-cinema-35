@@ -234,7 +234,7 @@ class MaxAssistantModal extends StatefulWidget {
   const MaxAssistantModal({super.key});
 
   static Future<void> abrir(BuildContext context) async {
-    Future.delayed(const Duration(milliseconds: 250), () {
+    Future.delayed(const Duration(milliseconds: 550), () {
       MaxAssistantService.instance.iniciarEscuta();
     });
     await showModalBottomSheet(
@@ -308,7 +308,14 @@ class _MaxAssistantModalState extends State<MaxAssistantModal> {
                     CinemaFocusBox(
                       autofocus: true,
                       borderRadius: 24,
-                      onTap: () => max.ouvindo ? max.pararTudo() : max.iniciarEscuta(),
+                      onTap: () {
+                        if (max.processando) return;
+                        if (max.ouvindo) {
+                          max.pararTudo();
+                        } else {
+                          max.iniciarEscuta();
+                        }
+                      },
                       child: Padding(
                         padding: const EdgeInsets.all(6),
                         child: Icon(

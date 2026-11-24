@@ -182,58 +182,91 @@ class MaxAssistantService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> iniciarEscuta() async {
-    await inicializar();
-    if (_falando) {
-      await _tts.stop();
-      await _descartarAudioPlayer();
-      _falando = false;
-    }
+  bool _iniciandoEscuta = false;
+  int _tentativasAudio = 0;
 
-    bool ok = false;
+  Future<void> iniciarEscuta({bool isRetry = false}) async {
+    if (_iniciandoEscuta) return;
+    _iniciandoEscuta = true;
     try {
-      ok = await _stt.initialize(
-        onStatus: (s) {
-          if (s == 'done' || s == 'notListening') {
+      await inicializar();
+      if (!isRetry) {
+        _tentativasAudio = 0;
+      }
+      if (_falando) {
+        await _tts.stop();
+        await _descartarAudioPlayer();
+        _falando = false;
+      }
+
+      try {
+        await _stt.cancel();
+      } catch (_) {}
+      await Future.delayed(Duration(milliseconds: isRetry ? 450 : 200));
+
+      bool ok = false;
+      try {
+        ok = await _stt.initialize(
+          onStatus: (st) {
+            if (st == 'done' || st == 'notListening') {
+              if (_ouvindo) {
+                _ouvindo = false;
+                notifyListeners();
+              }
+            }
+          },
+          onError: (err) {
+            final msg = err.errorMsg.toLowerCase();
+            _ouvindo = false;
+            if ((msg.contains('audio') || msg.contains('busy') || msg.contains('client')) &&
+                _tentativasAudio < 1) {
+              _tentativasAudio++;
+              _ultimaFalaMax = 'Conectando microfone do controle...';
+              notifyListeners();
+              Future.delayed(const Duration(milliseconds: 500), () {
+                iniciarEscuta(isRetry: true);
+              });
+              return;
+            }
+            _ultimaFalaMax = 'Não captei áudio (${err.errorMsg}). Aperte OK no microfone ou digite abaixo.';
+            notifyListeners();
+          },
+        );
+      } catch (_) {
+        ok = false;
+      }
+
+      if (!ok) {
+        _ouvindo = false;
+        _ultimaFalaMax = 'Microfone indisponível neste aparelho. Digite abaixo ou use a tecla de voz do controle.';
+        notifyListeners();
+        return;
+      }
+
+      _textoReconhecido = '';
+      _ouvindo = true;
+      notifyListeners();
+
+      await _stt.listen(
+        localeId: 'pt_BR',
+        listenMode: ListenMode.dictation,
+        partialResults: true,
+        cancelOnError: false,
+        pauseFor: const Duration(seconds: 4),
+        listenFor: const Duration(seconds: 20),
+        onResult: (res) async {
+          _textoReconhecido = res.recognizedWords;
+          notifyListeners();
+          if (res.finalResult && _textoReconhecido.trim().isNotEmpty) {
             _ouvindo = false;
             notifyListeners();
+            await processarComando(_textoReconhecido.trim());
           }
         },
-        onError: (err) {
-          _ouvindo = false;
-          _ultimaFalaMax = 'Não captei áudio (${err.errorMsg}). Toque no microfone de novo ou digite abaixo.';
-          notifyListeners();
-        },
       );
-    } catch (_) {
-      ok = false;
+    } finally {
+      _iniciandoEscuta = false;
     }
-    if (!ok) {
-      _ouvindo = false;
-      _ultimaFalaMax = 'Microfone indisponível neste aparelho. Digite abaixo ou use a tecla de voz do controle.';
-      notifyListeners();
-      return;
-    }
-
-    _textoReconhecido = '';
-    _ouvindo = true;
-    notifyListeners();
-
-    await _stt.listen(
-      localeId: 'pt_BR',
-      listenMode: ListenMode.confirmation,
-      pauseFor: const Duration(seconds: 3),
-      listenFor: const Duration(seconds: 15),
-      onResult: (res) async {
-        _textoReconhecido = res.recognizedWords;
-        notifyListeners();
-        if (res.finalResult && _textoReconhecido.trim().isNotEmpty) {
-          _ouvindo = false;
-          notifyListeners();
-          await processarComando(_textoReconhecido.trim());
-        }
-      },
-    );
   }
 
   Future<void> processarComando(String falaUsuario) async {

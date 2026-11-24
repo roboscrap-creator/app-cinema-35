@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import '../services/max_assistant_service.dart';
 import '../widgets/max_assistant_overlay.dart';
 import '../widgets/perfis_usuario_screen.dart';
@@ -425,11 +426,25 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     final obra = itens[idxSeguro];
     final img = obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl;
 
-    return CinemaFocusBox(
-      onTap: () => widget.onAbrirObra(obra),
-      borderRadius: 14,
-      scaleOnFocus: 1.025,
-      child: ClipRRect(
+    return Focus(
+      onKeyEvent: (_, ev) {
+        if (ev is KeyDownEvent && itens.length > 1) {
+          if (ev.logicalKey == LogicalKeyboardKey.arrowRight) {
+            onPageChanged((idxSeguro + 1) % itens.length);
+            return KeyEventResult.handled;
+          }
+          if (ev.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            onPageChanged((idxSeguro - 1 + itens.length) % itens.length);
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: CinemaFocusBox(
+        onTap: () => widget.onAbrirObra(obra),
+        borderRadius: 14,
+        scaleOnFocus: 1.025,
+        child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: Stack(
           fit: StackFit.expand,
@@ -511,6 +526,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

@@ -361,13 +361,13 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   }
 
   void _reiniciarTimerControles() {
-    _autoPlayTimer?.cancel();
     _hideTimer?.cancel();
     if (!mounted) return;
     setState(() => _controlesVisiveis = true);
     _hideTimer = Timer(const Duration(seconds: 5), () {
       if (mounted && _tocando) {
         setState(() => _controlesVisiveis = false);
+        _playerRootFocus.requestFocus();
       }
     });
   }
@@ -1127,78 +1127,86 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                     ),
                   ),
                 ),
-              if (_contagemAutoPlay > 0 && prox != null && _erroPlayer == null)
-                Positioned(
-                  right: 28,
-                  bottom: 92,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CinemaFocusBox(
-                        borderRadius: 8,
-                        onTap: () {
-                          _autoPlayTimer?.cancel();
-                          _autoPlayTimer = null;
-                          setState(() => _contagemAutoPlay = 0);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                          decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white30)),
-                          child: const Text('Cancelar', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      CinemaFocusBox(
-                        autofocus: true,
-                        borderRadius: 8,
-                        onTap: () {
-                          _autoPlayTimer?.cancel();
-                          _autoPlayTimer = null;
-                          setState(() => _contagemAutoPlay = 0);
-                          _iniciarFonte(prox);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-                          decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(8)),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.skip_next, color: Colors.black),
-                              const SizedBox(width: 6),
-                              Text('Próximo (${prox.etiquetaEpisodio}) em ${_contagemAutoPlay}s', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900)),
-                            ],
+              Positioned(
+                right: 28,
+                bottom: 92,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ValueListenableBuilder<Duration>(
+                      valueListenable: _posNotifier,
+                      builder: (_, pos, __) {
+                        final ativo = widget.obra.isSerie &&
+                            _erroPlayer == null &&
+                            _introFim > _introInicio + 10 &&
+                            pos.inSeconds >= _introInicio &&
+                            pos.inSeconds <= (_introFim - 3);
+                        if (!ativo) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: CinemaFocusBox(
+                            onTap: _pularAbertura,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                              decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(8)),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.fast_forward, color: Colors.black),
+                                  const SizedBox(width: 6),
+                                  Text('Pular Abertura (${(_introFim - pos.inSeconds).clamp(1, 240)}s)', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900)),
+                                ],
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              if (podePularAbertura)
-                Positioned(
-                  right: 28,
-                  bottom: 92,
-                  child: CinemaFocusBox(
-                    onTap: _pularAbertura,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5B82E),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
+                        );
+                      },
+                    ),
+                    if (_contagemAutoPlay > 0 && prox != null && _erroPlayer == null)
+                      Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.fast_forward, color: Colors.black),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Pular Abertura (${(_introFim - _posicao.inSeconds).clamp(1, 240)}s)',
-                            style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900),
+                          CinemaFocusBox(
+                            borderRadius: 8,
+                            onTap: () {
+                              _autoPlayTimer?.cancel();
+                              _autoPlayTimer = null;
+                              setState(() => _contagemAutoPlay = 0);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                              decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white30)),
+                              child: const Text('Cancelar', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          CinemaFocusBox(
+                            borderRadius: 8,
+                            onTap: () {
+                              _autoPlayTimer?.cancel();
+                              _autoPlayTimer = null;
+                              setState(() => _contagemAutoPlay = 0);
+                              _iniciarFonte(prox);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                              decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(8)),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.skip_next, color: Colors.black),
+                                  const SizedBox(width: 6),
+                                  Text('Próximo (${prox.etiquetaEpisodio}) em ${_contagemAutoPlay}s', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900)),
+                                ],
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                  ),
+                  ],
                 ),
+              ),
               if (_controlesVisiveis && !_carregandoStream && _erroPlayer == null)
                 Container(
                   decoration: const BoxDecoration(

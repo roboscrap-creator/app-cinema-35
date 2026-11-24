@@ -142,7 +142,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
           progressoInicial: fonteEspecifica == null ? _progressoSalvo : 0.0,
         ),
       ),
-    );
+    ).then((_) => _carregarDetalhesExtras());
   }
 
   List<ObraAgrupada> get _relacionados {
@@ -274,14 +274,14 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
                     itemBuilder: (_, idx) {
                       final ep = listaEps[idx];
                       final label = ep.etiquetaEpisodio.isNotEmpty ? ep.etiquetaEpisodio : 'Episódio ${idx + 1}';
-                      return ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF171C26),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: Colors.white12)),
+                      return CinemaFocusBox(
+                        borderRadius: 8,
+                        onTap: () => _reproduzir(_escolherMelhorFonte(ep.episodio) ?? ep),
+                        child: Container(
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(color: const Color(0xFF171C26), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white12)),
+                          child: Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                         ),
-                        onPressed: () => _reproduzir(ep),
-                        child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
                       );
                     },
                   ),
@@ -441,35 +441,42 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
               borderRadius: 24,
               scaleOnFocus: 1.06,
               onTap: () => _reproduzir(),
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                backgroundColor: _obraAtual.disponivelParaAssistir ? const Color(0xFFF5B82E) : Colors.white24,
-                foregroundColor: _obraAtual.disponivelParaAssistir ? Colors.black : Colors.white70,
+              child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 13),
+                decoration: BoxDecoration(
+                  color: _obraAtual.disponivelParaAssistir ? const Color(0xFFF5B82E) : Colors.white24,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(_obraAtual.disponivelParaAssistir ? Icons.play_arrow : Icons.schedule, color: _obraAtual.disponivelParaAssistir ? Colors.black : Colors.white70),
+                    const SizedBox(width: 8),
+                    Text(_obraAtual.disponivelParaAssistir ? 'ASSISTIR AGORA' : 'EM BREVE', style: TextStyle(color: _obraAtual.disponivelParaAssistir ? Colors.black : Colors.white70, fontWeight: FontWeight.w900)),
+                  ],
+                ),
               ),
-              onPressed: () => _reproduzir(),
-              icon: Icon(_obraAtual.disponivelParaAssistir ? Icons.play_arrow : Icons.schedule),
-              label: Text(
-                _obraAtual.disponivelParaAssistir ? 'ASSISTIR AGORA' : 'EM BREVE',
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
-            ),
             ),
             const SizedBox(width: 14),
             CinemaFocusBox(
               borderRadius: 24,
               scaleOnFocus: 1.06,
               onTap: _alternarFavorito,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                foregroundColor: _favorito ? const Color(0xFFF5B82E) : Colors.white,
-                side: BorderSide(color: _favorito ? const Color(0xFFF5B82E) : Colors.white30),
+              child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: _favorito ? const Color(0xFFF5B82E) : Colors.white30),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(_favorito ? Icons.favorite : Icons.favorite_border, color: _favorito ? const Color(0xFFF5B82E) : Colors.white),
+                    const SizedBox(width: 8),
+                    Text(_favorito ? 'Favoritado' : 'Favoritar', style: TextStyle(color: _favorito ? const Color(0xFFF5B82E) : Colors.white, fontWeight: FontWeight.w700)),
+                  ],
+                ),
               ),
-              onPressed: _alternarFavorito,
-              icon: Icon(_favorito ? Icons.favorite : Icons.favorite_border),
-              label: Text(_favorito ? 'Favoritado' : 'Favoritar'),
-            ),
             ),
           ],
         ),

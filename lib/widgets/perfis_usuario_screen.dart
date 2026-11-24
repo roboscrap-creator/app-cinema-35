@@ -50,6 +50,19 @@ const List<AvatarTematico> kAvataresCineMax = [
   AvatarTematico(id: 'serie_shelby', nome: 'Tommy Shelby', categoria: 'Séries', emoji: '🎩', cores: [Color(0xFF373B44), Color(0xFF4286F4)], imageUrl: 'https://image.tmdb.org/t/p/w185/llkbyWKwpfowZ6C8peBjIV9jj99.jpg'),
   AvatarTematico(id: 'serie_pascal', nome: 'Joel / Mando', categoria: 'Séries', emoji: '🛡️', cores: [Color(0xFF603813), Color(0xFFB29F94)], imageUrl: 'https://image.tmdb.org/t/p/w185/9VYK7oxcqhjd5LAH6ZFJ3XzOlID.jpg'),
   AvatarTematico(id: 'serie_jonsnow', nome: 'Jon Snow', categoria: 'Séries', emoji: '🐺', cores: [Color(0xFF232526), Color(0xFF606C88)], imageUrl: 'https://image.tmdb.org/t/p/w185/htGBMno71iVwih8LiQhWuJGjjmy.jpg'),
+  AvatarTematico(id: 'serie_professor', nome: 'Professor', categoria: 'Séries', emoji: '👓', cores: [Color(0xFF8E0E00), Color(0xFF1F1C18)], imageUrl: 'https://image.tmdb.org/t/p/w185/4wXuQxyWcaIQc3gk1xrbXusdXAB.jpg'),
+  AvatarTematico(id: 'anime_luffy', nome: 'Luffy', categoria: 'Animes', emoji: '👒', cores: [Color(0xFFE53935), Color(0xFFF5B82E)], imageUrl: 'https://cdn.myanimelist.net/images/characters/9/310307.jpg'),
+  AvatarTematico(id: 'anime_zoro', nome: 'Zoro', categoria: 'Animes', emoji: '⚔️', cores: [Color(0xFF1B5E20), Color(0xFF4CAF50)], imageUrl: 'https://cdn.myanimelist.net/images/characters/3/100534.jpg'),
+  AvatarTematico(id: 'anime_sanji', nome: 'Sanji', categoria: 'Animes', emoji: '🔥', cores: [Color(0xFF1A237E), Color(0xFFF5B82E)], imageUrl: 'https://cdn.myanimelist.net/images/characters/5/136769.jpg'),
+  AvatarTematico(id: 'anime_goku', nome: 'Goku', categoria: 'Animes', emoji: '🐉', cores: [Color(0xFFFF6F00), Color(0xFF1565C0)], imageUrl: 'https://cdn.myanimelist.net/images/characters/9/160679.jpg'),
+  AvatarTematico(id: 'anime_vegeta', nome: 'Vegeta', categoria: 'Animes', emoji: '⚡', cores: [Color(0xFF0D47A1), Color(0xFF42A5F5)], imageUrl: 'https://cdn.myanimelist.net/images/characters/14/86185.jpg'),
+  AvatarTematico(id: 'anime_naruto', nome: 'Naruto', categoria: 'Animes', emoji: '🍥', cores: [Color(0xFFFF8F00), Color(0xFFFFCA28)], imageUrl: 'https://cdn.myanimelist.net/images/characters/2/284121.jpg'),
+  AvatarTematico(id: 'anime_madara', nome: 'Madara', categoria: 'Animes', emoji: '👁️', cores: [Color(0xFF880E4F), Color(0xFF1A1A1A)], imageUrl: 'https://cdn.myanimelist.net/images/characters/12/450359.jpg'),
+  AvatarTematico(id: 'anime_gaara', nome: 'Gaara', categoria: 'Animes', emoji: '🏜️', cores: [Color(0xFF6D4C41), Color(0xFFD84315)], imageUrl: 'https://cdn.myanimelist.net/images/characters/10/293375.jpg'),
+  AvatarTematico(id: 'anime_hinata', nome: 'Hinata', categoria: 'Animes', emoji: '💜', cores: [Color(0xFF4A148C), Color(0xFF7E57C2)], imageUrl: 'https://cdn.myanimelist.net/images/characters/6/278736.jpg'),
+  AvatarTematico(id: 'anime_levi', nome: 'Levi', categoria: 'Animes', emoji: '🗡️', cores: [Color(0xFF263238), Color(0xFF546E7A)], imageUrl: 'https://cdn.myanimelist.net/images/characters/2/241413.jpg'),
+  AvatarTematico(id: 'anime_l', nome: 'L', categoria: 'Animes', emoji: '🕵️', cores: [Color(0xFF212121), Color(0xFF616161)], imageUrl: 'https://cdn.myanimelist.net/images/characters/10/249647.jpg'),
+  AvatarTematico(id: 'anime_lelouch', nome: 'Lelouch', categoria: 'Animes', emoji: '👑', cores: [Color(0xFF311B92), Color(0xFFD50000)], imageUrl: 'https://cdn.myanimelist.net/images/characters/8/406163.jpg'),
 ];
 
 AvatarTematico buscarAvatarPorId(String id) {

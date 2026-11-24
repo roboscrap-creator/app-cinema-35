@@ -229,6 +229,7 @@ class TvPosterCard extends StatefulWidget {
   final double? progresso;
   final bool selecionadoEdicao;
   final bool modoEdicao;
+  final VoidCallback? onFocused;
 
   const TvPosterCard({
     super.key,
@@ -240,6 +241,7 @@ class TvPosterCard extends StatefulWidget {
     this.progresso,
     this.selecionadoEdicao = false,
     this.modoEdicao = false,
+    this.onFocused,
   });
 
   @override
@@ -260,6 +262,7 @@ class _TvPosterCardState extends State<TvPosterCard> {
       scaleOnFocus: 1.05,
       onFocusChanged: (v) {
         if (mounted) setState(() => _focado = v);
+        if (v) widget.onFocused?.call();
       },
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -511,24 +514,14 @@ class _CinemaFocusBoxState extends State<CinemaFocusBox> {
               scale: _ativo ? widget.scaleOnFocus : 1.0,
               duration: const Duration(milliseconds: 140),
               curve: Curves.easeOutCubic,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 140),
+              child: Container(
                 padding: widget.padding,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(widget.borderRadius),
                   border: Border.all(
                     color: _ativo ? const Color(0xFFF5B82E) : Colors.transparent,
-                    width: _ativo ? 3.0 : 1.0,
+                    width: 2.5,
                   ),
-                  boxShadow: _ativo
-                      ? [
-                          BoxShadow(
-                            color: const Color(0xFFF5B82E).withOpacity(0.50),
-                            blurRadius: 16,
-                            spreadRadius: 1.5,
-                          ),
-                        ]
-                      : const [],
                 ),
                 child: widget.child,
               ),

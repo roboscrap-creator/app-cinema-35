@@ -40,7 +40,16 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   int _idxBannerFilme = 0;
   int _idxBannerSerie = 0;
   Timer? _autoPlayTimer;
+  Timer? _previewDebounce;
+  final ValueNotifier<ObraAgrupada?> _obraPreviewNotifier = ValueNotifier<ObraAgrupada?>(null);
   Map<String, Map<String, dynamic>> _progressoMap = {};
+
+  List<ObraAgrupada> _cacheFilmes = const [];
+  List<ObraAgrupada> _cacheSeries = const [];
+  List<ObraAgrupada> _cacheKids = const [];
+  List<ObraAgrupada> _cacheAnimes = const [];
+  List<ObraAgrupada> _cacheTop10 = const [];
+  final Map<String, List<ObraAgrupada>> _cacheGeneros = {};
 
   static const List<String> _abas = ['INÍCIO', 'FILMES', 'SÉRIES', 'KIDS', 'ANIME'];
 
@@ -48,6 +57,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   @override
   void initState() {
     super.initState();
+    _reconstruirIndiceCatalogo();
     widget.abaExternaNotifier?.addListener(_onAbaExt);
     MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[_abaIndex]);
     _carregarProgresso();
@@ -63,19 +73,54 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant TvHomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.catalogo, widget.catalogo)) {
+      _reconstruirIndiceCatalogo();
+    }
+  }
+
+  void _reconstruirIndiceCatalogo() {
+    _cacheFilmes = _dedup(widget.catalogo.where((o) => o.categoria.toLowerCase().contains('filme') && !o.isSerie));
+    _cacheSeries = _dedup(widget.catalogo.where((o) => o.isSerie));
+    _cacheKids = _dedup(widget.catalogo.where((o) {
+      if (_ehAnime(o)) return false;
+      final c = SupabaseService.normalizarTexto(o.categoria);
+      final g = SupabaseService.normalizarTexto(o.genero);
+      final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
+      return c.contains('infantil') || c.contains('kids') || g.contains('infantil') || g.contains('animacao') || t.contains('kids');
+    }));
+    _cacheAnimes = _dedup(widget.catalogo.where(_ehAnime));
+    final ordenados = List<ObraAgrupada>.from(widget.catalogo)
+      ..sort((a, b) => b.scorePopularidade.compareTo(a.scorePopularidade));
+    _cacheTop10 = ordenados.take(10).toList();
+    _cacheGeneros.clear();
+  }
+
+  void _agendarPreviewHero(ObraAgrupada obra) {
+    _previewDebounce?.cancel();
+    _previewDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (mounted && _abaIndex == 0) {
+        _obraPreviewNotifier.value = obra;
+      }
+    });
+  }
+
+  @override
   void dispose() {
     widget.abaExternaNotifier?.removeListener(_onAbaExt);
     _autoPlayTimer?.cancel();
+    _previewDebounce?.cancel();
+    _obraPreviewNotifier.dispose();
     _bannerFilmesCtrl.dispose();
     _bannerSeriesCtrl.dispose();
     super.dispose();
   }
 
   List<ObraAgrupada> _dedup(Iterable<ObraAgrupada> src) { final v = <String>{}; return src.where((o) { if (o.capaUrl.isEmpty && o.bannerUrl.isEmpty) return false; final k = SupabaseService.normalizarTexto(o.titulo).replaceAll(RegExp(r'[^a-z0-9]'), ''); return k.isNotEmpty && v.add(k); }).toList(); }
-  List<ObraAgrupada> get _filmes => _dedup(widget.catalogo.where((o) => o.categoria.toLowerCase().contains('filme') && !o.isSerie));
+  List<ObraAgrupada> get _filmes => _cacheFilmes;
 
-  List<ObraAgrupada> get _series =>
-      _dedup(widget.catalogo.where((o) => o.isSerie));
+  List<ObraAgrupada> get _series => _cacheSeries;
 
   bool _ehAnime(ObraAgrupada o) {
     final c = SupabaseService.normalizarTexto(o.categoria);
@@ -91,24 +136,23 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
   }
 
-  List<ObraAgrupada> get _kids => _dedup(widget.catalogo.where((o) {
-        if (_ehAnime(o)) return false;
-        final c = SupabaseService.normalizarTexto(o.categoria);
-        final g = SupabaseService.normalizarTexto(o.genero);
-        final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
-        return c.contains('infantil') || c.contains('kids') || g.contains('infantil') || g.contains('animacao') || t.contains('kids');
-      }));
+  List<ObraAgrupada> get _kids => _cacheKids;
 
-  List<ObraAgrupada> get _animes => _dedup(widget.catalogo.where(_ehAnime));
+  List<ObraAgrupada> get _animes => _cacheAnimes;
 
   List<ObraAgrupada> _filtrarTagOuGenero(List<ObraAgrupada> base, String termo) {
+    final cacheKey = '${base.length}_$termo';
+    final hit = _cacheGeneros[cacheKey];
+    if (hit != null) return hit;
     final q = SupabaseService.normalizarTexto(termo);
-    return base.where((o) {
+    final res = base.where((o) {
       final g = SupabaseService.normalizarTexto(o.genero);
       final c = SupabaseService.normalizarTexto(o.categoria);
       final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
       return g.contains(q) || c.contains(q) || t.any((x) => x.contains(q));
     }).toList();
+    _cacheGeneros[cacheKey] = res;
+    return res;
   }
 
   void _abrirBusca() {
@@ -318,39 +362,34 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     }
 
     final continuar = widget.catalogo.where((o) => _progressoMap.containsKey(o.chaveGrupo)).toList();
-    final top10 = List<ObraAgrupada>.from(widget.catalogo)
-      ..sort((a, b) => b.scorePopularidade.compareTo(a.scorePopularidade));
+    final top10 = _cacheTop10;
+    final destaquesUnificados = <ObraAgrupada>[];
+    for (int i = 0; i < 4; i++) {
+      if (i < filmesDestaque.length) destaquesUnificados.add(filmesDestaque[i]);
+      if (i < seriesDestaque.length) destaquesUnificados.add(seriesDestaque[i]);
+    }
 
     return ListView(
       cacheExtent: 320,
       padding: const EdgeInsets.fromLTRB(26, 8, 26, 36),
       children: [
-        // Dois Banners Rotativos Lado a Lado (4 Filmes + 4 Séries)
-        SizedBox(
-          height: 255,
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildCarrosselHero(
-                  tituloSecao: 'Filmes em Destaque',
-                  itens: filmesDestaque,
-                  controller: _bannerFilmesCtrl,
-                  paginaAtual: _idxBannerFilme,
-                  onPageChanged: (i) => setState(() => _idxBannerFilme = i),
-                ),
+        ValueListenableBuilder<ObraAgrupada?>(
+          valueListenable: _obraPreviewNotifier,
+          builder: (_, obraFocada, __) {
+            return SizedBox(
+              height: 268,
+              child: _buildCarrosselHero(
+                tituloSecao: obraFocada != null ? 'Em Foco' : 'Destaques CineMax',
+                itens: obraFocada != null ? [obraFocada] : destaquesUnificados,
+                controller: _bannerFilmesCtrl,
+                paginaAtual: obraFocada != null ? 0 : _idxBannerFilme,
+                onPageChanged: (i) {
+                  _obraPreviewNotifier.value = null;
+                  setState(() => _idxBannerFilme = i);
+                },
               ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: _buildCarrosselHero(
-                  tituloSecao: 'Séries em Destaque',
-                  itens: seriesDestaque,
-                  controller: _bannerSeriesCtrl,
-                  paginaAtual: _idxBannerSerie,
-                  onPageChanged: (i) => setState(() => _idxBannerSerie = i),
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         ),
         const SizedBox(height: 22),
         if (continuar.isNotEmpty)
@@ -494,12 +533,31 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900),
                   ),
-                  Text(
-                    '${obra.ano} • ${obra.genero}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+                  Row(
+                    children: [
+                      if (obra.notaImdb > 0) ...[
+                        Text('★ ${obra.notaImdb.toStringAsFixed(1)}', style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 12.5, fontWeight: FontWeight.w900)),
+                        const SizedBox(width: 8),
+                      ],
+                      Expanded(
+                        child: Text(
+                          '${obra.ano} • ${obra.genero}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
                   ),
+                  if (obra.sinopse.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      obra.sinopse,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white60, fontSize: 12, height: 1.25),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -722,24 +780,28 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 248,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: itens.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (_, idx) {
-                final obra = itens[idx];
-                final prog = mostrarProgresso
-                    ? (_progressoMap[obra.chaveGrupo]?['progresso'] as double?)
-                    : null;
-                return TvPosterCard(
-                  obra: obra,
-                  rankNumero: numerado ? idx + 1 : null,
-                  progresso: prog,
-                  onTap: () => widget.onAbrirObra(obra),
-                );
-              },
+          FocusTraversalGroup(
+            child: SizedBox(
+              height: 248,
+              child: ListView.separated(
+                clipBehavior: Clip.none,
+                scrollDirection: Axis.horizontal,
+                itemCount: itens.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 14),
+                itemBuilder: (_, idx) {
+                  final obra = itens[idx];
+                  final prog = mostrarProgresso
+                      ? (_progressoMap[obra.chaveGrupo]?['progresso'] as double?)
+                      : null;
+                  return TvPosterCard(
+                    obra: obra,
+                    rankNumero: numerado ? idx + 1 : null,
+                    progresso: prog,
+                    onFocused: () => _agendarPreviewHero(obra),
+                    onTap: () => widget.onAbrirObra(obra),
+                  );
+                },
+              ),
             ),
           ),
         ],

@@ -431,6 +431,7 @@ class CinemaFocusBox extends StatefulWidget {
   final bool autofocus;
   final EdgeInsetsGeometry padding;
   final ValueChanged<bool>? onFocusChanged;
+  final FocusNode? focusNode;
 
   const CinemaFocusBox({
     super.key,
@@ -441,6 +442,7 @@ class CinemaFocusBox extends StatefulWidget {
     this.autofocus = false,
     this.padding = EdgeInsets.zero,
     this.onFocusChanged,
+    this.focusNode,
   });
 
   @override
@@ -468,16 +470,15 @@ class _CinemaFocusBoxState extends State<CinemaFocusBox> {
         key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.accept ||
         key == LogicalKeyboardKey.gameButtonA ||
-        key == LogicalKeyboardKey.space ||
-        key == LogicalKeyboardKey.mediaPlayPause;
+        key == LogicalKeyboardKey.space;
   }
 
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
       cursor: widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onEnter: (_) { if (mounted) setState(() => _hovered = true); },
+      onExit: (_) { if (mounted) setState(() => _hovered = false); },
       child: Actions(
         actions: <Type, Action<Intent>>{
           ActivateIntent: CallbackAction<ActivateIntent>(
@@ -494,9 +495,10 @@ class _CinemaFocusBoxState extends State<CinemaFocusBox> {
           ),
         },
         child: Focus(
+          focusNode: widget.focusNode,
           autofocus: widget.autofocus,
           onFocusChange: (f) {
-            setState(() => _focused = f);
+            if (mounted) setState(() => _focused = f);
             widget.onFocusChanged?.call(f);
           },
           onKeyEvent: (node, event) {

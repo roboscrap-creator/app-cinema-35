@@ -35,11 +35,7 @@ class TvHomeScreen extends StatefulWidget {
 
 class _TvHomeScreenState extends State<TvHomeScreen> {
   int _abaIndex = 0;
-  final PageController _bannerFilmesCtrl = PageController();
-  final PageController _bannerSeriesCtrl = PageController();
   int _idxBannerFilme = 0;
-  int _idxBannerSerie = 0;
-  Timer? _autoPlayTimer;
   Timer? _previewDebounce;
   final ValueNotifier<ObraAgrupada?> _obraPreviewNotifier = ValueNotifier<ObraAgrupada?>(null);
   Map<String, Map<String, dynamic>> _progressoMap = {};
@@ -109,11 +105,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   @override
   void dispose() {
     widget.abaExternaNotifier?.removeListener(_onAbaExt);
-    _autoPlayTimer?.cancel();
     _previewDebounce?.cancel();
     _obraPreviewNotifier.dispose();
-    _bannerFilmesCtrl.dispose();
-    _bannerSeriesCtrl.dispose();
     super.dispose();
   }
 
@@ -250,33 +243,13 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       child: Row(
         children: [
           const CinemaLogoWidget(height: 36, width: 124),
-          const SizedBox(width: 10),
-          CinemaFocusBox(
-            onTap: widget.onAlternarModoMobile,
-            borderRadius: 18,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A202C),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFFF5B82E).withOpacity(0.6)),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.phone_android, size: 15, color: Color(0xFFF5B82E)),
-                  SizedBox(width: 4),
-                  Text('Celular', style: TextStyle(color: Color(0xFFF5B82E), fontSize: 12, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
-          ),
           const SizedBox(width: 16),
           ...List.generate(_abas.length, (i) {
             final ativo = _abaIndex == i;
             return Padding(
               padding: const EdgeInsets.only(right: 10),
               child: CinemaFocusBox(
+                autofocus: i == 0,
                 onTap: () { setState(() => _abaIndex = i); MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[i]); },
                 borderRadius: 20,
                 scaleOnFocus: 1.06,
@@ -380,9 +353,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               height: 268,
               child: _buildCarrosselHero(
                 tituloSecao: obraFocada != null ? 'Em Foco' : 'Destaques CineMax',
-                itens: obraFocada != null ? [obraFocada] : destaquesUnificados,
-                controller: _bannerFilmesCtrl,
-                paginaAtual: obraFocada != null ? 0 : _idxBannerFilme,
+                itens: destaquesUnificados,
+                obraPreview: obraFocada,
+                paginaAtual: _idxBannerFilme,
                 onPageChanged: (i) {
                   _obraPreviewNotifier.value = null;
                   setState(() => _idxBannerFilme = i);
@@ -450,7 +423,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   Widget _buildCarrosselHero({
     required String tituloSecao,
     required List<ObraAgrupada> itens,
-    required PageController controller,
+    ObraAgrupada? obraPreview,
     required int paginaAtual,
     required void Function(int) onPageChanged,
   }) {
@@ -462,10 +435,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       );
     }
     final idxSeguro = paginaAtual.clamp(0, itens.length - 1);
-    final obra = itens[idxSeguro];
+    final obra = obraPreview ?? itens[idxSeguro];
     final img = obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl;
 
     return Focus(
+      canRequestFocus: false,
+      skipTraversal: true,
       onKeyEvent: (_, ev) {
         if (ev is KeyDownEvent && itens.length > 1) {
           if (ev.logicalKey == LogicalKeyboardKey.arrowRight) {

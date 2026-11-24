@@ -60,16 +60,19 @@ class CdnStreamService {
     final sw = Stopwatch()..start();
 
     final hit = _cache[chave];
-    if (hit != null && hit.expiraEm.isAfter(DateTime.now())) {
-      sw.stop();
-      final diag =
-          'Origem: Gcore CDN (Pré-carregado • ${hit.origemBackend}) | ${sw.elapsedMilliseconds}ms';
-      ultimoDiagnostico = diag;
-      return CdnResolucaoInfo(
-        url: hit.url,
-        origem: diag,
-        latenciaMs: sw.elapsedMilliseconds,
-      );
+    if (hit != null) {
+      if (hit.expiraEm.isAfter(DateTime.now())) {
+        sw.stop();
+        final diag =
+            'Origem: Gcore CDN (Pré-carregado • ${hit.origemBackend}) | ${sw.elapsedMilliseconds}ms';
+        ultimoDiagnostico = diag;
+        return CdnResolucaoInfo(
+          url: hit.url,
+          origem: diag,
+          latenciaMs: sw.elapsedMilliseconds,
+        );
+      }
+      _cache.remove(chave);
     }
 
     final urlResolvida = await (_emAndamento[chave] ?? _requisitarCdn(clean, chave));

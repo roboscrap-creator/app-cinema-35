@@ -457,6 +457,9 @@ class SupabaseService {
   }
 
   static Future<List<ObraAgrupada>> carregarCatalogoAgrupado({bool forcarRefresh = false, int limite = 500}) async {
+    if (!forcarRefresh && _memoriaRapida != null && _memoriaRapida!.isNotEmpty) {
+      return _memoriaRapida!;
+    }
     final key = await getAnonKey();
     try {
       final uri = Uri.parse(
@@ -471,13 +474,17 @@ class SupabaseService {
       if (resp.statusCode == 200 || resp.statusCode == 206) {
         final rows = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
         if (rows.isNotEmpty) {
-          return rows.whereType().map((e) => _obraFromViewRow(Map<String, dynamic>.from(e))).toList();
+          final lista = rows.whereType().map((e) => _obraFromViewRow(Map<String, dynamic>.from(e))).toList();
+          _memoriaRapida = lista;
+          return lista;
         }
       }
     } catch (_) {}
 
     final fallback = await _fetchLote(key, '', 400);
-    return _agruparDados(fallback);
+    final agrupado = _agruparDados(fallback);
+    if (agrupado.isNotEmpty) _memoriaRapida = agrupado;
+    return agrupado;
   }
 
   static Future<List<FonteMidia>> carregarFontesDaObra(ObraAgrupada obra) async {
@@ -542,7 +549,7 @@ class SupabaseService {
           'Content-Type': 'application/json',
         },
         body: jsonEncode({'media_id': id}),
-      );
+      ).timeout(const Duration(seconds: 5));
     } catch (_) {}
   }
 
@@ -825,7 +832,7 @@ class SupabaseService {
                 ? 'https://image.tmdb.org/t/p/w500$poster'
                 : '',
             bannerUrl: backdrop.isNotEmpty
-                ? 'https://image.tmdb.org/t/p/w1280$backdrop'
+                ? 'https://image.tmdb.org/t/p/w780$backdrop'
                 : '',
             ano: ano,
             emDestaque: false,

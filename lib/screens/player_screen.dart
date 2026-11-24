@@ -361,7 +361,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   void _reiniciarTimerControles() {
     _autoPlayTimer?.cancel();
-    _autoPlayTimer?.cancel();
     _hideTimer?.cancel();
     if (!mounted) return;
     setState(() => _controlesVisiveis = true);
@@ -552,46 +551,50 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                           style: TextStyle(color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.w800),
                         ),
                       ),
-                      Switch(
-                        value: _legendaAtiva,
-                        activeColor: const Color(0xFFF5B82E),
-                        onChanged: (v) {
+                      CinemaFocusBox(
+                        autofocus: true,
+                        borderRadius: 12,
+                        onTap: () {
+                          final v = !_legendaAtiva;
                           setState(() => _legendaAtiva = v);
                           setModal(() {});
                           if (!v) _player.setSubtitleTrack(SubtitleTrack.no());
                         },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(color: _legendaAtiva ? const Color(0xFFF5B82E) : Colors.white12, borderRadius: BorderRadius.circular(12)),
+                          child: Text(_legendaAtiva ? 'Ativada' : 'Desativada', style: TextStyle(color: _legendaAtiva ? Colors.black : Colors.white, fontWeight: FontWeight.w800, fontSize: 12)),
+                        ),
                       ),
                     ],
                   ),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
                       const Text('Tamanho:', style: TextStyle(color: Colors.white70)),
-                      Expanded(
-                        child: Slider(
-                          value: _tamanhoLegenda,
-                          min: 18,
-                          max: 44,
-                          activeColor: const Color(0xFFF5B82E),
-                          onChanged: (v) {
-                            setState(() => _tamanhoLegenda = v);
-                            setModal(() {});
-                          },
-                        ),
+                      const SizedBox(width: 8),
+                      CinemaFocusBox(
+                        borderRadius: 8,
+                        onTap: () { setState(() => _tamanhoLegenda = (_tamanhoLegenda - 2).clamp(18, 44)); setModal(() {}); },
+                        child: const Padding(padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4), child: Text('A-', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900))),
                       ),
+                      Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text('${_tamanhoLegenda.toInt()}', style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w800))),
+                      CinemaFocusBox(
+                        borderRadius: 8,
+                        onTap: () { setState(() => _tamanhoLegenda = (_tamanhoLegenda + 2).clamp(18, 44)); setModal(() {}); },
+                        child: const Padding(padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4), child: Text('A+', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900))),
+                      ),
+                      const Spacer(),
                       ...[Colors.white, const Color(0xFFF5B82E), Colors.cyanAccent].map(
-                        (c) => GestureDetector(
-                          onTap: () {
-                            setState(() => _corLegenda = c);
-                            setModal(() {});
-                          },
-                          child: Container(
-                            width: 24,
-                            height: 24,
-                            margin: const EdgeInsets.only(left: 8),
-                            decoration: BoxDecoration(
-                              color: c,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: _corLegenda == c ? Colors.redAccent : Colors.white54, width: 2),
+                        (c) => Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: CinemaFocusBox(
+                            borderRadius: 16,
+                            onTap: () { setState(() => _corLegenda = c); setModal(() {}); },
+                            child: Container(
+                              width: 26,
+                              height: 26,
+                              decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: _corLegenda == c ? Colors.redAccent : Colors.white54, width: 2)),
                             ),
                           ),
                         ),

@@ -40,6 +40,8 @@ class CdnStreamService {
     return (m?.group(1) ?? magnet.trim()).toLowerCase();
   }
 
+  static void invalidarCache(String magnet) { _cache.remove(_chaveMagnet(magnet)); }
+
   static void preAquecerMagnet(String? url) {
     if (url == null) return;
     final clean = url.trim();
@@ -95,7 +97,7 @@ class CdnStreamService {
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode({'magnet': magnet}),
             )
-            .timeout(const Duration(seconds: 22));
+            .timeout(const Duration(seconds: 10));
         if (res.statusCode == 200) {
           final data = jsonDecode(utf8.decode(res.bodyBytes));
           final u = (data is Map ? data['url'] : null)?.toString().trim() ?? '';

@@ -136,7 +136,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         _retomadaAplicada = true;
         final alvo = Duration(seconds: (d.inSeconds * widget.progressoInicial).round());
         _player.seek(alvo);
-    _salvarIntroNuvem(_introInicio, alvo.inSeconds, 'usuario_nuvem');
         if (mounted) {
           setState(() => _mostrarBotaoInicio = true);
           _mostrarOsd(Icons.history, 'Retomado de ${_formatarTempo(alvo)}');
@@ -144,18 +143,19 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         }
       }
     }));
-    _player.stream.playing.listen((pl) {
+    _subs.add(_player.stream.playing.listen((pl) {
       if (mounted) setState(() { _tocando = pl; if (pl) { _erroPlayer = null; _carregandoStream = false; } });
-    });
-    _player.stream.buffering.listen((b) {
+    }));
+    _subs.add(_player.stream.buffering.listen((b) {
       if (mounted && !b) setState(() => _carregandoStream = false);
-    });
-    _player.stream.error.listen((err) {
+    }));
+    _subs.add(_player.stream.error.listen((err) {
       if (!mounted) return;
       final errLow = err.toLowerCase();
       if (errLow.contains('could not open codec') || errLow.contains('subtitle') || (_tocando && _posicao.inSeconds > 1)) return;
       if (_retryAutoCount < 1 && (_fonteAtual.urlStream.toLowerCase().startsWith('magnet:') || _fonteAtual.urlStream.toLowerCase().endsWith('.torrent'))) {
         _retryAutoCount++;
+        CdnStreamService.invalidarCache(_fonteAtual.urlStream);
         Future.delayed(const Duration(milliseconds: 1400), () {
           if (mounted) _abrirMidia(_fonteAtual.urlStream);
         });
@@ -170,7 +170,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
           _erroPlayer = 'Falha ao reproduzir stream: $err';
         });
       }
-    });
+    }));
 
     _iniciarFonte(_fonteAtual);
     _reiniciarTimerControles();
@@ -361,6 +361,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   void _reiniciarTimerControles() {
     _autoPlayTimer?.cancel();
+    _autoPlayTimer?.cancel();
     _hideTimer?.cancel();
     if (!mounted) return;
     setState(() => _controlesVisiveis = true);
@@ -385,6 +386,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         ? Duration(seconds: _introFim)
         : (_posicao + Duration(seconds: widget.obra.aberturaSegundos));
     _player.seek(alvo);
+    _salvarIntroNuvem(_introInicio, alvo.inSeconds, 'usuario_nuvem');
     _mostrarOsd(Icons.fast_forward, 'Abertura pulada');
     _reiniciarTimerControles();
   }
@@ -1324,7 +1326,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                             Text(_formatarTempo(pos), style: const TextStyle(color: Colors.white, fontSize: 12)),
                                             Expanded(
                                               child: Slider(
-                                                focusNode: FocusNode(canRequestFocus: false),
                                                 value: dur.inMilliseconds > 0 ? pos.inMilliseconds.clamp(0, dur.inMilliseconds).toDouble() : 0,
                                                 max: dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1,
                                                 activeColor: const Color(0xFFF5B82E),

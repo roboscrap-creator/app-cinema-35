@@ -86,6 +86,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   int _ultDir = 0;
   final FocusNode _sliderFocus = FocusNode();
   final FocusNode _barraInferiorFocus = FocusNode();
+  final FocusNode _sliderInternalFocus = FocusNode(canRequestFocus: false, skipTraversal: true);
 
   @override
   void initState() {
@@ -100,7 +101,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
     _player = Player(
       configuration: const PlayerConfiguration(
-        bufferSize: 20 * 1024 * 1024,
+        bufferSize: 12 * 1024 * 1024,
       ),
     );
     if (_player.platform is NativePlayer) {
@@ -411,12 +412,11 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
           await platform.setProperty('network-timeout', '30');
           await platform.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
           await platform.setProperty('cache', 'yes');
-          await platform.setProperty('demuxer-max-bytes', '25165824');
+          await platform.setProperty('demuxer-max-bytes', '12582912');
         }
       } catch (_) {}
       if (!mounted || ger != _geracaoPlayback) return;
       await _player.open(Media(urlFinal, httpHeaders: headers), play: true);
-      await _player.play();
     } catch (e) {
       if (mounted && ger == _geracaoPlayback) {
         final trocou = await _tentarProximaFonteOuBackup(e.toString(), geracao: ger);
@@ -495,6 +495,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _centroControlsFocus.dispose();
     _sliderFocus.dispose();
     _barraInferiorFocus.dispose();
+    _sliderInternalFocus.dispose();
     _playerRootFocus.dispose();
     _player.dispose();
     TorrServerService.encerrar();
@@ -897,17 +898,21 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
           const Text('Resolução e Fontes', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
           const SizedBox(height: 12),
           ...fontesMesmoEp.map(
-            (f) => ListTile(
-              leading: Icon(
-                f.id == _fonteAtual.id ? Icons.check_circle : Icons.play_circle_outline,
-                color: f.id == _fonteAtual.id ? const Color(0xFFF5B82E) : Colors.white54,
-              ),
-              title: Text(f.badgeResumo, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-              subtitle: Text(f.formato.toUpperCase(), style: const TextStyle(color: Colors.white54)),
+            (f) => CinemaFocusBox(
+              autofocus: f.id == _fonteAtual.id,
+              borderRadius: 8,
               onTap: () {
                 Navigator.pop(ctx);
                 _iniciarFonte(f);
               },
+              child: ListTile(
+                leading: Icon(
+                  f.id == _fonteAtual.id ? Icons.check_circle : Icons.play_circle_outline,
+                  color: f.id == _fonteAtual.id ? const Color(0xFFF5B82E) : Colors.white54,
+                ),
+                title: Text(f.badgeResumo, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                subtitle: Text(f.formato.toUpperCase(), style: const TextStyle(color: Colors.white54)),
+              ),
             ),
           ),
         ],
@@ -926,17 +931,21 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         itemBuilder: (_, idx) {
           final ep = widget.listaEpisodios[idx];
           final atual = ep.id == _fonteAtual.id;
-          return ListTile(
-            leading: Text(
-              ep.etiquetaEpisodio.isNotEmpty ? ep.etiquetaEpisodio : 'Ep ${idx + 1}',
-              style: TextStyle(color: atual ? const Color(0xFFF5B82E) : Colors.white70, fontWeight: FontWeight.w800),
-            ),
-            title: Text(ep.titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
-            trailing: Text(ep.resolucao, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+          return CinemaFocusBox(
+            autofocus: atual,
+            borderRadius: 8,
             onTap: () {
               Navigator.pop(ctx);
               _iniciarFonte(ep);
             },
+            child: ListTile(
+              leading: Text(
+                ep.etiquetaEpisodio.isNotEmpty ? ep.etiquetaEpisodio : 'Ep ${idx + 1}',
+                style: TextStyle(color: atual ? const Color(0xFFF5B82E) : Colors.white70, fontWeight: FontWeight.w800),
+              ),
+              title: Text(ep.titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
+              trailing: Text(ep.resolucao, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+            ),
           );
         },
       ),
@@ -978,6 +987,22 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       segundos < 0 ? '${segundos}s' : '+${segundos}s',
     );
     _reiniciarTimerControles();
+  }
+
+  void _focarPrimeiroBotao(FocusNode container) {
+    final filhos = container.descendants.where((n) => n.canRequestFocus).toList();
+    if (filhos.isNotEmpty) {
+      filhos.first.requestFocus();
+    }
+  }
+
+  void _focarPlayPause() {
+    final filhos = _centroControlsFocus.descendants.where((n) => n.canRequestFocus).toList();
+    if (filhos.length >= 2) {
+      filhos[1].requestFocus();
+    } else if (filhos.isNotEmpty) {
+      filhos.first.requestFocus();
+    }
   }
 
   bool _isConfirmKey(LogicalKeyboardKey k) {
@@ -1307,7 +1332,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                           children: [
                             Focus(
                               focusNode: _voltarFocus,
-                              onKeyEvent: (_, e) { if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.arrowDown) { _centroControlsFocus.requestFocus(); _reiniciarTimerControles(); return KeyEventResult.handled; } return KeyEventResult.ignored; },
+                              canRequestFocus: false,
+                              skipTraversal: true,
+                              onKeyEvent: (_, e) { if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.arrowDown) { _focarPlayPause(); _reiniciarTimerControles(); return KeyEventResult.handled; } return KeyEventResult.ignored; },
                               child: CinemaFocusBox(
                               borderRadius: 24,
                               onTap: () => Navigator.pop(context),
@@ -1341,9 +1368,11 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                       const Spacer(),
                       Focus(
                         focusNode: _centroControlsFocus,
+                        canRequestFocus: false,
+                        skipTraversal: true,
                         onKeyEvent: (_, event) {
                           if (event is KeyDownEvent) {
-                            if (event.logicalKey == LogicalKeyboardKey.arrowUp) { _voltarFocus.requestFocus(); _reiniciarTimerControles(); return KeyEventResult.handled; }
+                            if (event.logicalKey == LogicalKeyboardKey.arrowUp) { _focarPrimeiroBotao(_voltarFocus); _reiniciarTimerControles(); return KeyEventResult.handled; }
                             if (event.logicalKey == LogicalKeyboardKey.arrowDown) { _sliderFocus.requestFocus(); _reiniciarTimerControles(); return KeyEventResult.handled; }
                           }
                           return KeyEventResult.ignored;
@@ -1390,38 +1419,39 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         padding: const EdgeInsets.fromLTRB(22, 0, 22, 16),
                         child: Column(
                           children: [
-                            ValueListenableBuilder<Duration>(
-                              valueListenable: _posNotifier,
-                              builder: (_, pos, __) {
-                                final dur = _durNotifier.value;
-                                return Focus(
-                                  focusNode: _sliderFocus,
-                                  onKeyEvent: (node, event) {
-                                    if (event is KeyDownEvent) {
-                                      if (event.logicalKey == LogicalKeyboardKey.arrowDown) { _barraInferiorFocus.requestFocus(); WidgetsBinding.instance.addPostFrameCallback((_) => _barraInferiorFocus.nextFocus()); _reiniciarTimerControles(); return KeyEventResult.handled; }
-                                      if (event.logicalKey == LogicalKeyboardKey.arrowUp) { _centroControlsFocus.requestFocus(); _reiniciarTimerControles(); return KeyEventResult.handled; }
-                                      if (event.logicalKey == LogicalKeyboardKey.arrowRight || event.logicalKey == LogicalKeyboardKey.arrowLeft) { final d = event.logicalKey == LogicalKeyboardKey.arrowRight ? 1 : -1; final now = DateTime.now(); final dbl = _ultDir == d && now.difference(_ultSeek).inMilliseconds < 380; _ultSeek = now; _ultDir = d; _buscarRelativo(dbl ? 30 * d : 15 * d); return KeyEventResult.handled; }
-                                    } else if (event is KeyRepeatEvent) {
-                                      if (event.logicalKey == LogicalKeyboardKey.arrowRight) { _buscarRelativo(45); return KeyEventResult.handled; }
-                                      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) { _buscarRelativo(-45); return KeyEventResult.handled; }
-                                    }
-                                    return KeyEventResult.ignored;
-                                  },
-                                  child: Builder(
-                                    builder: (fCtx) {
-                                      final focado = Focus.of(fCtx).hasFocus;
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(10),
-                                          border: Border.all(color: focado ? const Color(0xFFF5B82E) : Colors.transparent, width: 2),
-                                          color: focado ? const Color(0xFFF5B82E).withOpacity(0.14) : Colors.transparent,
-                                        ),
-                                        child: Row(
+                            Focus(
+                              focusNode: _sliderFocus,
+                              onKeyEvent: (node, event) {
+                                if (event is KeyDownEvent) {
+                                  if (event.logicalKey == LogicalKeyboardKey.arrowDown) { _focarPrimeiroBotao(_barraInferiorFocus); _reiniciarTimerControles(); return KeyEventResult.handled; }
+                                  if (event.logicalKey == LogicalKeyboardKey.arrowUp) { _focarPlayPause(); _reiniciarTimerControles(); return KeyEventResult.handled; }
+                                  if (event.logicalKey == LogicalKeyboardKey.arrowRight || event.logicalKey == LogicalKeyboardKey.arrowLeft) { final d = event.logicalKey == LogicalKeyboardKey.arrowRight ? 1 : -1; final now = DateTime.now(); final dbl = _ultDir == d && now.difference(_ultSeek).inMilliseconds < 380; _ultSeek = now; _ultDir = d; _buscarRelativo(dbl ? 30 * d : 15 * d); return KeyEventResult.handled; }
+                                } else if (event is KeyRepeatEvent) {
+                                  if (event.logicalKey == LogicalKeyboardKey.arrowRight) { _buscarRelativo(45); return KeyEventResult.handled; }
+                                  if (event.logicalKey == LogicalKeyboardKey.arrowLeft) { _buscarRelativo(-45); return KeyEventResult.handled; }
+                                }
+                                return KeyEventResult.ignored;
+                              },
+                              child: Builder(
+                                builder: (fCtx) {
+                                  final focado = Focus.of(fCtx).hasFocus;
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: focado ? const Color(0xFFF5B82E) : Colors.transparent, width: 2),
+                                      color: focado ? const Color(0xFFF5B82E).withOpacity(0.14) : Colors.transparent,
+                                    ),
+                                    child: ValueListenableBuilder<Duration>(
+                                      valueListenable: _posNotifier,
+                                      builder: (_, pos, __) {
+                                        final dur = _durNotifier.value;
+                                        return Row(
                                           children: [
                                             Text(_formatarTempo(pos), style: const TextStyle(color: Colors.white, fontSize: 12)),
                                             Expanded(
                                               child: Slider(
+                                                focusNode: _sliderInternalFocus,
                                                 value: dur.inMilliseconds > 0 ? pos.inMilliseconds.clamp(0, dur.inMilliseconds).toDouble() : 0,
                                                 max: dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1,
                                                 activeColor: const Color(0xFFF5B82E),
@@ -1438,17 +1468,19 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                             ),
                                             Text(_formatarTempo(dur), style: const TextStyle(color: Colors.white, fontSize: 12)),
                                           ],
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                );
-                              },
+                                        );
+                                      },
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
                             FocusTraversalGroup(
                               policy: ReadingOrderTraversalPolicy(),
                               child: Focus(
                                 focusNode: _barraInferiorFocus,
+                                canRequestFocus: false,
+                                skipTraversal: true,
                                 onKeyEvent: (_, event) {
                                   if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.arrowUp) {
                                     _sliderFocus.requestFocus();

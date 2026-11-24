@@ -247,8 +247,7 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     _carregarProgresso();
   }
   @override
-  void dispose() {
-    _abaNotifier.dispose(); widget.abaExternaNotifier?.removeListener(_onAbaExtM); super.dispose(); }
+  void dispose() { widget.abaExternaNotifier?.removeListener(_onAbaExtM); super.dispose(); }
 
   Future<void> _carregarProgresso() async {
     final p = await SupabaseService.carregarProgressoAssistido();

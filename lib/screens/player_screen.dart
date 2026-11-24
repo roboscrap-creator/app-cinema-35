@@ -283,6 +283,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         CdnResolucaoInfo? cdnInfo;
         if (lower.startsWith('magnet:?xt=urn:btih:')) {
           if (mounted) setState(() { _statusCarregamento = 'Conectando à Gcore CDN...'; _progressoCarregamento = null; });
+          TorrServerService.garantirAtivo();
           cdnInfo = await CdnStreamService.resolverMagnet(urlFinal);
         }
 
@@ -413,6 +414,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _barraInferiorFocus.dispose();
     _playerRootFocus.dispose();
     _player.dispose();
+    TorrServerService.encerrar();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();

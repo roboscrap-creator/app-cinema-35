@@ -30,6 +30,8 @@ class TorrServerService {
   static bool _configurado = false;
   static String ultimoErro = '';
 
+  static void encerrar() { try { _process?.kill(); _process = null; } catch (_) {} }
+
   static Future<bool> _portaAberta() async {
     try {
       final s = await Socket.connect('127.0.0.1', 8090, timeout: const Duration(milliseconds: 350));
@@ -46,7 +48,7 @@ class TorrServerService {
       await _postJson('/settings', {
         'action': 'set',
         'sets': {
-          'CacheSize': 67108864,
+          'CacheSize': 33554432,
           'ReaderReadAHead': 95,
           'PreloadCache': 2,
           'UseDisk': false,

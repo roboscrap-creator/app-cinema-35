@@ -293,7 +293,7 @@ class _TvPosterCardState extends State<TvPosterCard> {
                     CachedNetworkImage(
                       imageUrl: img,
                       fit: BoxFit.cover,
-                      memCacheWidth: 320,
+                      memCacheWidth: 220,
                       fadeInDuration: Duration.zero,
                       errorWidget: (_, __, ___) => const Center(
                         child: Icon(Icons.movie_outlined, color: Colors.white30, size: 36),

@@ -176,16 +176,15 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         children: [
           _buildTopBar(),
           Expanded(
-            child: IndexedStack(
-              index: _abaIndex,
-              children: [
-                _buildAbaInicio(),
-                _buildAbaCategoria('Filmes', _filmes),
-                _buildAbaCategoria('Séries', _series),
-                _buildAbaCategoria('Kids', _kids),
-                _buildAbaCategoria('Anime', _animes),
-              ],
-            ),
+            child: _abaIndex == 0
+                ? _buildAbaInicio()
+                : _abaIndex == 1
+                    ? _buildAbaCategoria('Filmes', _filmes)
+                    : _abaIndex == 2
+                        ? _buildAbaCategoria('Séries', _series)
+                        : _abaIndex == 3
+                            ? _buildAbaCategoria('Kids', _kids)
+                            : _buildAbaCategoria('Anime', _animes),
           ),
         ],
       ),
@@ -440,7 +439,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                 key: ValueKey('${obra.chaveGrupo}_$idxSeguro'),
                 imageUrl: img,
                 fit: BoxFit.cover,
-                memCacheWidth: 720,
+                memCacheWidth: 540,
                 fadeInDuration: Duration.zero,
               )
             else
@@ -618,7 +617,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           fit: StackFit.expand,
           children: [
             if (img.isNotEmpty)
-              CachedNetworkImage(imageUrl: img, fit: BoxFit.cover, memCacheWidth: 720, fadeInDuration: Duration.zero, errorWidget: (_, __, ___) => Container(color: const Color(0xFF161A23)))
+              CachedNetworkImage(imageUrl: img, fit: BoxFit.cover, memCacheWidth: 540, fadeInDuration: Duration.zero, errorWidget: (_, __, ___) => Container(color: const Color(0xFF161A23)))
             else
               Container(color: const Color(0xFF161A23)),
             Container(

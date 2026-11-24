@@ -53,7 +53,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   final List<StreamSubscription> _subs = [];
   bool _tocando = true;
 
-  // Configurações de Legenda
   bool _legendaAtiva = true;
   double _tamanhoLegenda = 28.0;
   Color _corLegenda = Colors.white;
@@ -75,19 +74,29 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   Timer? _autoPlayTimer;
   int _introInicio = 5;
   int _introFim = 0;
-  String _origemIntro = 'padrao';
   final Set<String> _fontesTentadas = {};
   String? _osdTexto;
   IconData? _osdIcone;
   Timer? _osdTimer;
-  final FocusNode _playerRootFocus = FocusNode();
-  final FocusNode _voltarFocus = FocusNode();
-  final FocusNode _centroControlsFocus = FocusNode();
+
   DateTime _ultSeek = DateTime.fromMillisecondsSinceEpoch(0);
   int _ultDir = 0;
-  final FocusNode _sliderFocus = FocusNode();
-  final FocusNode _barraInferiorFocus = FocusNode();
-  final FocusNode _sliderInternalFocus = FocusNode(canRequestFocus: false, skipTraversal: true);
+  bool _modalAberto = false;
+
+  final FocusNode _fnRoot = FocusNode(debugLabel: 'player_root');
+  final FocusNode _fnVoltar = FocusNode(debugLabel: 'btn_voltar');
+  final FocusNode _fnRewind = FocusNode(debugLabel: 'btn_rewind');
+  final FocusNode _fnPlayPause = FocusNode(debugLabel: 'btn_play_pause');
+  final FocusNode _fnForward = FocusNode(debugLabel: 'btn_forward');
+  final FocusNode _fnSlider = FocusNode(debugLabel: 'timeline_slider');
+  final FocusNode _fnSliderDummy = FocusNode(canRequestFocus: false, skipTraversal: true);
+  final FocusNode _fnProxEp = FocusNode(debugLabel: 'btn_prox_ep');
+  final FocusNode _fnEpisodios = FocusNode(debugLabel: 'btn_episodios');
+  final FocusNode _fnFontes = FocusNode(debugLabel: 'btn_fontes');
+  final FocusNode _fnLegendas = FocusNode(debugLabel: 'btn_legendas');
+  final FocusNode _fnPularAbertura = FocusNode(debugLabel: 'btn_pular_abertura');
+  final FocusNode _fnAssistirInicio = FocusNode(debugLabel: 'btn_assistir_inicio');
+  final FocusNode _fnRetry = FocusNode(debugLabel: 'btn_retry');
 
   @override
   void initState() {
@@ -101,15 +110,15 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     ]);
 
     _player = Player(
-      configuration: const PlayerConfiguration(
-        bufferSize: 12 * 1024 * 1024,
-      ),
+      configuration: const PlayerConfiguration(bufferSize: 12 * 1024 * 1024),
     );
     if (_player.platform is NativePlayer) {
       final np = _player.platform as NativePlayer;
       np.setProperty('hwdec', 'auto-safe');
       np.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
       np.setProperty('network-timeout', '30');
+      np.setProperty('cache', 'yes');
+      np.setProperty('demuxer-max-bytes', '12582912');
     }
     _videoCtrl = VideoController(_player);
 
@@ -143,6 +152,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         }
       }
     }));
+
     _subs.add(_player.stream.duration.listen((d) {
       _duracao = d;
       _durNotifier.value = d;
@@ -158,16 +168,33 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         if (mounted) {
           setState(() => _mostrarBotaoInicio = true);
           _mostrarOsd(Icons.history, 'Retomado de ${_formatarTempo(alvo)}');
-          Future.delayed(const Duration(seconds: 8), () { if (mounted) setState(() => _mostrarBotaoInicio = false); });
+          Future.delayed(const Duration(seconds: 8), () {
+            if (mounted) setState(() => _mostrarBotaoInicio = false);
+          });
         }
       }
     }));
+
     _subs.add(_player.stream.playing.listen((pl) {
-      if (mounted) setState(() { _tocando = pl; if (pl) { _erroPlayer = null; _carregandoStream = false; } });
+      if (mounted) {
+        final iniciouAgora = pl && _carregandoStream;
+        setState(() {
+          _tocando = pl;
+          if (pl) {
+            _erroPlayer = null;
+            _carregandoStream = false;
+          }
+        });
+        if (iniciouAgora) {
+          _mostrarControlesEFocarPlay();
+        }
+      }
     }));
+
     _subs.add(_player.stream.buffering.listen((b) {
       if (mounted && !b) setState(() => _carregandoStream = false);
     }));
+
     _subs.add(_player.stream.error.listen((err) async {
       if (!mounted) return;
       final errLow = err.toLowerCase();
@@ -175,7 +202,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       final ger = _geracaoPlayback;
       if (_posicao.inSeconds > 2) _ultimaPosicaoBoa = _posicao;
 
-      // Se falhou na CDN HTTP, invalida cache e cai imediatamente para P2P TorrServer
       if (_viaAtual == 'cdn' && !_forcandoP2pNaSessao) {
         CdnStreamService.invalidarCache(_fonteAtual.urlStream);
         _forcandoP2pNaSessao = true;
@@ -198,56 +224,60 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
           _carregandoStream = false;
           _erroPlayer = 'Falha ao reproduzir stream: $err';
         });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _fnRetry.requestFocus();
+        });
       }
     }));
 
     _iniciarFonte(_fonteAtual);
     _reiniciarTimerControles();
-
-    _saveProgressTimer = Timer.periodic(const Duration(seconds: 12), (_) {
-      _salvarProgressoAtual();
-    });
+    _saveProgressTimer = Timer.periodic(const Duration(seconds: 12), (_) => _salvarProgressoAtual());
 
     _watchdogTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
       if (_operacaoWatchdogEmAndamento) return;
       _operacaoWatchdogEmAndamento = true;
       try {
-      if (!mounted || _carregandoStream || _erroPlayer != null || !_tocando) return;
-      if (_player.state.buffering) {
-        _segundosTravado += 2;
-        if (_segundosTravado >= 12 && _recuperacoesSessao < 2) {
-          _segundosTravado = 0;
-          _recuperacoesSessao++;
-          final ger = _geracaoPlayback;
-          if (_posicao.inSeconds > 2) _ultimaPosicaoBoa = _posicao;
-          if (_viaAtual == 'cdn') {
-            CdnStreamService.invalidarCache(_fonteAtual.urlStream);
-            _forcandoP2pNaSessao = true;
-            _mostrarOsd(Icons.swap_horiz, 'Oscilação na CDN, alternando para P2P...');
-            await _abrirMidia(_fonteAtual.urlStream, geracao: ger);
-          } else {
-            _mostrarOsd(Icons.swap_horiz, 'Buscando fonte mais rápida...');
-            await _tentarProximaFonteOuBackup('Buffering prolongado (>12s)', geracao: ger);
+        if (!mounted || _carregandoStream || _erroPlayer != null || !_tocando) return;
+        if (_player.state.buffering) {
+          _segundosTravado += 2;
+          if (_segundosTravado >= 12 && _recuperacoesSessao < 2) {
+            _segundosTravado = 0;
+            _recuperacoesSessao++;
+            final ger = _geracaoPlayback;
+            if (_posicao.inSeconds > 2) _ultimaPosicaoBoa = _posicao;
+            if (_viaAtual == 'cdn') {
+              CdnStreamService.invalidarCache(_fonteAtual.urlStream);
+              _forcandoP2pNaSessao = true;
+              _mostrarOsd(Icons.swap_horiz, 'Oscilação na CDN, alternando para P2P...');
+              await _abrirMidia(_fonteAtual.urlStream, geracao: ger);
+            } else {
+              _mostrarOsd(Icons.swap_horiz, 'Buscando fonte mais rápida...');
+              await _tentarProximaFonteOuBackup('Buffering prolongado (>12s)', geracao: ger);
+            }
           }
+        } else {
+          _segundosTravado = 0;
         }
-      } else {
-        _segundosTravado = 0;
-      }
       } finally {
         _operacaoWatchdogEmAndamento = false;
       }
     });
   }
-
   Future<void> _carregarIntroEpisodio() async {
     if (!widget.obra.isSerie) return;
     final t = _fonteAtual.temporada ?? 1;
     final e = _fonteAtual.episodio ?? 1;
     final chave = '${widget.obra.tmdbId ?? widget.obra.chaveGrupo}_s${t}_e$e';
-    if (mounted) setState(() { _introInicio = 5; _introFim = widget.obra.aberturaSegundos > 0 ? (5 + widget.obra.aberturaSegundos) : 0; _origemIntro = 'padrao'; });
+    if (mounted) {
+      setState(() {
+        _introInicio = 5;
+        _introFim = widget.obra.aberturaSegundos > 0 ? (5 + widget.obra.aberturaSegundos) : 0;
+      });
+    }
     try {
       final key = await SupabaseService.getAnonKey();
-      final uri = Uri.parse('${SupabaseService.baseUrl}/rest/v1/episodio_intros?chave_ep=eq.${Uri.encodeComponent(chave)}&select=inicio_seg,fim_seg,origem');
+      final uri = Uri.parse('${SupabaseService.baseUrl}/rest/v1/episodio_intros?chave_ep=eq.${Uri.encodeComponent(chave)}&select=inicio_seg,fim_seg');
       final r = await http.get(uri, headers: {'apikey': key, 'Authorization': 'Bearer $key'}).timeout(const Duration(seconds: 4));
       if (r.statusCode == 200) {
         final rows = jsonDecode(utf8.decode(r.bodyBytes)) as List;
@@ -255,7 +285,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
           setState(() {
             _introInicio = (rows.first['inicio_seg'] as num?)?.toInt() ?? 5;
             _introFim = (rows.first['fim_seg'] as num?)?.toInt() ?? _introFim;
-            _origemIntro = (rows.first['origem'] ?? 'nuvem').toString();
           });
         }
       }
@@ -283,7 +312,9 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       _fontesTentadas.clear();
       _ultimaPosicaoBoa = Duration.zero;
       _recuperacoesSessao = 0;
-    } else if (_fonteAtual.urlStream.isNotEmpty) {
+    }
+    if (_fonteAtual.urlStream.toLowerCase().startsWith('magnet:?') &&
+        _fonteAtual.urlStream != fonte.urlStream) {
       TorrServerService.removerTorrent(_fonteAtual.urlStream);
     }
     _fontesTentadas.add(fonte.id);
@@ -359,7 +390,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
           TorrServerService.garantirAtivo();
           cdnInfo = await CdnStreamService.resolverMagnet(urlFinal);
         }
-
         if (!mounted || ger != _geracaoPlayback) return;
 
         if (cdnInfo != null && cdnInfo.url.isNotEmpty) {
@@ -394,8 +424,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
               _progressoCarregamento = 1.0;
             });
           }
-          CdnStreamService.ultimoDiagnostico =
-              'Origem: P2P Local (TorrServer) | ${swP2p.elapsedMilliseconds}ms';
+          CdnStreamService.ultimoDiagnostico = 'Origem: P2P Local (TorrServer) | ${swP2p.elapsedMilliseconds}ms';
           urlFinal = info.playUrl;
         }
       } else {
@@ -407,15 +436,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       if (!headers.containsKey('User-Agent') && !urlFinal.startsWith('http://127.0.0.1')) {
         headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
       }
-      try {
-        final platform = _player.platform;
-        if (platform is NativePlayer) {
-          await platform.setProperty('network-timeout', '30');
-          await platform.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
-          await platform.setProperty('cache', 'yes');
-          await platform.setProperty('demuxer-max-bytes', '12582912');
-        }
-      } catch (_) {}
       if (!mounted || ger != _geracaoPlayback) return;
       await _player.open(Media(urlFinal, httpHeaders: headers), play: true);
     } catch (e) {
@@ -441,14 +461,29 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     );
   }
 
+  void _mostrarControlesEFocarPlay() {
+    if (!mounted) return;
+    final estavaOculto = !_controlesVisiveis;
+    _reiniciarTimerControles();
+    if (estavaOculto || _fnRoot.hasPrimaryFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _controlesVisiveis && !_modalAberto) {
+          _fnPlayPause.requestFocus();
+        }
+      });
+    }
+  }
+
   void _reiniciarTimerControles() {
     _hideTimer?.cancel();
     if (!mounted) return;
-    setState(() => _controlesVisiveis = true);
-    _hideTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted && _tocando) {
+    if (!_controlesVisiveis) {
+      setState(() => _controlesVisiveis = true);
+    }
+    _hideTimer = Timer(const Duration(seconds: 6), () {
+      if (mounted && _tocando && !_modalAberto) {
         setState(() => _controlesVisiveis = false);
-        _playerRootFocus.requestFocus();
+        _fnRoot.requestFocus();
       }
     });
   }
@@ -461,6 +496,13 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     }
     return null;
   }
+
+  bool get _pularAberturaVisivel =>
+      widget.obra.isSerie &&
+      _erroPlayer == null &&
+      _introFim > _introInicio + 10 &&
+      _posicao.inSeconds >= _introInicio &&
+      _posicao.inSeconds <= (_introFim - 3);
 
   void _pularAbertura() {
     final alvo = _introFim > _posicao.inSeconds
@@ -492,23 +534,220 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     for (final sub in _subs) { sub.cancel(); }
     _posNotifier.dispose();
     _durNotifier.dispose();
-    _voltarFocus.dispose();
-    _centroControlsFocus.dispose();
-    _sliderFocus.dispose();
-    _barraInferiorFocus.dispose();
-    _sliderInternalFocus.dispose();
-    _playerRootFocus.dispose();
+    for (final fn in [
+      _fnRoot, _fnVoltar, _fnRewind, _fnPlayPause, _fnForward,
+      _fnSlider, _fnSliderDummy, _fnProxEp, _fnEpisodios,
+      _fnFontes, _fnLegendas, _fnPularAbertura, _fnAssistirInicio, _fnRetry,
+    ]) {
+      fn.dispose();
+    }
     _player.dispose();
     TorrServerService.encerrar();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
   }
+  List<FocusNode> get _botoesRodapeAtivos => [
+        if (_proximoEpisodio != null) _fnProxEp,
+        if (widget.listaEpisodios.isNotEmpty) _fnEpisodios,
+        _fnFontes,
+        _fnLegendas,
+      ];
+
+  KeyEventResult _tratarTeclaDpad(LogicalKeyboardKey k, {bool isRepeat = false}) {
+    if (_modalAberto) return KeyEventResult.ignored;
+
+    if (k == LogicalKeyboardKey.mediaPlayPause ||
+        k == LogicalKeyboardKey.mediaPlay ||
+        k == LogicalKeyboardKey.mediaPause) {
+      _alternarPlayPause();
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.mediaFastForward) {
+      _buscarRelativo(15);
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.mediaRewind) {
+      _buscarRelativo(-15);
+      return KeyEventResult.handled;
+    }
+
+    if (k == LogicalKeyboardKey.escape || k == LogicalKeyboardKey.goBack) {
+      if (_controlesVisiveis && !_carregandoStream && _erroPlayer == null) {
+        setState(() => _controlesVisiveis = false);
+        _fnRoot.requestFocus();
+        return KeyEventResult.handled;
+      }
+      Navigator.pop(context);
+      return KeyEventResult.handled;
+    }
+
+    if (_carregandoStream || _erroPlayer != null) {
+      return KeyEventResult.ignored;
+    }
+
+    if (!_controlesVisiveis) {
+      if (_isConfirmKey(k)) {
+        _alternarPlayPause();
+        _mostrarControlesEFocarPlay();
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.arrowRight) {
+        _buscarRelativo(10);
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.arrowLeft) {
+        _buscarRelativo(-10);
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.arrowDown) {
+        _mostrarControlesEFocarPlay();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+
+    _reiniciarTimerControles();
+
+    if (_fnRoot.hasPrimaryFocus) {
+      _fnPlayPause.requestFocus();
+      if (_isConfirmKey(k)) _alternarPlayPause();
+      return KeyEventResult.handled;
+    }
+
+    final rodape = _botoesRodapeAtivos;
+
+    if (_fnVoltar.hasFocus) {
+      if (k == LogicalKeyboardKey.arrowDown) { _fnPlayPause.requestFocus(); return KeyEventResult.handled; }
+      if (_isConfirmKey(k)) { Navigator.pop(context); return KeyEventResult.handled; }
+      return KeyEventResult.handled;
+    }
+
+    if (_fnRewind.hasFocus) {
+      if (k == LogicalKeyboardKey.arrowRight) { _fnPlayPause.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowUp) { _fnVoltar.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowDown) { _fnSlider.requestFocus(); return KeyEventResult.handled; }
+      if (_isConfirmKey(k)) { _buscarRelativo(-10); return KeyEventResult.handled; }
+      return KeyEventResult.handled;
+    }
+
+    if (_fnPlayPause.hasFocus) {
+      if (k == LogicalKeyboardKey.arrowLeft) { _fnRewind.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowRight) { _fnForward.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowUp) { _fnVoltar.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowDown) { _fnSlider.requestFocus(); return KeyEventResult.handled; }
+      if (_isConfirmKey(k)) { _alternarPlayPause(); return KeyEventResult.handled; }
+      return KeyEventResult.handled;
+    }
+
+    if (_fnForward.hasFocus) {
+      if (k == LogicalKeyboardKey.arrowLeft) { _fnPlayPause.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowRight && _pularAberturaVisivel) {
+        _fnPularAbertura.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.arrowUp) { _fnVoltar.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowDown) { _fnSlider.requestFocus(); return KeyEventResult.handled; }
+      if (_isConfirmKey(k)) { _buscarRelativo(10); return KeyEventResult.handled; }
+      return KeyEventResult.handled;
+    }
+
+    if (_fnPularAbertura.hasFocus) {
+      if (k == LogicalKeyboardKey.arrowLeft) { _fnForward.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowUp) { _fnPlayPause.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowDown) { _fnSlider.requestFocus(); return KeyEventResult.handled; }
+      if (_isConfirmKey(k)) { _pularAbertura(); return KeyEventResult.handled; }
+      return KeyEventResult.handled;
+    }
+
+    if (_fnAssistirInicio.hasFocus) {
+      if (k == LogicalKeyboardKey.arrowRight && _pularAberturaVisivel) {
+        _fnPularAbertura.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.arrowUp) { _fnPlayPause.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowDown) { _fnSlider.requestFocus(); return KeyEventResult.handled; }
+      if (_isConfirmKey(k)) {
+        _player.seek(Duration.zero);
+        setState(() => _mostrarBotaoInicio = false);
+        _mostrarOsd(Icons.replay, 'Reiniciado do início');
+        _fnPlayPause.requestFocus();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.handled;
+    }
+
+    if (_fnSlider.hasFocus) {
+      if (k == LogicalKeyboardKey.arrowUp) { _fnPlayPause.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowDown) {
+        if (_mostrarBotaoInicio) {
+          _fnAssistirInicio.requestFocus();
+        } else if (rodape.isNotEmpty) {
+          rodape.first.requestFocus();
+        }
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.arrowLeft) {
+        final d = k == LogicalKeyboardKey.arrowRight ? 1 : -1;
+        if (isRepeat) {
+          _buscarRelativo(45 * d);
+        } else {
+          final now = DateTime.now();
+          final dbl = _ultDir == d && now.difference(_ultSeek).inMilliseconds < 400;
+          _ultSeek = now;
+          _ultDir = d;
+          _buscarRelativo(dbl ? 30 * d : 15 * d);
+        }
+        return KeyEventResult.handled;
+      }
+      if (_isConfirmKey(k)) { _alternarPlayPause(); return KeyEventResult.handled; }
+      return KeyEventResult.handled;
+    }
+
+    final idxRodape = rodape.indexWhere((fn) => fn.hasFocus);
+    if (idxRodape >= 0) {
+      if (k == LogicalKeyboardKey.arrowUp) { _fnSlider.requestFocus(); return KeyEventResult.handled; }
+      if (k == LogicalKeyboardKey.arrowLeft && idxRodape > 0) {
+        rodape[idxRodape - 1].requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.arrowRight && idxRodape + 1 < rodape.length) {
+        rodape[idxRodape + 1].requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (_isConfirmKey(k)) {
+        final atual = rodape[idxRodape];
+        if (atual == _fnProxEp && _proximoEpisodio != null) {
+          _iniciarFonte(_proximoEpisodio!);
+        } else if (atual == _fnEpisodios) {
+          _abrirModalEpisodios();
+        } else if (atual == _fnFontes) {
+          _abrirModalFontes();
+        } else if (atual == _fnLegendas) {
+          _abrirModalLegendas();
+        }
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
+  }
 
   void _abrirModalLegendas() {
-    _reiniciarTimerControles();
+    _hideTimer?.cancel();
+    _modalAberto = true;
     final buscaCtrl = TextEditingController(text: widget.obra.titulo);
-    List<Map<String, dynamic>> resultadosSub = [];
+    final fnFechar = FocusNode(debugLabel: 'sub_fechar');
+    final fnToggle = FocusNode(debugLabel: 'sub_toggle');
+    final fnMenos = FocusNode(debugLabel: 'sub_menos');
+    final fnMais = FocusNode(debugLabel: 'sub_mais');
+    final fnCorBranca = FocusNode(debugLabel: 'sub_cor_branca');
+    final fnCorAmarela = FocusNode(debugLabel: 'sub_cor_amarela');
+    final fnCorCiano = FocusNode(debugLabel: 'sub_cor_ciano');
+    final fnBuscar = FocusNode(debugLabel: 'sub_buscar');
+
+    List<LegendaOnlineItem> resultadosSub = [];
     bool carregandoSub = true;
     bool jaBuscou = false;
     bool iniciouAuto = false;
@@ -517,352 +756,360 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       context: context,
       backgroundColor: const Color(0xFF141822),
       isScrollControlled: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModal) {
-          Future<String?> descobrirImdbId(String titulo) async {
-            try {
-              final limpo = titulo.replaceAll(RegExp(r'\(\d{4}\)'), '').trim();
-              if (limpo.isEmpty) return null;
-              final firstChar = limpo[0].toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), 'x');
-              final u = Uri.parse('https://v3.sg.media-imdb.com/suggestion/$firstChar/${Uri.encodeComponent(limpo)}.json');
-              final r = await http.get(u, headers: {'User-Agent': 'Mozilla/5.0'}).timeout(const Duration(seconds: 5));
-              if (r.statusCode == 200) {
-                final data = jsonDecode(utf8.decode(r.bodyBytes));
-                final d = (data is Map ? data['d'] : null) as List<dynamic>? ?? [];
-                for (final item in d) {
-                  if (item is Map) {
-                    final id = (item['id'] ?? '').toString();
-                    if (id.startsWith('tt')) return id;
-                  }
+      useSafeArea: true,
+      builder: (ctx) => PopScope(
+        canPop: true,
+        child: FocusScope(
+          autofocus: true,
+          onKeyEvent: (_, event) {
+            if (event is KeyDownEvent &&
+                (event.logicalKey == LogicalKeyboardKey.escape ||
+                    event.logicalKey == LogicalKeyboardKey.goBack)) {
+              Navigator.pop(ctx);
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: StatefulBuilder(
+            builder: (ctx, setModal) {
+              Future<void> executarBusca() async {
+                if (carregandoSub && jaBuscou) return;
+                setModal(() {
+                  carregandoSub = true;
+                  jaBuscou = true;
+                });
+                final lista = await SubtitleService.buscarMultiBancos(
+                  obra: widget.obra,
+                  fonte: _fonteAtual,
+                  tituloBusca: buscaCtrl.text.trim(),
+                );
+                if (ctx.mounted) {
+                  setModal(() {
+                    resultadosSub = lista;
+                    carregandoSub = false;
+                  });
                 }
               }
-            } catch (_) {}
-            return null;
-          }
 
-          Future<void> buscarMultiBancos() async {
-            final q = buscaCtrl.text.trim();
-            if (q.isEmpty) return;
-            setModal(() {
-              carregandoSub = true;
-              jaBuscou = true;
-              resultadosSub = [];
-            });
-            final encontrados = <Map<String, dynamic>>[];
+              if (!iniciouAuto) {
+                iniciouAuto = true;
+                Future.microtask(executarBusca);
+              }
 
-            final imdbId = await descobrirImdbId(q);
-            final temp = _fonteAtual.temporada ?? 1;
-            final ep = _fonteAtual.episodio ?? 1;
+              final subsInternas = _player.state.tracks.subtitle
+                  .where((t) => t.id != 'no' && t.id != 'auto')
+                  .toList();
 
-            // 1. OpenSubtitles V3 via IMDb ID (retorna .srt/.vtt diretos em PT/EN/ES)
-            if (imdbId != null && imdbId.startsWith('tt')) {
-              try {
-                final tipo = widget.obra.isSerie ? 'series' : 'movie';
-                final idQuery = widget.obra.isSerie ? '$imdbId:$temp:$ep' : imdbId;
-                final uOs3 = Uri.parse('https://opensubtitles-v3.strem.io/subtitles/$tipo/$idQuery.json');
-                final rOs3 = await http.get(uOs3).timeout(const Duration(seconds: 6));
-                if (rOs3.statusCode == 200) {
-                  final data = jsonDecode(utf8.decode(rOs3.bodyBytes));
-                  final subs = (data is Map ? data['subtitles'] : null) as List<dynamic>? ?? [];
-                  for (final s in subs) {
-                    if (s is Map && (s['url'] ?? '').toString().isNotEmpty) {
-                      final lang = (s['lang'] ?? 'por').toString();
-                      final langLow = lang.toLowerCase();
-                      if (langLow.contains('por') || langLow.contains('pob') || langLow == 'pt' || langLow.contains('eng') || langLow.contains('spa')) {
-                        encontrados.add({
-                          'SubFileName': '${widget.obra.titulo} (${lang.toUpperCase()}) [OpenSubtitles]',
-                          'LanguageName': lang.toUpperCase(),
-                          'SubDownloadLink': s['url'].toString(),
-                          'Prioridade': (langLow.contains('por') || langLow.contains('pob') || langLow == 'pt') ? 0 : 1,
-                        });
-                      }
-                    }
-                  }
-                }
-              } catch (_) {}
-
-              // 2. Wyzie / SubSource API via IMDb ID (legendas SRT limpas)
-              try {
-                final uWy = widget.obra.isSerie
-                    ? Uri.parse('https://sub.wyzie.ru/search?id=$imdbId&season=$temp&episode=$ep')
-                    : Uri.parse('https://sub.wyzie.ru/search?id=$imdbId');
-                final rWy = await http.get(uWy).timeout(const Duration(seconds: 6));
-                if (rWy.statusCode == 200) {
-                  final list = jsonDecode(utf8.decode(rWy.bodyBytes));
-                  if (list is List) {
-                    for (final s in list) {
-                      if (s is Map && (s['url'] ?? '').toString().isNotEmpty) {
-                        final lang = (s['display'] ?? s['language'] ?? 'PT').toString();
-                        final langLow = lang.toLowerCase();
-                        encontrados.add({
-                          'SubFileName': '${s['release'] ?? widget.obra.titulo} ($lang) [SubSource]',
-                          'LanguageName': lang,
-                          'SubDownloadLink': s['url'].toString(),
-                          'Prioridade': (langLow.contains('portug') || langLow == 'pt' || langLow == 'pb') ? 0 : 1,
-                        });
-                      }
-                    }
-                  }
-                }
-              } catch (_) {}
-            }
-
-            // Ordena colocando Portugues no topo
-            encontrados.sort((a, b) => (a['Prioridade'] as int).compareTo(b['Prioridade'] as int));
-
-            if (ctx.mounted) {
-              setModal(() {
-                resultadosSub = encontrados.take(15).toList();
-                carregandoSub = false;
-              });
-            }
-          }
-
-          if (!iniciouAuto) {
-            iniciouAuto = true;
-            Future.microtask(buscarMultiBancos);
-          }
-
-          return Padding(
-            padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
-            child: SizedBox(
-              height: 380,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+              return Padding(
+                padding: EdgeInsets.fromLTRB(20, 14, 20, MediaQuery.of(ctx).viewInsets.bottom + 16),
+                child: SizedBox(
+                  height: 410,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Expanded(
-                        child: Text(
-                          'Legendas Online (OpenSubtitles & SubSource)',
-                          style: TextStyle(color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                      CinemaFocusBox(
-                        autofocus: true,
-                        borderRadius: 12,
-                        onTap: () {
-                          final v = !_legendaAtiva;
-                          setState(() => _legendaAtiva = v);
-                          setModal(() {});
-                          if (!v) _player.setSubtitleTrack(SubtitleTrack.no());
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(color: _legendaAtiva ? const Color(0xFFF5B82E) : Colors.white12, borderRadius: BorderRadius.circular(12)),
-                          child: Text(_legendaAtiva ? 'Ativada' : 'Desativada', style: TextStyle(color: _legendaAtiva ? Colors.black : Colors.white, fontWeight: FontWeight.w800, fontSize: 12)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      const Text('Tamanho:', style: TextStyle(color: Colors.white70)),
-                      const SizedBox(width: 8),
-                      CinemaFocusBox(
-                        borderRadius: 8,
-                        onTap: () { setState(() => _tamanhoLegenda = (_tamanhoLegenda - 2).clamp(18, 44)); setModal(() {}); },
-                        child: const Padding(padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4), child: Text('A-', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900))),
-                      ),
-                      Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text('${_tamanhoLegenda.toInt()}', style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w800))),
-                      CinemaFocusBox(
-                        borderRadius: 8,
-                        onTap: () { setState(() => _tamanhoLegenda = (_tamanhoLegenda + 2).clamp(18, 44)); setModal(() {}); },
-                        child: const Padding(padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4), child: Text('A+', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900))),
-                      ),
-                      const Spacer(),
-                      ...[Colors.white, const Color(0xFFF5B82E), Colors.cyanAccent].map(
-                        (c) => Padding(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: CinemaFocusBox(
-                            borderRadius: 16,
-                            onTap: () { setState(() => _corLegenda = c); setModal(() {}); },
+                      Row(
+                        children: [
+                          CinemaFocusBox(
+                            focusNode: fnFechar,
+                            borderRadius: 10,
+                            onTap: () => Navigator.pop(ctx),
                             child: Container(
-                              width: 26,
-                              height: 26,
-                              decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: _corLegenda == c ? Colors.redAccent : Colors.white54, width: 2)),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(10)),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.close, color: Colors.white, size: 16),
+                                  SizedBox(width: 4),
+                                  Text('Fechar', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: buscaCtrl,
-                          style: const TextStyle(color: Colors.white, fontSize: 13.5),
-                          decoration: InputDecoration(
-                            hintText: 'Título do filme ou série...',
-                            filled: true,
-                            fillColor: Colors.white10,
-                            isDense: true,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text('Legendas', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
                           ),
-                        ),
+                          CinemaFocusBox(
+                            focusNode: fnToggle,
+                            autofocus: true,
+                            borderRadius: 12,
+                            onTap: () {
+                              final v = !_legendaAtiva;
+                              setState(() => _legendaAtiva = v);
+                              setModal(() {});
+                              if (!v) _player.setSubtitleTrack(SubtitleTrack.no());
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                              decoration: BoxDecoration(
+                                color: _legendaAtiva ? const Color(0xFFF5B82E) : Colors.white12,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                _legendaAtiva ? 'Legenda: ATIVADA' : 'Legenda: DESATIVADA',
+                                style: TextStyle(
+                                  color: _legendaAtiva ? Colors.black : Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      CinemaFocusBox(
-                        borderRadius: 8,
-                        onTap: buscarMultiBancos,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(8)),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          const Text('Tamanho:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                          const SizedBox(width: 8),
+                          CinemaFocusBox(
+                            focusNode: fnMenos,
+                            borderRadius: 8,
+                            onTap: () {
+                              setState(() => _tamanhoLegenda = (_tamanhoLegenda - 2).clamp(18, 44));
+                              setModal(() {});
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8)),
+                              child: const Text('A-', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            child: Text(
+                              '${_tamanhoLegenda.toInt()}',
+                              style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w900, fontSize: 15),
+                            ),
+                          ),
+                          CinemaFocusBox(
+                            focusNode: fnMais,
+                            borderRadius: 8,
+                            onTap: () {
+                              setState(() => _tamanhoLegenda = (_tamanhoLegenda + 2).clamp(18, 44));
+                              setModal(() {});
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8)),
+                              child: const Text('A+', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+                            ),
+                          ),
+                          const Spacer(),
+                          const Text('Cor:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                          const SizedBox(width: 8),
+                          ...[
+                            (Colors.white, fnCorBranca),
+                            (const Color(0xFFF5B82E), fnCorAmarela),
+                            (Colors.cyanAccent, fnCorCiano),
+                          ].map(
+                            (par) => Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: CinemaFocusBox(
+                                focusNode: par.$2,
+                                borderRadius: 16,
+                                onTap: () {
+                                  setState(() => _corLegenda = par.$1);
+                                  setModal(() {});
+                                },
+                                child: Container(
+                                  width: 28,
+                                  height: 28,
+                                  decoration: BoxDecoration(
+                                    color: par.$1,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: _corLegenda == par.$1 ? Colors.redAccent : Colors.white54,
+                                      width: 2.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: buscaCtrl,
+                              style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                              textInputAction: TextInputAction.search,
+                              onSubmitted: (_) => executarBusca(),
+                              decoration: InputDecoration(
+                                hintText: 'Título para buscar legenda...',
+                                filled: true,
+                                fillColor: Colors.white10,
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          CinemaFocusBox(
+                            focusNode: fnBuscar,
+                            borderRadius: 8,
+                            onTap: executarBusca,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(8)),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.search, size: 18, color: Colors.black),
+                                  SizedBox(width: 6),
+                                  Text('Buscar', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (subsInternas.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 36,
+                          child: ListView(
+                            scrollDirection: Axis.horizontal,
                             children: [
-                              Icon(Icons.search, size: 18, color: Colors.black),
-                              SizedBox(width: 6),
-                              Text('Buscar', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w800)),
+                              const Center(
+                                child: Text('Embutidas: ', style: TextStyle(color: Color(0xFFF5B82E), fontSize: 12, fontWeight: FontWeight.w800)),
+                              ),
+                              ...subsInternas.map((st) => Padding(
+                                    padding: const EdgeInsets.only(right: 6),
+                                    child: CinemaFocusBox(
+                                      borderRadius: 14,
+                                      onTap: () async {
+                                        await _player.setSubtitleTrack(st);
+                                        setState(() {
+                                          _legendaAtiva = true;
+                                          _legendaSelecionada = st.title ?? st.language ?? 'Interna';
+                                        });
+                                        if (ctx.mounted) Navigator.pop(ctx);
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(14)),
+                                        child: Text(
+                                          '${st.title ?? "Legenda"} (${(st.language ?? st.id).toUpperCase()})',
+                                          style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700),
+                                        ),
+                                      ),
+                                    ),
+                                  )),
                             ],
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Builder(builder: (_) {
-                    final subsInternas = _player.state.tracks.subtitle.where((t) => t.id != 'no' && t.id != 'auto').toList();
-                    if (subsInternas.isEmpty) return const SizedBox.shrink();
-                    return SizedBox(
-                      height: 36,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          const Center(child: Text('Embutidas: ', style: TextStyle(color: Color(0xFFF5B82E), fontSize: 12, fontWeight: FontWeight.w800))),
-                          ...subsInternas.map((st) => Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: CinemaFocusBox(
-                              borderRadius: 14,
-                              onTap: () async {
-                                await _player.setSubtitleTrack(st);
-                                setState(() { _legendaAtiva = true; _legendaSelecionada = st.title ?? st.language ?? 'Interna'; });
-                                if (ctx.mounted) Navigator.pop(ctx);
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(14)),
-                                child: Text('${st.title ?? "Legenda"} (${(st.language ?? st.id).toUpperCase()})', style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700)),
-                              ),
-                            ),
-                          )),
-                        ],
-                      ),
-                    );
-                  }),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: carregandoSub
-                        ? const Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                CircularProgressIndicator(color: Color(0xFFF5B82E)),
-                                SizedBox(height: 10),
-                                Text('Buscando legendas em Português...', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                              ],
-                            ),
-                          )
-                        : resultadosSub.isEmpty
-                            ? Center(
+                      ],
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: carregandoSub
+                            ? const Center(
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    if (jaBuscou)
-                                      Container(
-                                        margin: const EdgeInsets.only(bottom: 10),
-                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                        decoration: BoxDecoration(
-                                          color: Colors.redAccent.withOpacity(0.16),
-                                          borderRadius: BorderRadius.circular(8),
-                                          border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
-                                        ),
-                                        child: const Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.subtitles_off, color: Colors.redAccent, size: 18),
-                                            SizedBox(width: 8),
-                                            Text(
-                                              'Legenda não encontrada para este título.',
-                                              style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700, fontSize: 13),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    Text(
-                                      'Legenda ativa: $_legendaSelecionada\nTente buscar pelo título original em inglês se necessário.',
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(color: Colors.white54, fontSize: 12.5),
-                                    ),
+                                    CircularProgressIndicator(color: Color(0xFFF5B82E)),
+                                    SizedBox(height: 10),
+                                    Text('Buscando legendas em Português...', style: TextStyle(color: Colors.white70, fontSize: 13)),
                                   ],
                                 ),
                               )
-                            : Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: Colors.greenAccent.withOpacity(0.14),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: Colors.greenAccent.withOpacity(0.5)),
+                            : resultadosSub.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      jaBuscou
+                                          ? 'Nenhuma legenda encontrada.\nTente buscar pelo título original em inglês.'
+                                          : 'Legenda ativa: $_legendaSelecionada',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(color: Colors.white60, fontSize: 13),
                                     ),
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.check_circle, color: Colors.greenAccent, size: 17),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          'Legenda encontrada! (${resultadosSub.length} opções)',
-                                          style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.w700, fontSize: 12.5),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: ListView.builder(
-                                      itemCount: resultadosSub.length,
-                                      itemBuilder: (_, i) {
-                                        final item = resultadosSub[i];
-                                        final nome = (item['SubFileName'] ?? 'Legenda').toString();
-                                        final idioma = (item['LanguageName'] ?? '').toString();
-                                        final dl = (item['SubDownloadLink'] ?? '').toString();
-                                        return CinemaFocusBox(
+                                  )
+                                : ListView.builder(
+                                    itemCount: resultadosSub.length,
+                                    itemBuilder: (_, i) {
+                                      final item = resultadosSub[i];
+                                      final selecionada = _legendaSelecionada == item.nome;
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 4),
+                                        child: CinemaFocusBox(
                                           borderRadius: 8,
                                           onTap: () async {
-                                            if (dl.isNotEmpty) {
-                                              await _player.setSubtitleTrack(SubtitleTrack.uri(dl, title: nome, language: idioma));
-                                              setState(() { _legendaAtiva = true; _legendaSelecionada = nome; });
-                                            }
+                                            final proxyUrl = SubtitleService.montarUrlProxyVtt(item.url);
+                                            await _player.setSubtitleTrack(
+                                              SubtitleTrack.uri(proxyUrl, title: item.nome, language: item.idioma),
+                                            );
+                                            setState(() {
+                                              _legendaAtiva = true;
+                                              _legendaSelecionada = item.nome;
+                                            });
+                                            _mostrarOsd(Icons.subtitles, 'Legenda: ${item.idioma}');
                                             if (ctx.mounted) Navigator.pop(ctx);
                                           },
-                                          child: ListTile(
-                                            dense: true,
-                                            leading: const Icon(Icons.subtitles, color: Color(0xFFF5B82E)),
-                                            title: Text(nome, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13)),
-                                            subtitle: Text(idioma, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                            decoration: BoxDecoration(
+                                              color: selecionada ? const Color(0xFFF5B82E).withOpacity(0.18) : Colors.white.withOpacity(0.05),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  selecionada ? Icons.check_circle : Icons.subtitles,
+                                                  color: const Color(0xFFF5B82E),
+                                                  size: 20,
+                                                ),
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        item.nome,
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow.ellipsis,
+                                                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
+                                                      ),
+                                                      Text(item.idioma, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                           ),
-                                        );
-                                      },
-                                    ),
+                                        ),
+                                      );
+                                    },
                                   ),
-                                ],
-                              ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-          );
-        },
+                ),
+              );
+            },
+          ),
+        ),
       ),
-    ).whenComplete(buscaCtrl.dispose);
+    ).whenComplete(() {
+      buscaCtrl.dispose();
+      for (final fn in [fnFechar, fnToggle, fnMenos, fnMais, fnCorBranca, fnCorAmarela, fnCorCiano, fnBuscar]) {
+        fn.dispose();
+      }
+      _modalAberto = false;
+      if (mounted) {
+        _reiniciarTimerControles();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _fnLegendas.requestFocus();
+        });
+      }
+    });
   }
-
   void _abrirModalFontes() {
-    _reiniciarTimerControles();
+    _hideTimer?.cancel();
+    _modalAberto = true;
     final fontesMesmoEp = widget.obra.fontes.where((f) {
       if (_fonteAtual.episodio != null) {
         return f.temporada == _fonteAtual.temporada && f.episodio == _fonteAtual.episodio;
@@ -872,85 +1119,142 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
     final faixasAudio = _player.state.tracks.audio.where((t) => t.id != 'no' && t.id != 'auto').toList();
     final audioAtualId = _player.state.track.audio.id;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF141822),
-      builder: (ctx) => ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          if (faixasAudio.isNotEmpty) ...[
-            const Text('Faixas de Áudio do Vídeo (Dublagem / Original)', style: TextStyle(color: Color(0xFFF5B82E), fontSize: 15, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            ...faixasAudio.map((tr) => CinemaFocusBox(
-              borderRadius: 8,
-              onTap: () async {
-                await _player.setAudioTrack(tr);
-                if (ctx.mounted) Navigator.pop(ctx);
-                _mostrarOsd(Icons.audiotrack, 'Áudio: ${tr.title ?? tr.language ?? tr.id}');
-              },
-              child: ListTile(
-                dense: true,
-                leading: Icon(tr.id == audioAtualId ? Icons.check_circle : Icons.audiotrack, color: tr.id == audioAtualId ? const Color(0xFFF5B82E) : Colors.white54),
-                title: Text('${tr.title ?? "Faixa"} (${(tr.language ?? tr.id).toUpperCase()})', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-              ),
-            )),
-            const Divider(color: Colors.white12, height: 24),
-          ],
-          const Text('Resolução e Fontes', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
-          ...fontesMesmoEp.map(
-            (f) => CinemaFocusBox(
-              autofocus: f.id == _fonteAtual.id,
-              borderRadius: 8,
-              onTap: () {
-                Navigator.pop(ctx);
-                _iniciarFonte(f);
-              },
-              child: ListTile(
-                leading: Icon(
-                  f.id == _fonteAtual.id ? Icons.check_circle : Icons.play_circle_outline,
-                  color: f.id == _fonteAtual.id ? const Color(0xFFF5B82E) : Colors.white54,
+      useSafeArea: true,
+      builder: (ctx) => FocusScope(
+        autofocus: true,
+        onKeyEvent: (_, event) {
+          if (event is KeyDownEvent &&
+              (event.logicalKey == LogicalKeyboardKey.escape ||
+                  event.logicalKey == LogicalKeyboardKey.goBack)) {
+            Navigator.pop(ctx);
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            if (faixasAudio.isNotEmpty) ...[
+              const Text('Faixas de Áudio do Vídeo', style: TextStyle(color: Color(0xFFF5B82E), fontSize: 15, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 8),
+              ...faixasAudio.asMap().entries.map((entry) {
+                final tr = entry.value;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: CinemaFocusBox(
+                    autofocus: entry.key == 0,
+                    borderRadius: 8,
+                    onTap: () async {
+                      await _player.setAudioTrack(tr);
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      _mostrarOsd(Icons.audiotrack, 'Áudio: ${tr.title ?? tr.language ?? tr.id}');
+                    },
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(tr.id == audioAtualId ? Icons.check_circle : Icons.audiotrack, color: tr.id == audioAtualId ? const Color(0xFFF5B82E) : Colors.white54),
+                      title: Text('${tr.title ?? "Faixa"} (${(tr.language ?? tr.id).toUpperCase()})', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                );
+              }),
+              const Divider(color: Colors.white12, height: 24),
+            ],
+            const Text('Resolução e Fontes', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 12),
+            ...fontesMesmoEp.map(
+              (f) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: CinemaFocusBox(
+                  autofocus: faixasAudio.isEmpty && f.id == _fonteAtual.id,
+                  borderRadius: 8,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _iniciarFonte(f);
+                  },
+                  child: ListTile(
+                    leading: Icon(
+                      f.id == _fonteAtual.id ? Icons.check_circle : Icons.play_circle_outline,
+                      color: f.id == _fonteAtual.id ? const Color(0xFFF5B82E) : Colors.white54,
+                    ),
+                    title: Text(f.badgeResumo, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                    subtitle: Text(f.formato.toUpperCase(), style: const TextStyle(color: Colors.white54)),
+                  ),
                 ),
-                title: Text(f.badgeResumo, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                subtitle: Text(f.formato.toUpperCase(), style: const TextStyle(color: Colors.white54)),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    );
+    ).whenComplete(() {
+      _modalAberto = false;
+      if (mounted) {
+        _reiniciarTimerControles();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _fnFontes.requestFocus();
+        });
+      }
+    });
   }
 
   void _abrirModalEpisodios() {
-    _reiniciarTimerControles();
+    _hideTimer?.cancel();
+    _modalAberto = true;
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF141822),
-      builder: (ctx) => ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: widget.listaEpisodios.length,
-        itemBuilder: (_, idx) {
-          final ep = widget.listaEpisodios[idx];
-          final atual = ep.id == _fonteAtual.id;
-          return CinemaFocusBox(
-            autofocus: atual,
-            borderRadius: 8,
-            onTap: () {
-              Navigator.pop(ctx);
-              _iniciarFonte(ep);
-            },
-            child: ListTile(
-              leading: Text(
-                ep.etiquetaEpisodio.isNotEmpty ? ep.etiquetaEpisodio : 'Ep ${idx + 1}',
-                style: TextStyle(color: atual ? const Color(0xFFF5B82E) : Colors.white70, fontWeight: FontWeight.w800),
-              ),
-              title: Text(ep.titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
-              trailing: Text(ep.resolucao, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-            ),
-          );
+      useSafeArea: true,
+      builder: (ctx) => FocusScope(
+        autofocus: true,
+        onKeyEvent: (_, event) {
+          if (event is KeyDownEvent &&
+              (event.logicalKey == LogicalKeyboardKey.escape ||
+                  event.logicalKey == LogicalKeyboardKey.goBack)) {
+            Navigator.pop(ctx);
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
         },
+        child: ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: widget.listaEpisodios.length,
+          itemBuilder: (_, idx) {
+            final ep = widget.listaEpisodios[idx];
+            final atual = ep.id == _fonteAtual.id;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: CinemaFocusBox(
+                autofocus: atual,
+                borderRadius: 8,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _iniciarFonte(ep);
+                },
+                child: ListTile(
+                  leading: Text(
+                    ep.etiquetaEpisodio.isNotEmpty ? ep.etiquetaEpisodio : 'Ep ${idx + 1}',
+                    style: TextStyle(color: atual ? const Color(0xFFF5B82E) : Colors.white70, fontWeight: FontWeight.w800),
+                  ),
+                  title: Text(ep.titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
+                  trailing: Text(ep.resolucao, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                ),
+              ),
+            );
+          },
+        ),
       ),
-    );
+    ).whenComplete(() {
+      _modalAberto = false;
+      if (mounted) {
+        _reiniciarTimerControles();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _fnEpisodios.requestFocus();
+        });
+      }
+    });
   }
 
   void _mostrarOsd(IconData icone, String texto) {
@@ -960,7 +1264,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       _osdIcone = icone;
       _osdTexto = texto;
     });
-    _osdTimer = Timer(const Duration(milliseconds: 800), () {
+    _osdTimer = Timer(const Duration(milliseconds: 900), () {
       if (mounted) {
         setState(() {
           _osdTexto = null;
@@ -990,30 +1294,13 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _reiniciarTimerControles();
   }
 
-  void _focarPrimeiroBotao(FocusNode container) {
-    final filhos = container.descendants.where((n) => n.canRequestFocus).toList();
-    if (filhos.isNotEmpty) {
-      filhos.first.requestFocus();
-    }
-  }
-
-  void _focarPlayPause() {
-    final filhos = _centroControlsFocus.descendants.where((n) => n.canRequestFocus).toList();
-    if (filhos.length >= 2) {
-      filhos[1].requestFocus();
-    } else if (filhos.isNotEmpty) {
-      filhos.first.requestFocus();
-    }
-  }
-
   bool _isConfirmKey(LogicalKeyboardKey k) {
     return k == LogicalKeyboardKey.select ||
         k == LogicalKeyboardKey.enter ||
         k == LogicalKeyboardKey.numpadEnter ||
         k == LogicalKeyboardKey.accept ||
         k == LogicalKeyboardKey.gameButtonA ||
-        k == LogicalKeyboardKey.space ||
-        k == LogicalKeyboardKey.mediaPlayPause;
+        k == LogicalKeyboardKey.space;
   }
 
   @override
@@ -1023,84 +1310,20 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Focus(
-        focusNode: _playerRootFocus,
+        focusNode: _fnRoot,
         autofocus: true,
         onKeyEvent: (node, event) {
-          if (event is! KeyDownEvent) return KeyEventResult.ignored;
-          final k = event.logicalKey;
-
-          if (k == LogicalKeyboardKey.mediaPlayPause ||
-              k == LogicalKeyboardKey.mediaPlay ||
-              k == LogicalKeyboardKey.mediaPause) {
-            _alternarPlayPause();
-            return KeyEventResult.handled;
-          }
-          if (k == LogicalKeyboardKey.mediaFastForward) {
-            _buscarRelativo(10);
-            return KeyEventResult.handled;
-          }
-          if (k == LogicalKeyboardKey.mediaRewind) {
-            _buscarRelativo(-10);
-            return KeyEventResult.handled;
-          }
-
-          if (k == LogicalKeyboardKey.escape || k == LogicalKeyboardKey.goBack) {
-            if (_controlesVisiveis && !_carregandoStream && _erroPlayer == null) {
-              setState(() => _controlesVisiveis = false);
-              _playerRootFocus.requestFocus();
-              return KeyEventResult.handled;
-            }
-            Navigator.pop(context);
-            return KeyEventResult.handled;
-          }
-
-          if (!_controlesVisiveis) {
-            if (_isConfirmKey(k)) {
-              _alternarPlayPause();
-              return KeyEventResult.handled;
-            }
-            if (k == LogicalKeyboardKey.arrowRight) {
-              _buscarRelativo(10);
-              return KeyEventResult.handled;
-            }
-            if (k == LogicalKeyboardKey.arrowLeft) {
-              _buscarRelativo(-10);
-              return KeyEventResult.handled;
-            }
-            if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.arrowDown) {
-              _reiniciarTimerControles();
-              return KeyEventResult.handled;
-            }
-          } else {
-            _reiniciarTimerControles();
-            if (_playerRootFocus.hasPrimaryFocus) {
-              if (_isConfirmKey(k)) {
-                _alternarPlayPause();
-                return KeyEventResult.handled;
-              }
-              if (k == LogicalKeyboardKey.arrowRight) {
-                _buscarRelativo(10);
-                return KeyEventResult.handled;
-              }
-              if (k == LogicalKeyboardKey.arrowLeft) {
-                _buscarRelativo(-10);
-                return KeyEventResult.handled;
-              }
-              if (k == LogicalKeyboardKey.arrowDown || k == LogicalKeyboardKey.arrowUp) {
-                FocusScope.of(context).nextFocus();
-                return KeyEventResult.handled;
-              }
-            }
-          }
+          if (event is KeyDownEvent) return _tratarTeclaDpad(event.logicalKey, isRepeat: false);
+          if (event is KeyRepeatEvent) return _tratarTeclaDpad(event.logicalKey, isRepeat: true);
           return KeyEventResult.ignored;
         },
         child: GestureDetector(
           onTap: () {
             if (_controlesVisiveis && !_carregandoStream && _erroPlayer == null) {
               setState(() => _controlesVisiveis = false);
-              _playerRootFocus.requestFocus();
+              _fnRoot.requestFocus();
             } else {
-              _reiniciarTimerControles();
+              _mostrarControlesEFocarPlay();
             }
           },
           child: Stack(
@@ -1191,14 +1414,12 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         Text(_erroPlayer!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
                         const SizedBox(height: 12),
                         CinemaFocusBox(
+                          focusNode: _fnRetry,
                           autofocus: true,
                           onTap: () => _iniciarFonte(_fonteAtual),
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF5B82E),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
+                            decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(8)),
                             child: const Text('Tentar novamente', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
                           ),
                         ),
@@ -1211,6 +1432,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                   left: 28,
                   bottom: 92,
                   child: CinemaFocusBox(
+                    focusNode: _fnAssistirInicio,
                     borderRadius: 8,
                     onTap: () {
                       _player.seek(Duration.zero);
@@ -1250,6 +1472,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: CinemaFocusBox(
+                            focusNode: _fnPularAbertura,
                             onTap: _pularAbertura,
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
@@ -1326,18 +1549,13 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
                         child: Row(
                           children: [
-                            Focus(
-                              focusNode: _voltarFocus,
-                              canRequestFocus: false,
-                              skipTraversal: true,
-                              onKeyEvent: (_, e) { if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.arrowDown) { _focarPlayPause(); _reiniciarTimerControles(); return KeyEventResult.handled; } return KeyEventResult.ignored; },
-                              child: CinemaFocusBox(
+                            CinemaFocusBox(
+                              focusNode: _fnVoltar,
                               borderRadius: 24,
                               onTap: () => Navigator.pop(context),
                               child: const Padding(
                                 padding: EdgeInsets.all(8),
                                 child: Icon(Icons.arrow_back, color: Colors.white, size: 26),
-                              ),
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -1362,24 +1580,14 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         ),
                       ),
                       const Spacer(),
-                      Focus(
-                        focusNode: _centroControlsFocus,
-                        canRequestFocus: false,
-                        skipTraversal: true,
-                        onKeyEvent: (_, event) {
-                          if (event is KeyDownEvent) {
-                            if (event.logicalKey == LogicalKeyboardKey.arrowUp) { _focarPrimeiroBotao(_voltarFocus); _reiniciarTimerControles(); return KeyEventResult.handled; }
-                            if (event.logicalKey == LogicalKeyboardKey.arrowDown) { _sliderFocus.requestFocus(); _reiniciarTimerControles(); return KeyEventResult.handled; }
-                          }
-                          return KeyEventResult.ignored;
-                        },
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CinemaFocusBox(
-                              borderRadius: 30,
-                              scaleOnFocus: 1.12,
-                              onTap: () => _buscarRelativo(-10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CinemaFocusBox(
+                            focusNode: _fnRewind,
+                            borderRadius: 30,
+                            scaleOnFocus: 1.12,
+                            onTap: () => _buscarRelativo(-10),
                             child: const Padding(
                               padding: EdgeInsets.all(10),
                               child: Icon(Icons.replay_10, color: Colors.white, size: 38),
@@ -1387,6 +1595,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                           ),
                           const SizedBox(width: 28),
                           CinemaFocusBox(
+                            focusNode: _fnPlayPause,
                             autofocus: true,
                             borderRadius: 36,
                             scaleOnFocus: 1.12,
@@ -1399,6 +1608,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                           ),
                           const SizedBox(width: 28),
                           CinemaFocusBox(
+                            focusNode: _fnForward,
                             borderRadius: 30,
                             scaleOnFocus: 1.12,
                             onTap: () => _buscarRelativo(10),
@@ -1408,7 +1618,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                             ),
                           ),
                         ],
-                        ),
                       ),
                       const Spacer(),
                       Padding(
@@ -1416,27 +1625,19 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         child: Column(
                           children: [
                             Focus(
-                              focusNode: _sliderFocus,
-                              onKeyEvent: (node, event) {
-                                if (event is KeyDownEvent) {
-                                  if (event.logicalKey == LogicalKeyboardKey.arrowDown) { _focarPrimeiroBotao(_barraInferiorFocus); _reiniciarTimerControles(); return KeyEventResult.handled; }
-                                  if (event.logicalKey == LogicalKeyboardKey.arrowUp) { _focarPlayPause(); _reiniciarTimerControles(); return KeyEventResult.handled; }
-                                  if (event.logicalKey == LogicalKeyboardKey.arrowRight || event.logicalKey == LogicalKeyboardKey.arrowLeft) { final d = event.logicalKey == LogicalKeyboardKey.arrowRight ? 1 : -1; final now = DateTime.now(); final dbl = _ultDir == d && now.difference(_ultSeek).inMilliseconds < 380; _ultSeek = now; _ultDir = d; _buscarRelativo(dbl ? 30 * d : 15 * d); return KeyEventResult.handled; }
-                                } else if (event is KeyRepeatEvent) {
-                                  if (event.logicalKey == LogicalKeyboardKey.arrowRight) { _buscarRelativo(45); return KeyEventResult.handled; }
-                                  if (event.logicalKey == LogicalKeyboardKey.arrowLeft) { _buscarRelativo(-45); return KeyEventResult.handled; }
-                                }
-                                return KeyEventResult.ignored;
-                              },
+                              focusNode: _fnSlider,
                               child: Builder(
                                 builder: (fCtx) {
                                   final focado = Focus.of(fCtx).hasFocus;
                                   return Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(color: focado ? const Color(0xFFF5B82E) : Colors.transparent, width: 2),
-                                      color: focado ? const Color(0xFFF5B82E).withOpacity(0.14) : Colors.transparent,
+                                      border: Border.all(
+                                        color: focado ? const Color(0xFFF5B82E) : Colors.transparent,
+                                        width: 2.2,
+                                      ),
+                                      color: focado ? const Color(0xFFF5B82E).withOpacity(0.16) : Colors.transparent,
                                     ),
                                     child: ValueListenableBuilder<Duration>(
                                       valueListenable: _posNotifier,
@@ -1444,10 +1645,10 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                         final dur = _durNotifier.value;
                                         return Row(
                                           children: [
-                                            Text(_formatarTempo(pos), style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                            Text(_formatarTempo(pos), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
                                             Expanded(
                                               child: Slider(
-                                                focusNode: _sliderInternalFocus,
+                                                focusNode: _fnSliderDummy,
                                                 value: dur.inMilliseconds > 0 ? pos.inMilliseconds.clamp(0, dur.inMilliseconds).toDouble() : 0,
                                                 max: dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1,
                                                 activeColor: const Color(0xFFF5B82E),
@@ -1462,7 +1663,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                                 },
                                               ),
                                             ),
-                                            Text(_formatarTempo(dur), style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                            Text(_formatarTempo(dur), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
                                           ],
                                         );
                                       },
@@ -1471,26 +1672,14 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                 },
                               ),
                             ),
-                            FocusTraversalGroup(
-                              policy: ReadingOrderTraversalPolicy(),
-                              child: Focus(
-                                focusNode: _barraInferiorFocus,
-                                canRequestFocus: false,
-                                skipTraversal: true,
-                                onKeyEvent: (_, event) {
-                                  if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.arrowUp) {
-                                    _sliderFocus.requestFocus();
-                                    _reiniciarTimerControles();
-                                    return KeyEventResult.handled;
-                                  }
-                                  return KeyEventResult.ignored;
-                                },
-                                child: Row(
-                                  children: [
-                                    if (prox != null)
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                if (prox != null)
                                   Padding(
                                     padding: const EdgeInsets.only(right: 10),
                                     child: CinemaFocusBox(
+                                      focusNode: _fnProxEp,
                                       borderRadius: 8,
                                       onTap: () => _iniciarFonte(prox),
                                       child: Padding(
@@ -1500,7 +1689,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                           children: [
                                             const Icon(Icons.skip_next, color: Color(0xFFF5B82E), size: 20),
                                             const SizedBox(width: 4),
-                                            Text('Próximo (${prox.etiquetaEpisodio})', style: const TextStyle(color: Colors.white)),
+                                            Text('Próximo (${prox.etiquetaEpisodio})', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                                           ],
                                         ),
                                       ),
@@ -1508,6 +1697,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                   ),
                                 if (widget.listaEpisodios.isNotEmpty)
                                   CinemaFocusBox(
+                                    focusNode: _fnEpisodios,
                                     borderRadius: 8,
                                     onTap: _abrirModalEpisodios,
                                     child: const Padding(
@@ -1517,13 +1707,14 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                         children: [
                                           Icon(Icons.list, color: Colors.white, size: 20),
                                           SizedBox(width: 4),
-                                          Text('Episódios', style: TextStyle(color: Colors.white)),
+                                          Text('Episódios', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                                         ],
                                       ),
                                     ),
                                   ),
                                 const Spacer(),
                                 CinemaFocusBox(
+                                  focusNode: _fnFontes,
                                   borderRadius: 8,
                                   onTap: _abrirModalFontes,
                                   child: Padding(
@@ -1533,13 +1724,14 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                       children: [
                                         const Icon(Icons.hd, color: Color(0xFFF5B82E), size: 20),
                                         const SizedBox(width: 4),
-                                        Text(_fonteAtual.resolucao, style: const TextStyle(color: Colors.white)),
+                                        Text(_fonteAtual.resolucao, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                                       ],
                                     ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
                                 CinemaFocusBox(
+                                  focusNode: _fnLegendas,
                                   borderRadius: 8,
                                   onTap: _abrirModalLegendas,
                                   child: const Padding(
@@ -1547,16 +1739,14 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Icon(Icons.subtitles, color: Colors.white, size: 20),
+                                        Icon(Icons.subtitles, color: Color(0xFFF5B82E), size: 20),
                                         SizedBox(width: 4),
-                                        Text('Legendas', style: TextStyle(color: Colors.white)),
+                                        Text('Legendas', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                                       ],
                                     ),
                                   ),
                                 ),
                               ],
-                                ),
-                              ),
                             ),
                           ],
                         ),

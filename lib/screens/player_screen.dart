@@ -704,11 +704,21 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF5B82E), foregroundColor: Colors.black),
-                        onPressed: buscarMultiBancos,
-                        icon: const Icon(Icons.search, size: 18),
-                        label: const Text('Buscar'),
+                      CinemaFocusBox(
+                        borderRadius: 8,
+                        onTap: buscarMultiBancos,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(8)),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.search, size: 18, color: Colors.black),
+                              SizedBox(width: 6),
+                              Text('Buscar', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w800)),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -829,21 +839,11 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                             if (ctx.mounted) Navigator.pop(ctx);
                                           },
                                           child: ListTile(
-                                          dense: true,
-                                          leading: const Icon(Icons.subtitles, color: Color(0xFFF5B82E)),
-                                          title: Text(nome, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13)),
-                                          subtitle: Text(idioma, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                                          onTap: () async {
-                                            if (dl.isNotEmpty) {
-                                              await _player.setSubtitleTrack(SubtitleTrack.uri(dl, title: nome, language: idioma));
-                                              setState(() {
-                                                _legendaAtiva = true;
-                                                _legendaSelecionada = nome;
-                                              });
-                                            }
-                                            if (ctx.mounted) Navigator.pop(ctx);
-                                          },
-                                        )
+                                            dense: true,
+                                            leading: const Icon(Icons.subtitles, color: Color(0xFFF5B82E)),
+                                            title: Text(nome, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                                            subtitle: Text(idioma, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                          ),
                                         );
                                       },
                                     ),
@@ -857,7 +857,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
           );
         },
       ),
-    );
+    ).whenComplete(buscaCtrl.dispose);
   }
 
   void _abrirModalFontes() {
@@ -1017,11 +1017,6 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final podePularAbertura = widget.obra.isSerie &&
-        _erroPlayer == null &&
-        _introFim > _introInicio + 10 &&
-        _posicao.inSeconds >= _introInicio &&
-        _posicao.inSeconds <= (_introFim - 3);
     final prox = _proximoEpisodio;
 
     return Scaffold(

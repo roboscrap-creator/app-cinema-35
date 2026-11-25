@@ -202,12 +202,30 @@ jobs:
 
       - name: Configurar Google Maven Mirror (evitar erro 429)
         run: |
-          for f in android/settings.gradle.kts android/settings.gradle; do
-            if [ -f "$f" ]; then
-              sed -i 's|mavenCentral()|maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }\n        mavenCentral()|g' "$f"
-              sed -i 's|gradlePluginPortal()|maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }\n        gradlePluginPortal()|g' "$f"
-            fi
-          done
+          mkdir -p ~/.gradle
+          cat << 'EOF' > ~/.gradle/init.gradle
+          allprojects {
+            buildscript {
+              repositories {
+                maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
+                google()
+              }
+            }
+            repositories {
+              maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
+              google()
+            }
+          }
+          settingsEvaluated { settings ->
+            settings.pluginManagement {
+              repositories {
+                maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
+                google()
+                gradlePluginPortal()
+              }
+            }
+          }
+          EOF
       - name: Gerar Frames Visuais (Celular e TV Box)
         continue-on-error: true
         run: flutter test --update-goldens test/visual_audit_test.dart

@@ -251,10 +251,13 @@ class MaxAssistantService extends ChangeNotifier {
         _falando = false;
       }
 
-      try {
-        await _stt.cancel();
-      } catch (_) {}
-      await Future.delayed(Duration(milliseconds: isRetry ? 450 : 200));
+      if (_ouvindo) {
+        try {
+          await _stt.stop();
+        } catch (_) {}
+        _ouvindo = false;
+      }
+      await Future.delayed(Duration(milliseconds: isRetry ? 900 : 350));
 
       bool ok = false;
       try {
@@ -270,17 +273,21 @@ class MaxAssistantService extends ChangeNotifier {
           onError: (err) {
             final msg = err.errorMsg.toLowerCase();
             _ouvindo = false;
-            if ((msg.contains('audio') || msg.contains('busy') || msg.contains('client')) &&
-                _tentativasAudio < 1) {
-              _tentativasAudio++;
-              _ultimaFalaMax = 'Conectando microfone do controle...';
+            if (msg.contains('no_match') || msg.contains('speech_timeout')) {
               notifyListeners();
-              Future.delayed(const Duration(milliseconds: 500), () {
+              return;
+            }
+            if ((msg.contains('audio') || msg.contains('busy') || msg.contains('client')) &&
+                _tentativasAudio < 2) {
+              _tentativasAudio++;
+              _ultimaFalaMax = 'Ativando microfone do controle...';
+              notifyListeners();
+              Future.delayed(const Duration(milliseconds: 900), () {
                 iniciarEscuta(isRetry: true);
               });
               return;
             }
-            _ultimaFalaMax = 'Não captei áudio (${err.errorMsg}). Aperte OK no microfone ou digite abaixo.';
+            _ultimaFalaMax = 'Use o botão de voz do controle no campo abaixo ou clique no microfone.';
             notifyListeners();
           },
         );
@@ -290,7 +297,7 @@ class MaxAssistantService extends ChangeNotifier {
 
       if (!ok) {
         _ouvindo = false;
-        _ultimaFalaMax = 'Microfone indisponível neste aparelho. Digite abaixo ou use a tecla de voz do controle.';
+        _ultimaFalaMax = 'Selecione a caixa abaixo e aperte o microfone do controle remoto para falar.';
         notifyListeners();
         return;
       }
@@ -301,11 +308,11 @@ class MaxAssistantService extends ChangeNotifier {
 
       await _stt.listen(
         localeId: 'pt_BR',
-        listenMode: ListenMode.dictation,
+        listenMode: ListenMode.confirmation,
         partialResults: true,
         cancelOnError: false,
-        pauseFor: const Duration(seconds: 4),
-        listenFor: const Duration(seconds: 20),
+        pauseFor: const Duration(seconds: 5),
+        listenFor: const Duration(seconds: 25),
         onResult: (res) async {
           _textoReconhecido = res.recognizedWords;
           notifyListeners();

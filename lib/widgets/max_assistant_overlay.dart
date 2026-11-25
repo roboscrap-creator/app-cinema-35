@@ -235,9 +235,6 @@ class MaxAssistantModal extends StatefulWidget {
   const MaxAssistantModal({super.key});
 
   static Future<void> abrir(BuildContext context) async {
-    Future.delayed(const Duration(milliseconds: 550), () {
-      MaxAssistantService.instance.iniciarEscuta();
-    });
     await showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,

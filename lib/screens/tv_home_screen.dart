@@ -311,9 +311,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
   }
 
-  Widget _buildAbaInicio() {
+Widget _buildAbaInicio() {
     final filmesDestaque = (_filmes.where((o) => o.emDestaque || o.tags.any((t) => t.toLowerCase().contains('banner'))).toList()
-          ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))
+            ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))
         .take(4)
         .toList();
     if (filmesDestaque.length < 4) {
@@ -324,7 +324,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     }
 
     final seriesDestaque = (_series.where((o) => o.emDestaque || o.tags.any((t) => t.toLowerCase().contains('banner'))).toList()
-          ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))
+            ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))
         .take(4)
         .toList();
     if (seriesDestaque.length < 4) {
@@ -336,34 +336,52 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
     final continuar = widget.catalogo.where((o) => _progressoMap.containsKey(o.chaveGrupo)).toList();
     final top10 = _cacheTop10;
-    final destaquesUnificados = <ObraAgrupada>[];
-    for (int i = 0; i < 4; i++) {
-      if (i < filmesDestaque.length) destaquesUnificados.add(filmesDestaque[i]);
-      if (i < seriesDestaque.length) destaquesUnificados.add(seriesDestaque[i]);
-    }
 
     return ListView(
       cacheExtent: 320,
       padding: const EdgeInsets.fromLTRB(26, 8, 26, 36),
       children: [
-        ValueListenableBuilder<ObraAgrupada?>(
-          valueListenable: _obraPreviewNotifier,
-          builder: (_, obraFocada, __) {
-            return SizedBox(
-              height: 268,
-              child: _buildCarrosselHero(
-                tituloSecao: obraFocada != null ? 'Em Foco' : 'Destaques CineMax',
-                itens: destaquesUnificados,
-                obraPreview: obraFocada,
-                paginaAtual: _idxBannerFilme,
-                onPageChanged: (i) {
-                  _obraPreviewNotifier.value = null;
-                  setState(() => _idxBannerFilme = i);
-                },
+        // ====================== NOVO BLOCO: GRADE DIVIDIDA FILMES × SÉRIES ======================
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 1,
+                child: GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  children: filmesDestaque.map((obra) {
+                    return CinemaFocusBox(
+                      child: TvPosterCard(obra: obra),
+                    );
+                  }).toList(),
+                ),
               ),
-            );
-          },
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 1,
+                child: GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  children: seriesDestaque.map((obra) {
+                    return CinemaFocusBox(
+                      child: TvPosterCard(obra: obra),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
         ),
+        // ==========================================================================================
         const SizedBox(height: 22),
         if (continuar.isNotEmpty)
           _buildPrateleira(

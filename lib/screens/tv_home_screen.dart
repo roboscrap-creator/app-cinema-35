@@ -357,7 +357,7 @@ Widget _buildAbaInicio() {
                   mainAxisSpacing: 10,
                   children: filmesDestaque.map((obra) {
                     return CinemaFocusBox(
-                      child: TvPosterCard(obra: obra, onTap: () => widget.onAbrirObra(obra)),
+                      child: TvPosterCard(obra: obra),
                     );
                   }).toList(),
                 ),
@@ -373,7 +373,7 @@ Widget _buildAbaInicio() {
                   mainAxisSpacing: 10,
                   children: seriesDestaque.map((obra) {
                     return CinemaFocusBox(
-                      child: TvPosterCard(obra: obra, onTap: () => widget.onAbrirObra(obra)),
+                      child: TvPosterCard(obra: obra),
                     );
                   }).toList(),
                 ),

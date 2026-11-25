@@ -121,9 +121,10 @@ class MaxAssistantService extends ChangeNotifier {
     if (local != null) return local;
 
     try {
-      final remotos = await SupabaseService.buscarComElencoEDiretores(termoBruto.trim());
-      if (remotos.isNotEmpty) {
-        return acharNaLista(remotos) ?? remotos.first;
+      final atualizado = await SupabaseService.carregarCatalogoAgrupado(forcarRefresh: true, limite: 1000);
+      if (atualizado.isNotEmpty) {
+        _catalogoMemoria = atualizado;
+        return acharNaLista(_catalogoMemoria);
       }
     } catch (_) {}
 
@@ -385,9 +386,23 @@ class MaxAssistantService extends ChangeNotifier {
           }
         }
       }
-      if (_historicoDialogo.length > 8) {
-        _historicoDialogo.removeRange(0, _historicoDialogo.length - 8);
+      if (_historicoDialogo.length > 20) {
+        _historicoDialogo.removeRange(0, _historicoDialogo.length - 20);
       }
+
+      if (_catalogoMemoria.isEmpty) {
+        try {
+          _catalogoMemoria = await SupabaseService.carregarCatalogoAgrupado(limite: 1000);
+        } catch (_) {}
+      }
+
+      final catalogoEspelho = _catalogoMemoria
+          .map((o) => {
+                'titulo': o.titulo,
+                'categoria': o.categoria,
+                if (o.tmdbId != null) 'tmdb_id': o.tmdbId,
+              })
+          .toList();
 
       final anonKey = await SupabaseService.getAnonKey();
       final resp = await http
@@ -402,21 +417,21 @@ class MaxAssistantService extends ChangeNotifier {
               'mensagem': textoLimpo,
               'perfil': MaxMemoryService.instance.nomeAtual,
               'kids': MaxMemoryService.instance.modoKidsAtivo,
-              'historico': _historicoDialogo, 'tela_atual': _telaAtual, 'aba_atual': _abaAtual,
+              'modo_livre': true,
+              'pesquisa_web_ativa': true,
+              'historico': _historicoDialogo,
+              'tela_atual': _telaAtual,
+              'aba_atual': _abaAtual,
+              'catalogo_disponivel': catalogoEspelho,
               if (_obraEmVisualizacao != null)
                 'obra_atual': {
                   'titulo': _obraEmVisualizacao!.titulo,
                   'categoria': _obraEmVisualizacao!.categoria,
-                  'genero': _obraEmVisualizacao!.genero,
-                  'ano': _obraEmVisualizacao!.ano,
-                  'diretor': _obraEmVisualizacao!.diretor,
-                  'elenco': _obraEmVisualizacao!.elenco,
-                  'sinopse': _obraEmVisualizacao!.sinopse,
-                  'nota_imdb': _obraEmVisualizacao!.notaImdb,
+                  if (_obraEmVisualizacao!.tmdbId != null) 'tmdb_id': _obraEmVisualizacao!.tmdbId,
                 },
             }),
           )
-          .timeout(const Duration(seconds: 20));
+          .timeout(const Duration(seconds: 45));
 
       if (resp.statusCode == 200) {
         final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;

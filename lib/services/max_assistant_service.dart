@@ -1,3 +1,4 @@
+// [BLINDADO - IA MAX V3.5] NAO ALTERAR ESTE ARQUIVO SEM AUTORIZACAO EXPRESSA DO PROPRIETARIO.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

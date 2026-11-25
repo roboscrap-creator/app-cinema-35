@@ -1,3 +1,4 @@
+// [BLINDADO - IA MAX V3.5] NAO ALTERAR ESTE ARQUIVO SEM AUTORIZACAO EXPRESSA DO PROPRIETARIO.
 import 'package:flutter/material.dart';
 import 'cinema_widgets.dart';
 import '../services/max_assistant_service.dart';

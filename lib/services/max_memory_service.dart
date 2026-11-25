@@ -1,3 +1,4 @@
+// [BLINDADO - IA MAX V3.5] NAO ALTERAR ESTE ARQUIVO SEM AUTORIZACAO EXPRESSA DO PROPRIETARIO.
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';

@@ -202,30 +202,18 @@ jobs:
 
       - name: Configurar Google Maven Mirror (evitar erro 429)
         run: |
-          mkdir -p ~/.gradle
-          cat << 'EOF' > ~/.gradle/init.gradle
-          allprojects {
-            buildscript {
-              repositories {
-                maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
-                google()
-              }
-            }
-            repositories {
-              maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
-              google()
-            }
-          }
-          settingsEvaluated { settings ->
-            settings.pluginManagement {
-              repositories {
-                maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
-                google()
-                gradlePluginPortal()
-              }
-            }
-          }
-          EOF
+          GOOGLE_MIRROR="https://maven-central.storage-download.googleapis.com/maven2/"
+          # Substitui mavenCentral() nos arquivos gerados do projeto Android e nas ferramentas do Flutter
+          find android "$FLUTTER_ROOT/packages/flutter_tools/gradle" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) 2>/dev/null | while read -r f; do
+            sed -i "s|mavenCentral()|maven { url = uri(\"$GOOGLE_MIRROR\") }|g" "$f"
+            sed -i "s|https://repo.maven.apache.org/maven2/|$GOOGLE_MIRROR|g" "$f"
+            sed -i "s|https://repo1.maven.org/maven2/|$GOOGLE_MIRROR|g" "$f"
+          done
+          # Garante mirror no settings.gradle.kts (pluginManagement) antes de resolver o Kotlin BOM
+          if [ -f android/settings.gradle.kts ]; then
+            sed -i "s|gradlePluginPortal()|maven { url = uri(\"$GOOGLE_MIRROR\") }\n        gradlePluginPortal()|g" android/settings.gradle.kts
+          fi
+
       - name: Gerar Frames Visuais (Celular e TV Box)
         continue-on-error: true
         run: flutter test --update-goldens test/visual_audit_test.dart
@@ -256,6 +244,7 @@ jobs:
 
       - name: Publicar APK direto na Release
         uses: softprops/action-gh-release@v2
+        continue-on-error: true
         with:
           tag_name: latest-apk
           name: CineMax APK (TorrServer Integrado)

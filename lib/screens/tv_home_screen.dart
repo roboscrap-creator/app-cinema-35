@@ -283,11 +283,11 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                             duration: const Duration(milliseconds: 160),
                             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                             decoration: BoxDecoration(
-                              color: focado ? const Color(0xFFF5B82E).withOpacity(0.18) : Colors.transparent,
+                              color: Colors.transparent,
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
-                                color: focado ? const Color(0xFFF5B82E) : Colors.transparent,
-                                width: 1.5,
+                                color: Colors.transparent,
+                                width: 0,
                               ),
                             ),
                             child: Text(

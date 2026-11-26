@@ -37,6 +37,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   int _abaIndex = 0;
   int _idxBannerFilme = 0;
   int _idxBannerSerie = 0;
+  final Map<String, int> _idxBannerCategoria = {};
   Timer? _bannerRotativoTimer;
   Timer? _previewDebounce;
   final ValueNotifier<ObraAgrupada?> _obraPreviewNotifier = ValueNotifier<ObraAgrupada?>(null);
@@ -358,6 +359,11 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         }
         if (qtdSeries > 0) {
           _idxBannerSerie = (_idxBannerSerie + 1) % qtdSeries;
+        }
+        final abaAtual = (_abaIndex >= 0 && _abaIndex < _abas.length) ? _abas[_abaIndex] : '';
+        if (abaAtual.isNotEmpty && abaAtual.toUpperCase() != 'INÍCIO' && abaAtual.toUpperCase() != 'INICIO') {
+          final atual = _idxBannerCategoria[abaAtual] ?? 0;
+          _idxBannerCategoria[abaAtual] = (atual + 1) % 4;
         }
       });
     });
@@ -779,9 +785,29 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             height: 250,
             child: Row(
               children: [
-                Expanded(
-                  flex: 6,
-                  child: _cardMosaico(trio[0], grande: true),
+                Builder(
+                  builder: (_) {
+                    final candidatosCat = <ObraAgrupada>[
+                      ...base.where((o) => o.emDestaque).toList()
+                        ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)),
+                      ...base.where((o) => !o.emDestaque),
+                    ];
+                    final vistos = <String>{};
+                    final rotativos4 = <ObraAgrupada>[];
+                    for (final item in candidatosCat) {
+                      if (vistos.add(item.chaveGrupo)) {
+                        rotativos4.add(item);
+                        if (rotativos4.length == 4) break;
+                      }
+                    }
+                    final listaBanner = rotativos4.isNotEmpty ? rotativos4 : [trio[0]];
+                    final idxCat = (_idxBannerCategoria[nomeAba] ?? 0) % listaBanner.length;
+                    final obraBannerGrande = listaBanner[idxCat];
+                    return Expanded(
+                      flex: 6,
+                      child: _cardMosaico(obraBannerGrande, grande: true),
+                    );
+                  },
                 ),
                 if (trio.length > 1) ...[
                   const SizedBox(width: 14),

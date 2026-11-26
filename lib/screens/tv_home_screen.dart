@@ -375,10 +375,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             fit: StackFit.expand,
             children: [
               if (imgUrl.isNotEmpty)
-                Image.network(
-                  imgUrl,
+                Image(
+                  image: ResizeImage(NetworkImage(imgUrl), width: 960),
                   fit: BoxFit.cover,
-                  memCacheWidth: 960,
                   filterQuality: FilterQuality.medium,
                   errorBuilder: (_, __, ___) => Container(
                     color: const Color(0xFF181D28),

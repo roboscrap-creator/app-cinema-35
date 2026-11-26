@@ -34,8 +34,8 @@ class TvHomeScreen extends StatefulWidget {
 }
 
 class _TvHomeScreenState extends State<TvHomeScreen> {
-  int _focoTopBarIndex = -1;
   int _abaIndex = 0;
+  int _focoTopBarIndex = -1;
   int _idxBannerFilme = 0;
   int _idxBannerSerie = 0;
   final Map<String, int> _idxBannerCategoria = {};
@@ -388,30 +388,6 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         });
       });
     }
-    if ((qtdFilmes <= 1 && qtdSeries <= 1)) return;
-    if (_bannerRotativoTimer != null && _bannerRotativoTimer!.isActive) return;
-
-    _bannerRotativoTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (!mounted || _abaIndex != 0) {
-        _bannerRotativoTimer?.cancel();
-        _bannerRotativoTimer = null;
-        return;
-      }
-      setState(() {
-        if (qtdFilmes > 0) {
-          _idxBannerFilme = (_idxBannerFilme + 1) % qtdFilmes;
-        }
-        if (qtdSeries > 0) {
-          _idxBannerSerie = (_idxBannerSerie + 1) % qtdSeries;
-        }
-        final abaAtual = (_abaIndex >= 0 && _abaIndex < _abas.length) ? _abas[_abaIndex] : '';
-        if (abaAtual.isNotEmpty && abaAtual.toUpperCase() != 'INÍCIO' && abaAtual.toUpperCase() != 'INICIO') {
-          final atual = _idxBannerCategoria[abaAtual] ?? 0;
-          _idxBannerCategoria[abaAtual] = (atual + 1) % 4;
-        }
-      });
-    });
-  }
 
   Widget _buildBannerRotativoCard({
     required String rotulo,

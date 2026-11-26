@@ -235,7 +235,6 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   Widget _buildTopBar() {
     return Container(
       height: 68,
-      padding: const EdgeInsets.symmetric(horizontal: 26),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -243,73 +242,97 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           colors: [Color(0xFF10131B), Color(0x000A0C10)],
         ),
       ),
-      child: Row(
-        children: [
-          const CinemaLogoWidget(height: 36, width: 124),
-          const SizedBox(width: 16),
-          ...List.generate(_abas.length, (i) {
-            final ativo = _abaIndex == i;
-            return Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: CinemaFocusBox(
-                autofocus: i == 0,
-                onTap: () { setState(() => _abaIndex = i); MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[i]); },
-                borderRadius: 20,
-                scaleOnFocus: 1.06,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: ativo ? const Color(0xFFF5B82E).withOpacity(0.18) : Colors.transparent,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: ativo ? const Color(0xFFF5B82E) : Colors.transparent,
-                      width: 1.5,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 26),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CinemaLogoWidget(height: 36, width: 124),
+            const SizedBox(width: 16),
+            ...List.generate(_abas.length, (i) {
+              final ativo = _abaIndex == i;
+              return Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: CinemaFocusBox(
+                  autofocus: i == 0,
+                  onTap: () {
+                    setState(() => _abaIndex = i);
+                    MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[i]);
+                  },
+                  borderRadius: 20,
+                  scaleOnFocus: 1.06,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: ativo ? const Color(0xFFF5B82E).withOpacity(0.18) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: ativo ? const Color(0xFFF5B82E) : Colors.transparent,
+                        width: 1.5,
+                      ),
                     ),
-                  ),
-                  child: Text(
-                    _abas[i],
-                    style: TextStyle(
-                      color: ativo ? const Color(0xFFF5B82E) : Colors.white70,
-                      fontSize: 15,
-                      fontWeight: ativo ? FontWeight.w900 : FontWeight.w600,
-                      letterSpacing: 0.7,
+                    child: Text(
+                      _abas[i],
+                      style: TextStyle(
+                        color: ativo ? const Color(0xFFF5B82E) : Colors.white70,
+                        fontSize: 15,
+                        fontWeight: ativo ? FontWeight.w900 : FontWeight.w600,
+                        letterSpacing: 0.7,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            );
-          }),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })),
-                    const SizedBox(width: 8),
-                    MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)),
-                    const SizedBox(width: 8),
-                    TopIconeComTooltip(icon: Icons.playlist_add_rounded, label: 'Pedidos', onPressed: () => PedidosScreenModal.abrir(context)),
-                    const SizedBox(width: 8),
-                    TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: _abrirBusca),
-                    const SizedBox(width: 8),
-                    TopIconeComTooltip(icon: Icons.filter_alt_outlined, label: 'Filtro', onPressed: () => _abrirFiltro(_abaIndex == 2 ? 'Séries' : _abaIndex == 3 ? 'Kids' : _abaIndex == 4 ? 'Anime' : 'Filmes')),
-                    const SizedBox(width: 8),
-                    TopIconeComTooltip(icon: Icons.history, label: 'Meus Favoritos e Histórico', onPressed: _abrirHistoricoFavoritos),
-                    const SizedBox(width: 8),
-                    TopIconeComTooltip(icon: Icons.system_update, label: 'Atualizar Aplicativo', onPressed: () => AppUpdaterService.verificarAtualizacao(context, silencioso: false)),
-                    const SizedBox(width: 8),
-                    TopIconeComTooltip(icon: Icons.phone_android, label: 'Modo Celular', onPressed: widget.onAlternarModoMobile),
-                  ],
-                ),
+              );
+            }),
+            const SizedBox(width: 14),
+            PerfilChipTopButton(
+              onTap: () => PerfisSelectionOverlay.abrir(
+                context,
+                onPerfilSelecionado: () {
+                  if (mounted) setState(() {});
+                },
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 8),
+            MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)),
+            const SizedBox(width: 8),
+            TopIconeComTooltip(
+              icon: Icons.playlist_add_rounded,
+              label: 'Pedidos',
+              onPressed: () => PedidosScreenModal.abrir(context),
+            ),
+            const SizedBox(width: 8),
+            TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: _abrirBusca),
+            const SizedBox(width: 8),
+            TopIconeComTooltip(
+              icon: Icons.filter_alt_outlined,
+              label: 'Filtro',
+              onPressed: () => _abrirFiltro(
+                _abaIndex == 2 ? 'Séries' : _abaIndex == 3 ? 'Kids' : _abaIndex == 4 ? 'Anime' : 'Filmes',
+              ),
+            ),
+            const SizedBox(width: 8),
+            TopIconeComTooltip(
+              icon: Icons.history,
+              label: 'Meus Favoritos e Histórico',
+              onPressed: _abrirHistoricoFavoritos,
+            ),
+            const SizedBox(width: 8),
+            TopIconeComTooltip(
+              icon: Icons.system_update,
+              label: 'Atualizar Aplicativo',
+              onPressed: () => AppUpdaterService.verificarAtualizacao(context, silencioso: false),
+            ),
+            const SizedBox(width: 8),
+            TopIconeComTooltip(
+              icon: Icons.phone_android,
+              label: 'Modo Celular',
+              onPressed: widget.onAlternarModoMobile,
+            ),
+          ],
+        ),
       ),
     );
   }

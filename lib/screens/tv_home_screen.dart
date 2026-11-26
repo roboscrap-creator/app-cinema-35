@@ -34,6 +34,7 @@ class TvHomeScreen extends StatefulWidget {
 }
 
 class _TvHomeScreenState extends State<TvHomeScreen> {
+  int _focoTopBarIndex = -1;
   int _abaIndex = 0;
   int _idxBannerFilme = 0;
   int _idxBannerSerie = 0;
@@ -252,41 +253,59 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             const CinemaLogoWidget(height: 36, width: 124),
             const SizedBox(width: 16),
             ...List.generate(_abas.length, (i) {
-              final ativo = _abaIndex == i;
-              return Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: CinemaFocusBox(
-                  autofocus: i == 0,
-                  onTap: () {
-                    setState(() => _abaIndex = i);
-                    MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[i]);
-                  },
-                  borderRadius: 20,
-                  scaleOnFocus: 1.06,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: ativo ? const Color(0xFFF5B82E).withOpacity(0.18) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: ativo ? const Color(0xFFF5B82E) : Colors.transparent,
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Text(
-                      _abas[i],
-                      style: TextStyle(
-                        color: ativo ? const Color(0xFFF5B82E) : Colors.white70,
-                        fontSize: 15,
-                        fontWeight: ativo ? FontWeight.w900 : FontWeight.w600,
-                        letterSpacing: 0.7,
-                      ),
+                final ativo = _abaIndex == i;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: Focus(
+                    onFocusChange: (temFoco) {
+                      if (mounted) {
+                        setState(() {
+                          if (temFoco) {
+                            _focoTopBarIndex = i;
+                          } else if (_focoTopBarIndex == i) {
+                            _focoTopBarIndex = -1;
+                          }
+                        });
+                      }
+                    },
+                    child: Builder(
+                      builder: (context) {
+                        final focado = _focoTopBarIndex == i;
+                        return CinemaFocusBox(
+                          autofocus: i == 0,
+                          onTap: () {
+                            setState(() => _abaIndex = i);
+                            MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[i]);
+                          },
+                          borderRadius: 20,
+                          scaleOnFocus: 1.06,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: focado ? const Color(0xFFF5B82E).withOpacity(0.18) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: focado ? const Color(0xFFF5B82E) : Colors.transparent,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Text(
+                              _abas[i],
+                              style: TextStyle(
+                                color: (focado || ativo) ? const Color(0xFFF5B82E) : Colors.white70,
+                                fontSize: 15,
+                                fontWeight: (focado || ativo) ? FontWeight.w900 : FontWeight.w600,
+                                letterSpacing: 0.7,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-                ),
-              );
-            }),
+                );
+              }),
             const SizedBox(width: 14),
             PerfilChipTopButton(
               onTap: () => PerfisSelectionOverlay.abrir(
@@ -339,10 +358,35 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   }
 
   void _garantirTimerBannerInicio(int qtdFilmes, int qtdSeries) {
-    if (_abaIndex != 0 || !mounted) {
-      _bannerRotativoTimer?.cancel();
-      _bannerRotativoTimer = null;
-      return;
+      if (!mounted) {
+        _bannerRotativoTimer?.cancel();
+        _bannerRotativoTimer = null;
+        return;
+      }
+      if (_bannerRotativoTimer != null && _bannerRotativoTimer!.isActive) return;
+
+      _bannerRotativoTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+        if (!mounted) {
+          _bannerRotativoTimer?.cancel();
+          _bannerRotativoTimer = null;
+          return;
+        }
+        setState(() {
+          if (_abaIndex == 0) {
+            if (qtdFilmes > 0) {
+              _idxBannerFilme = (_idxBannerFilme + 1) % qtdFilmes;
+            }
+            if (qtdSeries > 0) {
+              _idxBannerSerie = (_idxBannerSerie + 1) % qtdSeries;
+            }
+          }
+          final abaAtual = (_abaIndex >= 0 && _abaIndex < _abas.length) ? _abas[_abaIndex] : '';
+          if (abaAtual.isNotEmpty && abaAtual.toUpperCase() != 'INÍCIO' && abaAtual.toUpperCase() != 'INICIO') {
+            final atual = _idxBannerCategoria[abaAtual] ?? 0;
+            _idxBannerCategoria[abaAtual] = (atual + 1) % 4;
+          }
+        });
+      });
     }
     if ((qtdFilmes <= 1 && qtdSeries <= 1)) return;
     if (_bannerRotativoTimer != null && _bannerRotativoTimer!.isActive) return;

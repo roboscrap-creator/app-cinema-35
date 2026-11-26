@@ -1,16 +1,19 @@
 name: Build Android APK
-
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-
 permissions:
   contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      KEYSTORE_B64: ${{ secrets.KEYSTORE_JKS_B64 }}
+      STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+      KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -20,23 +23,31 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-
+      - name: Restaurar keystore pelo GitHub Secret
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > cinema-release.jks
+            echo "Keystore restaurado do secret KEYSTORE_JKS_B64."
+          elif [ -f cinema-release.jks ]; then
+            echo "AVISO: usando cinema-release.jks que ainda esta no repo; migre para KEYSTORE_JKS_B64 (ver INSTRUCOES_SECRETS.md)."
+          else
+            echo "ERRO: defina KEYSTORE_JKS_B64 (base64 do .jks) e os secrets de senha em Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+      - name: Validar segredos de assinatura
+        run: |
+          if [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "ERRO: defina KEYSTORE_STORE_PASSWORD e KEYSTORE_KEY_PASSWORD nos Secrets do GitHub."
+            exit 1
+          fi
       - name: Criar estrutura Android, embutir TorrServer e configurar Auto-Update
         run: |
           flutter create . --platforms=android --org com.chiavegatti.cinema
-
-          if [ ! -f cinema-release.jks ]; then
-            keytool -genkeypair -v -keystore cinema-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias cinema -storepass cinema35pass -keypass cinema35pass -dname "CN=Cinema, OU=App, O=Chiavegatti, L=Uberlandia, S=MG, C=BR"
-          fi
           cp cinema-release.jks android/app/cinema-release.jks
-
           sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.RECORD_AUDIO"/><uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/><uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/><uses-feature android:name="android.software.leanback" android:required="false"/><uses-feature android:name="android.hardware.touchscreen" android:required="false"/><application android:banner="@drawable/tv_banner" android:networkSecurityConfig="@xml/network_security_config"|' android/app/src/main/AndroidManifest.xml
           sed -i 's|android.intent.category.LAUNCHER" />|android.intent.category.LAUNCHER" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" />|' android/app/src/main/AndroidManifest.xml
           sed -i 's/android:label="app_cinema"/android:label="CineMax"/' android/app/src/main/AndroidManifest.xml
-
-          # Adicionar FileProvider no AndroidManifest.xml para instalacao OTA do APK
           sed -i 's|</application>|    <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.fileprovider" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" /></provider>\n    </application>|' android/app/src/main/AndroidManifest.xml
-
           mkdir -p android/app/src/main/res/xml
           cat << 'XMLEOF' > android/app/src/main/res/xml/file_paths.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -45,7 +56,6 @@ jobs:
               <cache-path name="cache_updates" path="." />
           </paths>
           XMLEOF
-
           cat << 'NETEOF' > android/app/src/main/res/xml/network_security_config.xml
           <?xml version="1.0" encoding="utf-8"?>
           <network-security-config>
@@ -56,73 +66,12 @@ jobs:
               </domain-config>
           </network-security-config>
           NETEOF
-
-          # Configurar assinatura fixa release no Gradle
-          cat << 'PROPEOF' > android/key.properties
-          storePassword=cinema35pass
-          keyPassword=cinema35pass
-          keyAlias=cinema
-          storeFile=cinema-release.jks
-          PROPEOF
-
-          if [ -f android/app/build.gradle.kts ]; then
-            cat << 'GRADLEKTS' >> android/app/build.gradle.kts
-
-          android {
-              packaging {
-                  jniLibs {
-                      useLegacyPackaging = true
-                  }
-              }
-              signingConfigs {
-                  create("releaseFixed") {
-                      storeFile = file("cinema-release.jks")
-                      storePassword = "cinema35pass"
-                      keyAlias = "cinema"
-                      keyPassword = "cinema35pass"
-                  }
-              }
-              buildTypes {
-                  getByName("release") {
-                      signingConfig = signingConfigs.getByName("releaseFixed")
-                  }
-              }
-          }
-          GRADLEKTS
-          elif [ -f android/app/build.gradle ]; then
-            cat << 'GRADLEGROOVY' >> android/app/build.gradle
-
-          android {
-              packagingOptions {
-                  jniLibs {
-                      useLegacyPackaging = true
-                  }
-              }
-              signingConfigs {
-                  releaseFixed {
-                      storeFile file("cinema-release.jks")
-                      storePassword "cinema35pass"
-                      keyAlias "cinema"
-                      keyPassword "cinema35pass"
-                  }
-              }
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.releaseFixed
-                  }
-              }
-          }
-          GRADLEGROOVY
-          fi
-
           mkdir -p android/app/src/main/jniLibs/arm64-v8a
           curl -fsSL -o android/app/src/main/jniLibs/arm64-v8a/libtorrserver.so https://github.com/YouROK/TorrServer/releases/latest/download/TorrServer-android-arm64
           chmod +x android/app/src/main/jniLibs/arm64-v8a/libtorrserver.so
-
           MAIN_ACT=$(find android/app/src/main -name "MainActivity.kt" | head -n 1)
           cat << 'KTEOF' > "$MAIN_ACT"
           package com.chiavegatti.cinema.app_cinema
-
           import android.content.Intent
           import android.net.Uri
           import android.os.Build
@@ -132,10 +81,8 @@ jobs:
           import io.flutter.embedding.engine.FlutterEngine
           import io.flutter.plugin.common.MethodChannel
           import java.io.File
-
           class MainActivity: FlutterActivity() {
               private val CHANNEL = "com.chiavegatti.cinema/torrserver"
-
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
@@ -187,61 +134,89 @@ jobs:
               }
           }
           KTEOF
-
           python3 -m pip install pillow
           python3 gerar_icone.py
-
+      - name: Assinatura release pelos segredos (Gradle)
+        run: |
+          if [ -f android/app/build.gradle.kts ]; then
+            cat << GRADLEKTS >> android/app/build.gradle.kts
+          android {
+              packaging { jniLibs { useLegacyPackaging = true } }
+              signingConfigs {
+                  create("releaseFixed") {
+                      storeFile = file("cinema-release.jks")
+                      storePassword = System.getenv("STORE_PASSWORD")
+                      keyAlias = System.getenv("KEY_ALIAS")
+                      keyPassword = System.getenv("KEY_PASSWORD")
+                  }
+              }
+              buildTypes {
+                  getByName("release") {
+                      signingConfig = signingConfigs.getByName("releaseFixed")
+                  }
+              }
+          }
+          GRADLEKTS
+          elif [ -f android/app/build.gradle ]; then
+            cat << GRADLEGROOVY >> android/app/build.gradle
+          android {
+              packagingOptions { jniLibs { useLegacyPackaging = true } }
+              signingConfigs {
+                  releaseFixed {
+                      storeFile file("cinema-release.jks")
+                      storePassword System.getenv("STORE_PASSWORD")
+                      keyAlias System.getenv("KEY_ALIAS")
+                      keyPassword System.getenv("KEY_PASSWORD")
+                  }
+              }
+              buildTypes {
+                  release { signingConfig signingConfigs.releaseFixed }
+              }
+          }
+          GRADLEGROOVY
+          fi
       - name: Instalar dependencias
         run: flutter pub get
-      - name: Incrementar versão automática para OTA
+      - name: Incrementar versao automatica para OTA
         run: |
           RUN_NUM=${{ github.run_number }}
           sed -i -E "s/^version:.*/version: 1.0.${RUN_NUM}+${RUN_NUM}/" pubspec.yaml
           grep "^version:" pubspec.yaml
-
-
       - name: Configurar Google Maven Mirror (evitar erro 429)
         run: |
           GOOGLE_MIRROR="https://maven-central.storage-download.googleapis.com/maven2/"
-          # Substitui mavenCentral() nos arquivos gerados do projeto Android e nas ferramentas do Flutter
           find android "$FLUTTER_ROOT/packages/flutter_tools/gradle" -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) 2>/dev/null | while read -r f; do
             sed -i "s|mavenCentral()|maven { url = uri(\"$GOOGLE_MIRROR\") }|g" "$f"
             sed -i "s|https://repo.maven.apache.org/maven2/|$GOOGLE_MIRROR|g" "$f"
             sed -i "s|https://repo1.maven.org/maven2/|$GOOGLE_MIRROR|g" "$f"
           done
-          # Garante mirror no settings.gradle.kts (pluginManagement) antes de resolver o Kotlin BOM
           if [ -f android/settings.gradle.kts ]; then
             sed -i "s|gradlePluginPortal()|maven { url = uri(\"$GOOGLE_MIRROR\") }\n        gradlePluginPortal()|g" android/settings.gradle.kts
           fi
-
-      - name: Gerar Frames Visuais (Celular e TV Box)
+      - name: Testes (sem goldens)
         continue-on-error: true
-        run: flutter test --update-goldens test/visual_audit_test.dart
-
-      - name: Publicar Screenshots nos Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cinemax-frames-visuais
-          path: test/goldens/*.png
-          if-no-files-found: ignore
-
+        run: flutter test test/visual_audit_test.dart
       - name: Compilar APK Release (arm64)
         run: |
-          mkdir -p build/debug-info && flutter build apk --config-only --release --obfuscate --split-debug-info=build/debug-info --target-platform android-arm64 --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} --dart-define=GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }} --dart-define=CINEMAX_APP_SECRET=${{ secrets.CINEMAX_APP_SECRET }}
-          cd android && ./gradlew assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
-
+          mkdir -p build/debug-info
+          flutter build apk --release --obfuscate --split-debug-info=build/debug-info --target-platform android-arm64 \
+            --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} \
+            --dart-define=GEMINI_API_KEY_2=${{ secrets.GEMINI_API_KEY_2 }} \
+            --dart-define=CINEMAX_APP_SECRET=${{ secrets.CINEMAX_APP_SECRET }} \
+            --dart-define=TMDB_API_KEY=${{ secrets.TMDB_API_KEY }}
+          ls -lh build/app/outputs/flutter-apk/app-release.apk
       - name: Gerar version.json OTA
         run: |
           cat << JSONEOF > build/app/outputs/flutter-apk/version.json
           {
-            "version": "3.5.0",
-            "build": "${{ github.run_number }}",
+            "version": "3.5.${{ github.run_number }}",
+            "version_name": "1.0.${{ github.run_number }}",
+            "build": ${{ github.run_number }},
+            "version_code": ${{ github.run_number }},
             "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "apk_url": "https://github.com/roboscrap-creator/app-cinema-35/releases/download/latest-apk/app-release.apk"
           }
           JSONEOF
-
       - name: Publicar APK direto na Release
         uses: softprops/action-gh-release@v2
         continue-on-error: true
@@ -251,7 +226,6 @@ jobs:
           files: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app/outputs/flutter-apk/version.json
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:

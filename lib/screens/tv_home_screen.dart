@@ -36,6 +36,8 @@ class TvHomeScreen extends StatefulWidget {
 class _TvHomeScreenState extends State<TvHomeScreen> {
   int _abaIndex = 0;
   int _idxBannerFilme = 0;
+  int _idxBannerSerie = 0;
+  Timer? _bannerRotativoTimer;
   Timer? _previewDebounce;
   final ValueNotifier<ObraAgrupada?> _obraPreviewNotifier = ValueNotifier<ObraAgrupada?>(null);
   Map<String, Map<String, dynamic>> _progressoMap = {};
@@ -95,6 +97,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
   void _agendarPreviewHero(ObraAgrupada obra) {
     _previewDebounce?.cancel();
+    _bannerRotativoTimer?.cancel();
     _previewDebounce = Timer(const Duration(milliseconds: 350), () {
       if (mounted && _abaIndex == 0) {
         _obraPreviewNotifier.value = obra;
@@ -311,8 +314,166 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
   }
 
+  void _garantirTimerBannerInicio(int qtdFilmes, int qtdSeries) {
+    if (_abaIndex != 0 || !mounted) {
+      _bannerRotativoTimer?.cancel();
+      _bannerRotativoTimer = null;
+      return;
+    }
+    if ((qtdFilmes <= 1 && qtdSeries <= 1)) return;
+    if (_bannerRotativoTimer != null && _bannerRotativoTimer!.isActive) return;
+
+    _bannerRotativoTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted || _abaIndex != 0) {
+        _bannerRotativoTimer?.cancel();
+        _bannerRotativoTimer = null;
+        return;
+      }
+      setState(() {
+        if (qtdFilmes > 0) {
+          _idxBannerFilme = (_idxBannerFilme + 1) % qtdFilmes;
+        }
+        if (qtdSeries > 0) {
+          _idxBannerSerie = (_idxBannerSerie + 1) % qtdSeries;
+        }
+      });
+    });
+  }
+
+  Widget _buildBannerRotativoCard({
+    required String rotulo,
+    required List<ObraAgrupada> itens,
+    required int indiceAtual,
+  }) {
+    if (itens.isEmpty) {
+      return Container(
+        height: 230,
+        decoration: BoxDecoration(
+          color: const Color(0xFF141821),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white12),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          rotulo,
+          style: const TextStyle(color: Colors.white54, fontSize: 15),
+        ),
+      );
+    }
+
+    final idx = indiceAtual.clamp(0, itens.length - 1);
+    final obra = itens[idx];
+    final imgUrl = obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl;
+
+    return CinemaFocusBox(
+      onTap: () => widget.onAbrirObra(obra),
+      child: SizedBox(
+        height: 230,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (imgUrl.isNotEmpty)
+                Image.network(
+                  imgUrl,
+                  fit: BoxFit.cover,
+                  memCacheWidth: 960,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: const Color(0xFF181D28),
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.movie_creation_outlined, color: Colors.white38, size: 36),
+                  ),
+                )
+              else
+                Container(
+                  color: const Color(0xFF181D28),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.movie_creation_outlined, color: Colors.white38, size: 36),
+                ),
+              Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black26,
+                      Colors.transparent,
+                      Colors.black87,
+                    ],
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 10,
+                left: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFA000),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    rotulo,
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 14,
+                right: 14,
+                bottom: 12,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        obra.titulo,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 17,
+                          shadows: [Shadow(blurRadius: 6, color: Colors.black)],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List.generate(itens.length, (i) {
+                        final ativo = i == idx;
+                        return Container(
+                          width: ativo ? 16 : 6,
+                          height: 6,
+                          margin: const EdgeInsets.only(left: 4),
+                          decoration: BoxDecoration(
+                            color: ativo ? const Color(0xFFFFB300) : Colors.white38,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        );
+                      }),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildAbaInicio() {
-    final filmesDestaque = (_filmes.where((o) => o.emDestaque || o.tags.any((t) => t.toLowerCase().contains('banner'))).toList()
+    final filmesDestaque = (_filmes
+            .where((o) => o.emDestaque || o.tags.any((t) => t.toLowerCase().contains('banner')))
+            .toList()
           ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))
         .take(4)
         .toList();
@@ -323,7 +484,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       }
     }
 
-    final seriesDestaque = (_series.where((o) => o.emDestaque || o.tags.any((t) => t.toLowerCase().contains('banner'))).toList()
+    final seriesDestaque = (_series
+            .where((o) => o.emDestaque || o.tags.any((t) => t.toLowerCase().contains('banner')))
+            .toList()
           ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))
         .take(4)
         .toList();
@@ -334,37 +497,41 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       }
     }
 
+    _garantirTimerBannerInicio(filmesDestaque.length, seriesDestaque.length);
+
     final continuar = widget.catalogo.where((o) => _progressoMap.containsKey(o.chaveGrupo)).toList();
     final top10 = _cacheTop10;
-    final destaquesUnificados = <ObraAgrupada>[];
-    for (int i = 0; i < 4; i++) {
-      if (i < filmesDestaque.length) destaquesUnificados.add(filmesDestaque[i]);
-      if (i < seriesDestaque.length) destaquesUnificados.add(seriesDestaque[i]);
-    }
 
     return ListView(
       cacheExtent: 320,
       padding: const EdgeInsets.fromLTRB(26, 8, 26, 36),
       children: [
-        ValueListenableBuilder<ObraAgrupada?>(
-          valueListenable: _obraPreviewNotifier,
-          builder: (_, obraFocada, __) {
-            return SizedBox(
-              height: 268,
-              child: _buildCarrosselHero(
-                tituloSecao: obraFocada != null ? 'Em Foco' : 'Destaques CineMax',
-                itens: destaquesUnificados,
-                obraPreview: obraFocada,
-                paginaAtual: _idxBannerFilme,
-                onPageChanged: (i) {
-                  _obraPreviewNotifier.value = null;
-                  setState(() => _idxBannerFilme = i);
-                },
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 1,
+                child: _buildBannerRotativoCard(
+                  rotulo: 'FILMES',
+                  itens: filmesDestaque,
+                  indiceAtual: _idxBannerFilme,
+                ),
               ),
-            );
-          },
+              const SizedBox(width: 14),
+              Expanded(
+                flex: 1,
+                child: _buildBannerRotativoCard(
+                  rotulo: 'SÉRIES',
+                  itens: seriesDestaque,
+                  indiceAtual: _idxBannerSerie,
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 18),
         if (continuar.isNotEmpty)
           _buildPrateleira(
             titulo: 'Continuar Assistindo',

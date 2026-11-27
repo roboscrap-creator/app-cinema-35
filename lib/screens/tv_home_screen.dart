@@ -145,7 +145,6 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           ano: item.ano,
           notaImdb: item.notaImdb,
           tmdbId: item.tmdbId,
-          imdbId: item.imdbId,
           pais: item.pais,
           emDestaque: item.emDestaque,
           ordemDestaque: item.ordemDestaque,

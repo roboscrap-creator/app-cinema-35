@@ -55,7 +55,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
   }
 
   Future<void> _carregarDetalhesExtras() async {
-    if (_obraAtual.fontes.isEmpty && _obraAtual.totalFontes > 0) {
+    if (_obraAtual.fontes.isEmpty && (_obraAtual.totalFontes > 0 || _obraAtual.isTvAoVivo)) {
       final fontesNuvem = await SupabaseService.carregarFontesDaObra(_obraAtual);
       if (mounted && fontesNuvem.isNotEmpty) {
         setState(() {
@@ -479,7 +479,7 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
                   children: [
                     Icon(_obraAtual.disponivelParaAssistir ? Icons.play_arrow : Icons.schedule, color: _obraAtual.disponivelParaAssistir ? Colors.black : Colors.white70),
                     const SizedBox(width: 8),
-                    Text(_obraAtual.disponivelParaAssistir ? 'ASSISTIR AGORA' : 'EM BREVE', style: TextStyle(color: _obraAtual.disponivelParaAssistir ? Colors.black : Colors.white70, fontWeight: FontWeight.w900)),
+                    Text(_obraAtual.disponivelParaAssistir ? (_obraAtual.isTvAoVivo ? 'ASSISTIR AO VIVO' : 'ASSISTIR AGORA') : 'EM BREVE', style: TextStyle(color: _obraAtual.disponivelParaAssistir ? Colors.black : Colors.white70, fontWeight: FontWeight.w900)),
                   ],
                 ),
               ),

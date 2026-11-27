@@ -118,7 +118,12 @@ class ObraAgrupada {
     this.isSerieFlag,
   });
 
-  bool get disponivelParaAssistir => fontes.isNotEmpty || totalFontes > 0;
+  bool get isTvAoVivo =>
+      categoria.toLowerCase().contains('tv') ||
+      categoria.toLowerCase().contains('ao vivo') ||
+      categoria.toLowerCase().contains('canal');
+
+  bool get disponivelParaAssistir => fontes.isNotEmpty || totalFontes > 0 || isTvAoVivo;
 
   bool get isSerie =>
       isSerieFlag ??

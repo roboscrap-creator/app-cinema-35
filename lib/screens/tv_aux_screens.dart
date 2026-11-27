@@ -1016,15 +1016,101 @@ class TvSubcategoriaScreen extends StatefulWidget {
 class _TvSubcategoriaScreenState extends State<TvSubcategoriaScreen> {
   bool _menuAberto = true;
   late String _selecionado;
+  String _buscaCat = '';
+  Set<String> _favoritosIds = {};
+  final TextEditingController _catSearchCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _selecionado = widget.filtroInicial ?? widget.subfiltros.first;
+    _selecionado = widget.filtroInicial ?? 'Todos';
+    _carregarFavs();
+  }
+
+  @override
+  void dispose() {
+    _catSearchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _carregarFavs() async {
+    final favs = await SupabaseService.carregarFavoritos();
+    if (mounted) setState(() => _favoritosIds = favs);
+  }
+
+  String _classificarCanal(ObraAgrupada o) {
+    for (final tg in o.tags) {
+      final low = tg.toLowerCase().trim();
+      if (low.startsWith('grupo:') && tg.length > 6) {
+        return tg.substring(6).trim();
+      }
+      if (low.startsWith('cat:') && tg.length > 4) {
+        return tg.substring(4).trim();
+      }
+    }
+    final gen = o.genero.trim();
+    final genLow = SupabaseService.normalizarTexto(gen);
+    if (gen.isNotEmpty &&
+        genLow != 'geral' &&
+        genLow != 'tv ao vivo' &&
+        genLow != 'ao vivo' &&
+        genLow != 'variedades' &&
+        !genLow.contains('sem genero')) {
+      return gen;
+    }
+    final t = SupabaseService.normalizarTexto('${o.titulo} ${o.tags.join(" ")}');
+    if (t.contains('24h') || t.contains('24 hrs')) return 'Canais 24h';
+    if (RegExp(r'\b(globo|sbt|record|band|rede tv|redetv|cultura|tv brasil|gazeta)\b').hasMatch(t)) return 'Abertos';
+    if (RegExp(r'\b(sportv|espn|premiere|combate|caze|tnt sports|band sports|bandsports|fox sports|dazn|ufc|nba|nfl|nosso futebol|paramount\+|prime video|ppv)\b').hasMatch(t)) return 'Esportes';
+    if (RegExp(r'\b(kids|cartoon|gloob|nickelodeon|nick jr|disney|discovery kids|boomerang|tooncast|baby|infantil)\b').hasMatch(t)) return 'Infantil';
+    if (RegExp(r'\b(telecine|hbo|megapix|tnt|space|warner|universal|axn|sony|fx|star|cinemax|paramount|amc|syfy|studio universal|tcm|filme)\b').hasMatch(t)) return 'Filmes e Séries';
+    if (RegExp(r'\b(discovery|animal planet|history|nat geo|national geographic|natgeo|h&h|tlc|investigacao|curta|arte 1)\b').hasMatch(t)) return 'Documentários';
+    if (RegExp(r'\b(globonews|cnn|bandnews|record news|jovem pan|bbc|bloomberg|noticia)\b').hasMatch(t)) return 'Notícias';
+    if (RegExp(r'\b(multishow|gnt|viva|e!|comedy central|mtv|bis|music|agro|terra viva|canal rural)\b').hasMatch(t)) return 'Variedades & Música';
+    if (RegExp(r'\b(aparecida|cancao nova|rede vida|novo tempo|gospel|evangel)\b').hasMatch(t)) return 'Religiosos';
+    return 'Outros Canais';
+  }
+
+  List<MapEntry<String, int>> get _categoriasDinamicas {
+    final bool ehTv = widget.itens.any((o) => o.isTvAoVivo) ||
+        widget.titulo.toLowerCase().contains('tv') ||
+        widget.titulo.toLowerCase().contains('esporte');
+    final Map<String, int> contagem = {};
+    if (ehTv) {
+      for (final item in widget.itens) {
+        final cat = _classificarCanal(item);
+        contagem[cat] = (contagem[cat] ?? 0) + 1;
+      }
+      final entradas = contagem.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      return entradas;
+    } else {
+      for (final f in widget.subfiltros) {
+        if (f == 'Todos' || f == 'Tudo') continue;
+        final busca = SupabaseService.normalizarTexto(f);
+        final qtd = widget.itens.where((o) {
+          final g = SupabaseService.normalizarTexto(o.genero);
+          final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
+          final tit = SupabaseService.normalizarTexto(o.titulo);
+          return g.contains(busca) || t.any((x) => x.contains(busca)) || tit.contains(busca);
+        }).length;
+        contagem[f] = qtd;
+      }
+      return contagem.entries.toList();
+    }
   }
 
   List<ObraAgrupada> get _filtrados {
     if (_selecionado == 'Todos' || _selecionado == 'Tudo') return widget.itens;
+    if (_selecionado == 'Favoritos') {
+      return widget.itens.where((o) => _favoritosIds.contains(o.chaveGrupo)).toList();
+    }
+    final bool ehTv = widget.itens.any((o) => o.isTvAoVivo) ||
+        widget.titulo.toLowerCase().contains('tv') ||
+        widget.titulo.toLowerCase().contains('esporte');
+    if (ehTv) {
+      return widget.itens.where((o) => _classificarCanal(o) == _selecionado).toList();
+    }
     final busca = SupabaseService.normalizarTexto(_selecionado);
     return widget.itens.where((o) {
       final g = SupabaseService.normalizarTexto(o.genero);
@@ -1034,9 +1120,73 @@ class _TvSubcategoriaScreenState extends State<TvSubcategoriaScreen> {
     }).toList();
   }
 
+  Widget _itemSidebar({
+    required String label,
+    required int count,
+    IconData? icon,
+    bool autofocus = false,
+  }) {
+    final ativo = _selecionado == label;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: CinemaFocusBox(
+        autofocus: autofocus,
+        borderRadius: 10,
+        scaleOnFocus: 1.02,
+        onTap: () => setState(() => _selecionado = label),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: ativo ? const Color(0xFFF5B82E).withOpacity(0.22) : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: ativo ? const Color(0xFFF5B82E).withOpacity(0.65) : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 16, color: ativo ? const Color(0xFFF5B82E) : Colors.white60),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: ativo ? const Color(0xFFF5B82E) : Colors.white.withOpacity(0.85),
+                    fontWeight: ativo ? FontWeight.w800 : FontWeight.w600,
+                    fontSize: 13.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '$count',
+                style: TextStyle(
+                  color: ativo ? const Color(0xFFF5B82E) : Colors.white38,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final lista = _filtrados;
+    final cats = _categoriasDinamicas.where((e) {
+      if (_buscaCat.trim().isEmpty) return true;
+      return SupabaseService.normalizarTexto(e.key)
+          .contains(SupabaseService.normalizarTexto(_buscaCat));
+    }).toList();
+
     return Scaffold(
       backgroundColor: const Color(0xFF0B0C10),
       appBar: AppBar(
@@ -1050,11 +1200,23 @@ class _TvSubcategoriaScreenState extends State<TvSubcategoriaScreen> {
               onPressed: () => setState(() => _menuAberto = !_menuAberto),
             ),
             const SizedBox(width: 6),
-            Text('${widget.titulo} • $_selecionado', style: const TextStyle(fontWeight: FontWeight.w800)),
+            Flexible(
+              child: Text(
+                '${widget.titulo} • $_selecionado (${lista.length})',
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
           ],
         ),
         actions: [
-          PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })), const SizedBox(width: 6), MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icon: Icons.playlist_add_rounded, label: 'Pedidos', onPressed: () => PedidosScreenModal.abrir(context)), const SizedBox(width: 6), TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: widget.onAbrirBusca),
+          PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })),
+          const SizedBox(width: 6),
+          MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)),
+          const SizedBox(width: 6),
+          TopIconeComTooltip(icon: Icons.playlist_add_rounded, label: 'Pedidos', onPressed: () => PedidosScreenModal.abrir(context)),
+          const SizedBox(width: 6),
+          TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: widget.onAbrirBusca),
           const SizedBox(width: 10),
           TopIconeComTooltip(icon: Icons.filter_alt_outlined, label: 'Filtro', onPressed: widget.onAbrirFiltro),
           const SizedBox(width: 20),
@@ -1065,40 +1227,95 @@ class _TvSubcategoriaScreenState extends State<TvSubcategoriaScreen> {
           if (_menuAberto)
             FocusTraversalGroup(
               child: Container(
-                width: 112,
-                color: const Color(0xFF11141C),
-                child: ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                  itemCount: widget.subfiltros.length,
-                  itemBuilder: (_, idx) {
-                    final f = widget.subfiltros[idx];
-                    final ativo = f == _selecionado;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: CinemaFocusBox(
-                        autofocus: ativo,
-                        borderRadius: 10,
-                        scaleOnFocus: 1.03,
-                        onTap: () => setState(() => _selecionado = f),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                          decoration: BoxDecoration(
-                            color: ativo ? const Color(0xFFF5B82E).withOpacity(0.20) : Colors.transparent,
+                width: 240,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF11141C),
+                  border: Border(right: BorderSide(color: Colors.white.withOpacity(0.08))),
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                      child: TextField(
+                        controller: _catSearchCtrl,
+                        onChanged: (v) => setState(() => _buscaCat = v),
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: 'Buscar categoria...',
+                          hintStyle: const TextStyle(color: Colors.white38, fontSize: 12.5),
+                          prefixIcon: const Icon(Icons.search, size: 17, color: Colors.white54),
+                          suffixIcon: _buscaCat.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.close, size: 15, color: Colors.white54),
+                                  onPressed: () {
+                                    _catSearchCtrl.clear();
+                                    setState(() => _buscaCat = '');
+                                  },
+                                )
+                              : null,
+                          filled: true,
+                          fillColor: Colors.white.withOpacity(0.06),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                          border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            f,
-                            style: TextStyle(
-                              color: ativo ? const Color(0xFFF5B82E) : Colors.white70,
-                              fontWeight: ativo ? FontWeight.w800 : FontWeight.w600,
-                              fontSize: 14,
-                            ),
+                            borderSide: BorderSide.none,
                           ),
                         ),
                       ),
-                    );
-                  },
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Column(
+                        children: [
+                          _itemSidebar(
+                            label: 'Todos',
+                            count: widget.itens.length,
+                            icon: Icons.grid_view_rounded,
+                            autofocus: _selecionado == 'Todos',
+                          ),
+                          _itemSidebar(
+                            label: 'Favoritos',
+                            count: widget.itens.where((o) => _favoritosIds.contains(o.chaveGrupo)).length,
+                            icon: Icons.star_rounded,
+                            autofocus: _selecionado == 'Favoritos',
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.category_outlined, size: 14, color: Colors.white54),
+                          const SizedBox(width: 6),
+                          Text(
+                            'CATEGORIAS (${cats.length})',
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 14),
+                        itemCount: cats.length,
+                        itemBuilder: (_, idx) {
+                          final entry = cats[idx];
+                          return _itemSidebar(
+                            label: entry.key,
+                            count: entry.value,
+                            autofocus: _selecionado == entry.key,
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),

@@ -115,6 +115,57 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     super.dispose();
   }
 
+  bool _ehCanalTv(ObraAgrupada o) {
+    final c = SupabaseService.normalizarTexto(o.categoria);
+    final g = SupabaseService.normalizarTexto(o.genero);
+    final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
+    if (c.contains('tv') || c.contains('canal') || c.contains('live') || c.contains('esporte') || c.contains('sport')) return true;
+    if (g.contains('tv ao vivo') || t.contains('tv') || t.contains('livestream')) return true;
+    if (o.fontes.isNotEmpty) {
+      final u = o.fontes.first.urlStream.toLowerCase();
+      if (u.contains('/live/') || u.endsWith('.ts')) return true;
+    }
+    return false;
+  }
+
+  List<ObraAgrupada> _agruparCanaisIdenticos(Iterable<ObraAgrupada> lista) {
+    final Map<String, ObraAgrupada> porNomeExato = {};
+    for (final item in lista) {
+      final chaveExata = item.titulo.trim().toLowerCase();
+      if (!porNomeExato.containsKey(chaveExata)) {
+        porNomeExato[chaveExata] = ObraAgrupada(
+          chaveGrupo: item.chaveGrupo,
+          titulo: item.titulo,
+          tituloOriginal: item.tituloOriginal,
+          categoria: item.categoria,
+          capaUrl: item.capaUrl,
+          bannerUrl: item.bannerUrl,
+          sinopse: item.sinopse,
+          genero: item.genero,
+          ano: item.ano,
+          notaImdb: item.notaImdb,
+          tmdbId: item.tmdbId,
+          imdbId: item.imdbId,
+          pais: item.pais,
+          emDestaque: item.emDestaque,
+          ordemDestaque: item.ordemDestaque,
+          aberturaSegundos: item.aberturaSegundos,
+          tags: List<String>.from(item.tags),
+          fontes: List<FonteMidia>.from(item.fontes),
+        );
+      } else {
+        final existente = porNomeExato[chaveExata]!;
+        final urlsExistentes = existente.fontes.map((f) => f.urlStream.trim()).toSet();
+        for (final f in item.fontes) {
+          if (f.urlStream.trim().isNotEmpty && urlsExistentes.add(f.urlStream.trim())) {
+            existente.fontes.add(f);
+          }
+        }
+      }
+    }
+    return porNomeExato.values.toList();
+  }
+
   List<ObraAgrupada> _dedup(Iterable<ObraAgrupada> src) { final v = <String>{}; return src.where((o) { if (o.capaUrl.isEmpty && o.bannerUrl.isEmpty) return false; final k = SupabaseService.normalizarTexto(o.titulo).replaceAll(RegExp(r'[^a-z0-9]'), ''); return k.isNotEmpty && v.add(k); }).toList(); }
   List<ObraAgrupada> get _filmes => _cacheFilmes;
 
@@ -547,7 +598,18 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
     _garantirTimerBannerInicio(filmesDestaque.length, seriesDestaque.length);
 
-    final continuar = widget.catalogo.where((o) => _progressoMap.containsKey(o.chaveGrupo)).toList();
+    final todosContinuar = widget.catalogo.where((o) => _progressoMap.containsKey(o.chaveGrupo)).toList();
+    final continuarVod = todosContinuar.where((o) => !_ehCanalTv(o)).toList();
+    final continuarTv = _agruparCanaisIdenticos(todosContinuar.where(_ehCanalTv));
+    final canaisEsportes = _agruparCanaisIdenticos(
+      widget.catalogo.where((o) {
+        final c = SupabaseService.normalizarTexto(o.categoria);
+        final g = SupabaseService.normalizarTexto(o.genero);
+        final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
+        return c.contains('sport') || c.contains('esporte') || g.contains('sport') || g.contains('esporte') || t.any((x) => x.contains('sport') || x.contains('esporte'));
+      }),
+    );
+    final canaisTvTodos = _agruparCanaisIdenticos(widget.catalogo.where(_ehCanalTv));
     final top10 = _cacheTop10;
 
     return ListView(
@@ -580,11 +642,17 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           ),
         ),
         const SizedBox(height: 18),
-        if (continuar.isNotEmpty)
+        if (continuarVod.isNotEmpty)
           _buildPrateleira(
-            titulo: 'Continuar Assistindo',
-            itens: continuar,
+            titulo: 'Continuar Assistindo (Filmes e Séries)',
+            itens: continuarVod,
             mostrarProgresso: true,
+          ),
+        if (continuarTv.isNotEmpty)
+          _buildPrateleira(
+            titulo: 'Continuar Assistindo TV',
+            itens: continuarTv,
+            mostrarProgresso: false,
           ),
         _buildPrateleira(
           titulo: 'Top 10 em Alta',
@@ -592,12 +660,18 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           numerado: true,
         ),
         _buildPrateleira(
-          titulo: 'Sports',
-          itens: _filtrarTagOuGenero(widget.catalogo, 'Sport'),
+          titulo: 'Esportes',
+          itens: canaisEsportes.take(10).toList(),
+          onVerTodos: canaisEsportes.length > 10
+              ? () => _abrirSubpagina('Esportes', canaisEsportes, const ['Todos'])
+              : null,
         ),
         _buildPrateleira(
-          titulo: 'Livestream',
-          itens: _filtrarTagOuGenero(widget.catalogo, 'TV'),
+          titulo: 'Canais de TV',
+          itens: canaisTvTodos.take(10).toList(),
+          onVerTodos: canaisTvTodos.length > 10
+              ? () => _abrirSubpagina('Canais de TV', canaisTvTodos, const ['Todos'])
+              : null,
         ),
         _buildPrateleira(
           titulo: 'No Cinema',
@@ -978,6 +1052,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     required List<ObraAgrupada> itens,
     bool numerado = false,
     bool mostrarProgresso = false,
+    VoidCallback? onVerTodos,
   }) {
     if (itens.isEmpty) return const SizedBox.shrink();
     return Padding(
@@ -985,9 +1060,36 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            titulo,
-            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  titulo,
+                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+                ),
+              ),
+              if (onVerTodos != null)
+                CinemaFocusBox(
+                  onTap: onVerTodos,
+                  borderRadius: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF161B26),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFF5B82E).withOpacity(0.55)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('Ver todos', style: TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w800, fontSize: 12.5)),
+                        SizedBox(width: 4),
+                        Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFFF5B82E), size: 12),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 12),
           FocusTraversalGroup(

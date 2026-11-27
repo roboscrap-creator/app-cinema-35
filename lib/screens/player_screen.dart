@@ -78,6 +78,15 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   String? _osdTexto;
   IconData? _osdIcone;
   Timer? _osdTimer;
+  String _epgAgora = '';
+  String _epgProximo = '';
+  String _epgSinopse = '';
+
+  bool get _isCanalTv {
+    final c = widget.obra.categoria.toLowerCase();
+    final u = _fonteAtual.urlStream.toLowerCase();
+    return c.contains('tv') || c.contains('canal') || c.contains('live') || c.contains('esporte') || c.contains('sport') || u.contains('/live/') || u.endsWith('.ts');
+  }
 
   DateTime _ultSeek = DateTime.fromMillisecondsSinceEpoch(0);
   int _ultDir = 0;
@@ -116,9 +125,11 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       final np = _player.platform as NativePlayer;
       np.setProperty('hwdec', 'auto-safe');
       np.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
+      np.setProperty('force-seekable', 'yes');
       np.setProperty('network-timeout', '30');
       np.setProperty('cache', 'yes');
-      np.setProperty('demuxer-max-bytes', '12582912');
+      np.setProperty('cache-secs', '15');
+      np.setProperty('demuxer-max-bytes', '33554432');
     }
     _videoCtrl = VideoController(_player);
 
@@ -156,12 +167,11 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _subs.add(_player.stream.duration.listen((d) {
       _duracao = d;
       _durNotifier.value = d;
-      if (_ultimaPosicaoBoa.inSeconds > 5 && d > _ultimaPosicaoBoa + const Duration(seconds: 5)) {
+      if (!_isCanalTv && _ultimaPosicaoBoa.inSeconds > 5 && d > _ultimaPosicaoBoa + const Duration(seconds: 5)) {
         final alvo = _ultimaPosicaoBoa;
         _ultimaPosicaoBoa = Duration.zero;
         _player.seek(alvo);
-        _mostrarOsd(Icons.sync, 'Retomado em ${_formatarTempo(alvo)}');
-      } else if (!_retomadaAplicada && widget.progressoInicial > 0.04 && widget.progressoInicial < 0.94 && d.inSeconds > 60) {
+      } else if (!_isCanalTv && !_retomadaAplicada && widget.progressoInicial > 0.04 && widget.progressoInicial < 0.94 && d.inSeconds > 60) {
         _retomadaAplicada = true;
         final alvo = Duration(seconds: (d.inSeconds * widget.progressoInicial).round());
         _player.seek(alvo);
@@ -218,6 +228,10 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         return;
       }
 
+      if (_isCanalTv) {
+        final trocouTv = await _tentarProximaFonteOuBackup(err, geracao: ger);
+        if (trocouTv) return;
+      }
       final trocou = await _tentarProximaFonteOuBackup(err, geracao: ger);
       if (!trocou && mounted && ger == _geracaoPlayback) {
         setState(() {
@@ -252,7 +266,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
               _mostrarOsd(Icons.swap_horiz, 'Oscilação na CDN, alternando para P2P...');
               await _abrirMidia(_fonteAtual.urlStream, geracao: ger);
             } else {
-              _mostrarOsd(Icons.swap_horiz, 'Buscando fonte mais rápida...');
+              if (!_isCanalTv) _mostrarOsd(Icons.swap_horiz, 'Buscando fonte mais rápida...');
               await _tentarProximaFonteOuBackup('Buffering prolongado (>12s)', geracao: ger);
             }
           }
@@ -264,6 +278,63 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
       }
     });
   }
+  Future<void> _carregarEpgCanal() async {
+    if (!mounted) return;
+    setState(() {
+      _epgAgora = widget.obra.sinopse.startsWith('Ao vivo agora:')
+          ? widget.obra.sinopse.replaceFirst('Ao vivo agora:', '').trim()
+          : '';
+      _epgProximo = '';
+      _epgSinopse = '';
+    });
+    if (!_isCanalTv) return;
+    final uri = Uri.tryParse(_fonteAtual.urlStream.trim());
+    if (uri == null || uri.host.isEmpty) return;
+    final segs = uri.pathSegments.where((s) => s.isNotEmpty).toList();
+    String user = '', pass = '', sid = '';
+    if (segs.length >= 4 && (segs[0] == 'live' || segs[0] == 'movie')) {
+      user = segs[1]; pass = segs[2]; sid = segs[3].replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), '');
+    } else if (segs.length == 3) {
+      user = segs[0]; pass = segs[1]; sid = segs[2].replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), '');
+    }
+    if (user.isEmpty || pass.isEmpty || sid.isEmpty) return;
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    final epgUrl = '${uri.scheme}://${uri.host}$port/player_api.php?username=${Uri.encodeComponent(user)}&password=${Uri.encodeComponent(pass)}&action=get_short_epg&stream_id=$sid&limit=2';
+    try {
+      final r = await http.get(Uri.parse(epgUrl)).timeout(const Duration(seconds: 6));
+      if (r.statusCode == 200) {
+        final dec = jsonDecode(utf8.decode(r.bodyBytes));
+        if (dec is Map && dec['epg_listings'] is List) {
+          final list = dec['epg_listings'] as List;
+          String decB64(dynamic raw) {
+            final s = (raw ?? '').toString().trim();
+            try { return utf8.decode(base64Decode(s)); } catch (_) { return s; }
+          }
+          final ag = list.isNotEmpty && list[0] is Map ? decB64((list[0] as Map)['title']) : '';
+          final pr = list.length > 1 && list[1] is Map ? decB64((list[1] as Map)['title']) : '';
+          var sin = list.isNotEmpty && list[0] is Map ? decB64((list[0] as Map)['description']) : '';
+          if (sin.isEmpty && ag.length >= 3) {
+            final q = Uri.encodeQueryComponent(ag.split('-').first.trim());
+            final tmdbR = await http.get(Uri.parse('https://api.themoviedb.org/3/search/multi?api_key=15d2ea6d0dc1d476efbca3eba2b9bbfb&language=pt-BR&query=$q')).timeout(const Duration(seconds: 5));
+            if (tmdbR.statusCode == 200) {
+              final td = jsonDecode(utf8.decode(tmdbR.bodyBytes));
+              if (td is Map && td['results'] is List && (td['results'] as List).isNotEmpty) {
+                sin = ((td['results'] as List).first['overview'] ?? '').toString().trim();
+              }
+            }
+          }
+          if (mounted) {
+            setState(() {
+              if (ag.isNotEmpty) _epgAgora = ag;
+              if (pr.isNotEmpty) _epgProximo = pr;
+              if (sin.isNotEmpty) _epgSinopse = sin;
+            });
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _carregarIntroEpisodio() async {
     if (!widget.obra.isSerie) return;
     final t = _fonteAtual.temporada ?? 1;
@@ -337,6 +408,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     _autoPlayTimer = null;
     SupabaseService.registrarVisualizacao(fonte.id);
     _carregarIntroEpisodio();
+    _carregarEpgCanal();
     await _abrirMidia(fonte.urlStream, geracao: ger);
   }
 
@@ -1570,9 +1642,20 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                     style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
                                   ),
                                   Text(
-                                    '${_fonteAtual.etiquetaEpisodio} ${_fonteAtual.badgeResumo}'.trim(),
-                                    style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 12.5, fontWeight: FontWeight.w600),
+                                    _isCanalTv
+                                        ? (_epgAgora.isNotEmpty ? 'AGORA: $_epgAgora${_epgProximo.isNotEmpty ? "  •  A SEGUIR: $_epgProximo" : ""}' : 'AO VIVO • ${_fonteAtual.resolucao}')
+                                        : '${_fonteAtual.etiquetaEpisodio} ${_fonteAtual.badgeResumo}'.trim(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 12.5, fontWeight: FontWeight.w700),
                                   ),
+                                  if (_isCanalTv && _epgSinopse.isNotEmpty)
+                                    Text(
+                                      _epgSinopse,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Colors.white70, fontSize: 11.5),
+                                    ),
                                 ],
                               ),
                             ),

@@ -26,6 +26,9 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
   late ObraAgrupada _obraAtual;
   bool _favorito = false;
   double _progressoSalvo = 0.0;
+  int _posicaoSalvaSegundos = 0;
+  String _fonteSalvaId = '';
+  String _etiquetaSalva = '';
   int _temporadaSelecionada = 1;
   String _audioSelecionado = '';
   String _resolucaoSelecionada = '';
@@ -69,9 +72,25 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
     }
     final favs = await SupabaseService.carregarFavoritos();
     final progMap = await SupabaseService.carregarProgressoAssistido();
-    final progVal = (progMap[_obraAtual.chaveGrupo]?['progresso'] as num?)?.toDouble() ?? 0.0;
+    final infoProg = progMap[_obraAtual.chaveGrupo];
+    final progVal = (infoProg?['progresso'] as num?)?.toDouble() ?? 0.0;
+    final posSeg = (infoProg?['posicao_seg'] as num?)?.toInt() ?? 0;
+    final fId = (infoProg?['fonte_id'] ?? '').toString();
+    final etq = (infoProg?['etiqueta'] ?? '').toString();
     if (mounted) {
-      setState(() { _favorito = favs.contains(_obraAtual.chaveGrupo); _progressoSalvo = progVal; });
+      setState(() {
+        _favorito = favs.contains(_obraAtual.chaveGrupo);
+        _progressoSalvo = progVal;
+        _posicaoSalvaSegundos = posSeg;
+        _fonteSalvaId = fId;
+        _etiquetaSalva = etq;
+        if (_obraAtual.isSerie && fId.isNotEmpty) {
+          final achada = _obraAtual.fontes.where((f) => f.id == fId);
+          if (achada.isNotEmpty && achada.first.temporada != null) {
+            _temporadaSelecionada = achada.first.temporada!;
+          }
+        }
+      });
     }
     final enriquecido = await SupabaseService.enriquecerComTmdb(_obraAtual);
     if (mounted) {
@@ -125,22 +144,39 @@ class _DetalheObraScreenState extends State<DetalheObraScreen> {
       }
     }
     if (!mounted) return;
-    final alvo = fonteEspecifica ?? _escolherMelhorFonte();
+    FonteMidia? alvo = fonteEspecifica;
+    if (alvo == null && _obraAtual.isSerie && _obraAtual.fontes.isNotEmpty) {
+      if (_fonteSalvaId.isNotEmpty) {
+        final porId = _obraAtual.fontes.where((f) => f.id == _fonteSalvaId);
+        if (porId.isNotEmpty) alvo = porId.first;
+      }
+      if (alvo == null && _etiquetaSalva.isNotEmpty) {
+        final porEtq = _obraAtual.fontes.where((f) => f.etiquetaEpisodio == _etiquetaSalva);
+        if (porEtq.isNotEmpty) alvo = porEtq.first;
+      }
+    }
+    alvo ??= _escolherMelhorFonte();
     if (alvo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Este título do Top 100 ainda está em breve no catálogo.')),
       );
       return;
     }
-    final eps = _obraAtual.isSerie ? _obraAtual.episodiosDaTemporada(_temporadaSelecionada) : <FonteMidia>[];
+    final tempAtiva = alvo.temporada ?? _temporadaSelecionada;
+    final eps = _obraAtual.isSerie ? _obraAtual.episodiosDaTemporada(tempAtiva) : <FonteMidia>[];
+    final mesmoEpSalvo = !_obraAtual.isSerie ||
+        fonteEspecifica == null ||
+        alvo.id == _fonteSalvaId ||
+        (_etiquetaSalva.isNotEmpty && alvo.etiquetaEpisodio == _etiquetaSalva);
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => CinemaPlayerScreen(
           obra: _obraAtual,
-          fonteInicial: alvo,
+          fonteInicial: alvo!,
           listaEpisodios: eps,
-          progressoInicial: fonteEspecifica == null ? _progressoSalvo : 0.0,
+          progressoInicial: mesmoEpSalvo ? _progressoSalvo : 0.0,
+          posicaoInicialSegundos: mesmoEpSalvo ? _posicaoSalvaSegundos : 0,
         ),
       ),
     ).then((_) => _carregarDetalhesExtras());

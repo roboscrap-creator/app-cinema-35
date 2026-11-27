@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../main.dart';
 import '../widgets/cinema_widgets.dart';
 import '../models/midia_model.dart';
@@ -19,6 +20,7 @@ class CinemaPlayerScreen extends StatefulWidget {
   final FonteMidia fonteInicial;
   final List<FonteMidia> listaEpisodios;
   final double progressoInicial;
+  final int posicaoInicialSegundos;
 
   const CinemaPlayerScreen({
     super.key,
@@ -26,6 +28,7 @@ class CinemaPlayerScreen extends StatefulWidget {
     required this.fonteInicial,
     this.listaEpisodios = const [],
     this.progressoInicial = 0.0,
+    this.posicaoInicialSegundos = 0,
   });
 
   @override
@@ -61,6 +64,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   int _retryAutoCount = 0;
   int _geracaoPlayback = 0;
   String _viaAtual = '';
+  String _urlFinalAberta = '';
   bool _forcandoP2pNaSessao = false;
   Duration _ultimaPosicaoBoa = Duration.zero;
   int _segundosTravado = 0;
@@ -68,7 +72,16 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   Timer? _watchdogTimer;
   bool _operacaoWatchdogEmAndamento = false;
   bool _retomadaAplicada = false;
+  int _alvoRetomadaPendenteSeg = 0;
   bool _mostrarBotaoInicio = false;
+  bool _arrastandoBarra = false;
+  Duration _posicaoPreview = Duration.zero;
+  Timer? _scrubHideTimer;
+  Player? _previewPlayer;
+  VideoController? _previewVideoCtrl;
+  String _previewUrlAberta = '';
+  bool _previewPronto = false;
+  DateTime _ultimoSeekPreview = DateTime.fromMillisecondsSinceEpoch(0);
   bool _preAqueceuProx = false;
   int _contagemAutoPlay = 0;
   Timer? _autoPlayTimer;
@@ -124,12 +137,15 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     if (_player.platform is NativePlayer) {
       final np = _player.platform as NativePlayer;
       np.setProperty('hwdec', 'auto-safe');
-      np.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
+      np.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=3,rw_timeout=5000000');
       np.setProperty('force-seekable', 'yes');
-      np.setProperty('network-timeout', '30');
+      np.setProperty('network-timeout', '25');
       np.setProperty('cache', 'yes');
       np.setProperty('cache-secs', '15');
-      np.setProperty('demuxer-max-bytes', '33554432');
+      np.setProperty('cache-pause-initial', 'yes');
+      np.setProperty('cache-pause-wait', '1.5');
+      np.setProperty('demuxer-readahead-secs', '12');
+      np.setProperty('demuxer-max-bytes', '41943040');
     }
     _videoCtrl = VideoController(_player);
 
@@ -171,16 +187,30 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         final alvo = _ultimaPosicaoBoa;
         _ultimaPosicaoBoa = Duration.zero;
         _player.seek(alvo);
-      } else if (!_isCanalTv && !_retomadaAplicada && widget.progressoInicial > 0.04 && widget.progressoInicial < 0.94 && d.inSeconds > 60) {
-        _retomadaAplicada = true;
-        final alvo = Duration(seconds: (d.inSeconds * widget.progressoInicial).round());
-        _player.seek(alvo);
-        if (mounted) {
-          setState(() => _mostrarBotaoInicio = true);
-          _mostrarOsd(Icons.history, 'Retomado de ${_formatarTempo(alvo)}');
-          Future.delayed(const Duration(seconds: 8), () {
-            if (mounted) setState(() => _mostrarBotaoInicio = false);
+        return;
+      }
+      if (!_isCanalTv && !_retomadaAplicada && d.inSeconds > 20) {
+        int alvoSeg = widget.posicaoInicialSegundos;
+        if (alvoSeg <= 5 && widget.progressoInicial > 0.015 && widget.progressoInicial < 0.96) {
+          alvoSeg = (d.inSeconds * widget.progressoInicial).round();
+        }
+        if (alvoSeg > 5 && alvoSeg < (d.inSeconds - 10)) {
+          _retomadaAplicada = true;
+          _alvoRetomadaPendenteSeg = alvoSeg;
+          final alvo = Duration(seconds: alvoSeg);
+          _player.seek(alvo);
+          Future.delayed(const Duration(milliseconds: 900), () {
+            if (mounted && _alvoRetomadaPendenteSeg > 5 && _posicao.inSeconds < (_alvoRetomadaPendenteSeg - 8)) {
+              _player.seek(Duration(seconds: _alvoRetomadaPendenteSeg));
+            }
           });
+          if (mounted) {
+            setState(() => _mostrarBotaoInicio = true);
+            _mostrarOsd(Icons.history, 'Retomado de ${_formatarTempo(alvo)}');
+            Future.delayed(const Duration(seconds: 8), () {
+              if (mounted) setState(() => _mostrarBotaoInicio = false);
+            });
+          }
         }
       }
     }));
@@ -509,6 +539,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
         headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
       }
       if (!mounted || ger != _geracaoPlayback) return;
+      _urlFinalAberta = urlFinal;
       await _player.open(Media(urlFinal, httpHeaders: headers), play: true);
     } catch (e) {
       if (mounted && ger == _geracaoPlayback) {
@@ -524,13 +555,61 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   }
 
   Future<void> _salvarProgressoAtual() async {
-    if (_duracao.inSeconds <= 10) return;
+    if (_isCanalTv || _duracao.inSeconds <= 10 || _posicao.inSeconds < 5) return;
     final pct = _posicao.inSeconds / _duracao.inSeconds;
     await SupabaseService.salvarProgressoAssistido(
       chaveGrupo: widget.obra.chaveGrupo,
       progresso: pct,
       etiquetaEp: _fonteAtual.etiquetaEpisodio,
+      posicaoSegundos: _posicao.inSeconds,
+      duracaoSegundos: _duracao.inSeconds,
+      fonteId: _fonteAtual.id,
     );
+  }
+
+  void _atualizarScrubPreview(Duration alvo, String urlStreamAtual) {
+    _scrubHideTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _arrastandoBarra = true;
+      _posicaoPreview = alvo;
+    });
+    _scrubHideTimer = Timer(const Duration(milliseconds: 2200), () {
+      if (mounted) setState(() => _arrastandoBarra = false);
+    });
+    if (_isCanalTv || urlStreamAtual.isEmpty) return;
+    if (_previewPlayer == null) {
+      _previewPlayer = Player(configuration: const PlayerConfiguration(bufferSize: 4 * 1024 * 1024));
+      if (_previewPlayer!.platform is NativePlayer) {
+        final np = _previewPlayer!.platform as NativePlayer;
+        np.setProperty('hwdec', 'auto-safe');
+        np.setProperty('aid', 'no');
+        np.setProperty('sid', 'no');
+        np.setProperty('force-seekable', 'yes');
+        np.setProperty('demuxer-max-bytes', '8388608');
+      }
+      _previewVideoCtrl = VideoController(_previewPlayer!);
+      _previewPlayer!.stream.duration.listen((d) {
+        if (d.inSeconds > 5 && mounted && !_previewPronto) {
+          setState(() => _previewPronto = true);
+          _previewPlayer?.seek(_posicaoPreview);
+        }
+      });
+    }
+    if (_previewUrlAberta != urlStreamAtual) {
+      _previewUrlAberta = urlStreamAtual;
+      _previewPronto = false;
+      final headers = Map<String, String>.from(_fonteAtual.headers);
+      if (!headers.containsKey('User-Agent') && !urlStreamAtual.startsWith('http://127.0.0.1')) {
+        headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+      }
+      _previewPlayer!.open(Media(urlStreamAtual, httpHeaders: headers), play: false);
+    }
+    final agora = DateTime.now();
+    if (_previewPronto && agora.difference(_ultimoSeekPreview).inMilliseconds >= 260) {
+      _ultimoSeekPreview = agora;
+      _previewPlayer!.seek(alvo);
+    }
   }
 
   void _mostrarControlesEFocarPlay() {
@@ -548,6 +627,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
 
   void _reiniciarTimerControles() {
     _hideTimer?.cancel();
+    _scrubHideTimer?.cancel();
     if (!mounted) return;
     if (!_controlesVisiveis) {
       setState(() => _controlesVisiveis = true);
@@ -613,6 +693,7 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
     ]) {
       fn.dispose();
     }
+    _previewPlayer?.dispose();
     _player.dispose();
     TorrServerService.encerrar();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -1354,11 +1435,13 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
   }
 
   void _buscarRelativo(int segundos) {
-    final alvo = _posicao + Duration(seconds: segundos);
+    final base = _arrastandoBarra ? _posicaoPreview : _posicao;
+    final alvo = base + Duration(seconds: segundos);
     final clamped = alvo < Duration.zero
         ? Duration.zero
         : (_duracao > Duration.zero && alvo > _duracao ? _duracao : alvo);
     _player.seek(clamped);
+    _atualizarScrubPreview(clamped, _urlFinalAberta);
     _mostrarOsd(
       segundos < 0 ? Icons.replay_10 : Icons.forward_10,
       segundos < 0 ? '${segundos}s' : '+${segundos}s',
@@ -1706,7 +1789,150 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                       Padding(
                         padding: const EdgeInsets.fromLTRB(22, 0, 22, 16),
                         child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            if (!_isCanalTv && (!_tocando || _arrastandoBarra))
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: ValueListenableBuilder<Duration>(
+                                  valueListenable: _posNotifier,
+                                  builder: (_, posVal, __) {
+                                    final durVal = _durNotifier.value;
+                                    final tempoRef = _arrastandoBarra ? _posicaoPreview : posVal;
+                                    final ratio = durVal.inMilliseconds > 0
+                                        ? (tempoRef.inMilliseconds / durVal.inMilliseconds).clamp(0.0, 1.0)
+                                        : 0.0;
+                                    final imgFallback = widget.obra.bannerUrl.isNotEmpty
+                                        ? widget.obra.bannerUrl
+                                        : widget.obra.capaUrl;
+                                    return SizedBox(
+                                      height: 112,
+                                      child: LayoutBuilder(
+                                        builder: (ctxBox, constraints) {
+                                          const thumbW = 168.0;
+                                          final trackLeft = 56.0;
+                                          final trackRight = constraints.maxWidth - 56.0;
+                                          final trackW = (trackRight - trackLeft).clamp(60.0, constraints.maxWidth);
+                                          final rawX = trackLeft + (trackW * ratio) - (thumbW / 2);
+                                          final leftPos = rawX.clamp(112.0, (constraints.maxWidth - thumbW - 8).clamp(112.0, constraints.maxWidth));
+                                          return Stack(
+                                            clipBehavior: Clip.none,
+                                            children: [
+                                              Positioned(
+                                                left: 4,
+                                                bottom: 0,
+                                                child: Row(
+                                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                                  children: [
+                                                    ClipRRect(
+                                                      borderRadius: BorderRadius.circular(8),
+                                                      child: Container(
+                                                        width: 66,
+                                                        height: 98,
+                                                        decoration: BoxDecoration(
+                                                          color: const Color(0xFF141822),
+                                                          border: Border.all(color: const Color(0xFFF5B82E), width: 1.5),
+                                                          borderRadius: BorderRadius.circular(8),
+                                                        ),
+                                                        child: widget.obra.capaUrl.isNotEmpty
+                                                            ? CachedNetworkImage(
+                                                                imageUrl: widget.obra.capaUrl,
+                                                                fit: BoxFit.cover,
+                                                                memCacheWidth: 240,
+                                                                fadeInDuration: Duration.zero,
+                                                              )
+                                                            : const Icon(Icons.movie, color: Color(0xFFF5B82E), size: 30),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 10),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.black.withOpacity(0.75),
+                                                        borderRadius: BorderRadius.circular(8),
+                                                      ),
+                                                      child: Column(
+                                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          Text(
+                                                            _formatarTempo(tempoRef),
+                                                            style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 13, fontWeight: FontWeight.w900),
+                                                          ),
+                                                          const SizedBox(height: 2),
+                                                          ConstrainedBox(
+                                                            constraints: const BoxConstraints(maxWidth: 230),
+                                                            child: Text(
+                                                              widget.obra.titulo,
+                                                              maxLines: 1,
+                                                              overflow: TextOverflow.ellipsis,
+                                                              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              if (_arrastandoBarra)
+                                                Positioned(
+                                                  left: leftPos,
+                                                  bottom: 0,
+                                                  child: Container(
+                                                    width: thumbW,
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.black,
+                                                      borderRadius: BorderRadius.circular(8),
+                                                      border: Border.all(color: const Color(0xFFF5B82E), width: 1.8),
+                                                      boxShadow: const [BoxShadow(color: Colors.black87, blurRadius: 10)],
+                                                    ),
+                                                    child: Column(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        ClipRRect(
+                                                          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                                                          child: SizedBox(
+                                                            width: thumbW,
+                                                            height: 86,
+                                                            child: (_previewPronto && _previewVideoCtrl != null)
+                                                                ? Video(
+                                                                    controller: _previewVideoCtrl!,
+                                                                    controls: NoVideoControls,
+                                                                    fit: BoxFit.cover,
+                                                                  )
+                                                                : (imgFallback.isNotEmpty
+                                                                    ? CachedNetworkImage(
+                                                                        imageUrl: imgFallback,
+                                                                        fit: BoxFit.cover,
+                                                                        memCacheWidth: 360,
+                                                                        fadeInDuration: Duration.zero,
+                                                                      )
+                                                                    : Container(color: const Color(0xFF161A23))),
+                                                          ),
+                                                        ),
+                                                        Container(
+                                                          width: double.infinity,
+                                                          padding: const EdgeInsets.symmetric(vertical: 3),
+                                                          color: Colors.black87,
+                                                          alignment: Alignment.center,
+                                                          child: Text(
+                                                            _formatarTempo(tempoRef),
+                                                            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          );
+                                        },
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
                             Focus(
                               focusNode: _fnSlider,
                               child: Builder(
@@ -1737,11 +1963,15 @@ class _CinemaPlayerScreenState extends State<CinemaPlayerScreen> {
                                                 activeColor: const Color(0xFFF5B82E),
                                                 inactiveColor: Colors.white24,
                                                 onChangeEnd: (v) {
-                                                  _player.seek(Duration(milliseconds: v.toInt()));
+                                                  final dAlvo = Duration(milliseconds: v.toInt());
+                                                  _player.seek(dAlvo);
+                                                  _atualizarScrubPreview(dAlvo, _urlFinalAberta);
                                                   _reiniciarTimerControles();
                                                 },
                                                 onChanged: (v) {
-                                                  _posNotifier.value = Duration(milliseconds: v.toInt());
+                                                  final dAlvo = Duration(milliseconds: v.toInt());
+                                                  _posNotifier.value = dAlvo;
+                                                  _atualizarScrubPreview(dAlvo, _urlFinalAberta);
                                                   _reiniciarTimerControles();
                                                 },
                                               ),

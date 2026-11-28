@@ -155,7 +155,7 @@ class MaxAssistantService extends ChangeNotifier {
     };
   }
 
-  Future?> _consultarFichaOficialImdb({
+  Future<Map<String, dynamic>?> _consultarFichaOficialImdb({
     required String titulo,
     String? tituloOriginal,
     String? anoEsperado,

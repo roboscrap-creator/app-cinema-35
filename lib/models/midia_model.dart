@@ -70,12 +70,6 @@ class ObraAgrupada {
   String get titulo => nome;
   String get tituloOriginal => nome;
   int? get tmdbId => null;
-  String get imdbId => imdbIdReal ?? '';
-  String? get posterUrl => capaUrl;
-  String? get backdropUrl => (bannerUrl != null && bannerUrl!.trim().isNotEmpty) ? bannerUrl : capaUrl;
-  double get nota => notaImdb;
-  List<String> get generos => genero.split(RegExp(r'[,/|]')).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-  bool get isSerie => tipo.toLowerCase().contains('série') || tipo.toLowerCase().contains('serie') || tipo.toLowerCase().contains('anime');
 
   double get scorePopularidade => (visualizacoes * 2.0) + (notaImdb * 10.0);
 

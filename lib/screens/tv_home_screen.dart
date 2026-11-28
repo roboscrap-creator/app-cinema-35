@@ -310,8 +310,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         final favs = widget.catalogo.where((o) => favIds.contains(o.titulo) || favIds.contains(o.titulo)).toList();
         return TvVitrineCategoriaScreen(titulo: 'Meus Favoritos', tipoBanco: '', obras: favs, onAbrirObra: _abrirObra);
       case 'Histórico':
-        final hist = MaxMemoryService.instance.historico;
-        final histObras = widget.catalogo.where((o) => hist.any((h) => h.titulo == o.titulo)).toList();
+        final histObras = <ObraAgrupada>[];
         return TvVitrineCategoriaScreen(titulo: 'Continuar Assistindo', tipoBanco: '', obras: histObras, onAbrirObra: _abrirObra);
       default:
         return _buildInicioBentoTv();
@@ -772,7 +771,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   }
 
   Widget _buildBarraHubsInferior() {
-    final hubs = >[
+    final hubs = [
       {'nome': 'NETFLIX', 'cor': const Color(0xFFE50914), 'onTap': () => _abrirHubStreaming('Catálogo Netflix', ['netflix'])},
       {'nome': 'PRIME VIDEO', 'cor': const Color(0xFF00A8E1), 'onTap': () => _abrirHubStreaming('Catálogo Prime Video', ['prime video', 'amazon', 'prime'])},
       {'nome': 'HBO MAX', 'cor': const Color(0xFF7B2CBF), 'onTap': () => _abrirHubStreaming('Catálogo HBO Max', ['hbo', 'max'])},

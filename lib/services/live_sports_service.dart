@@ -74,14 +74,14 @@ class LiveSportsService {
         final res = await http.get(uri).timeout(const Duration(seconds: 7));
         if (res.statusCode != 200) return;
         final data = jsonDecode(res.body);
-        final events = (data['events'] as List<dynamic>?) ?? [];
+        final events = (data['events'] is List ? data['events'] : []);
 
         for (final ev in events) {
           if (ev is! Map) continue;
-          final competitions = (ev['competitions'] as List<dynamic>?) ?? [];
+          final competitions = (ev['competitions'] is List ? ev['competitions'] : []);
           if (competitions.isEmpty) continue;
           final comp = competitions.first as Map;
-          final competitors = (comp['competitors'] as List<dynamic>?) ?? [];
+          final competitors = (comp['competitors'] is List ? comp['competitors'] : []);
           if (competitors.length < 2) continue;
 
           Map? home;
@@ -126,9 +126,9 @@ class LiveSportsService {
           }
 
           String emissora = '';
-          final broadcasts = (comp['broadcasts'] as List<dynamic>?) ?? [];
+          final broadcasts = (comp['broadcasts'] is List ? comp['broadcasts'] : []);
           if (broadcasts.isNotEmpty && broadcasts.first is Map) {
-            final names = ((broadcasts.first as Map)['names'] as List<dynamic>?) ?? [];
+            final names = ((broadcasts.first as Map)['names'] is List ? (broadcasts.first as Map)['names'] : []);
             if (names.isNotEmpty) emissora = names.first.toString();
           }
 

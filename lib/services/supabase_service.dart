@@ -1010,4 +1010,199 @@ class SupabaseService {
     return ranking;
   }
 
+
+  final Set<String> _trendingTmdbIds = {};
+  final Set<String> _trendingTitulosNorm = {};
+  bool _trendingCarregado = false;
+
+  String _normTituloRanking(String s) {
+    return s
+        .toLowerCase()
+        .replaceAll(RegExp(r'\(\d{4}\)'), '')
+        .replaceAll(RegExp(r'[^a-z0-9]'), '')
+        .trim();
+  }
+
+  Future<void> carregarTendenciasTmdb() async {
+    if (_trendingCarregado && _trendingTitulosNorm.isNotEmpty) return;
+    const urls = [
+      'https://api.themoviedb.org/3/trending/movie/week?api_key=$_tmdbApiKey&language=pt-BR',
+      'https://api.themoviedb.org/3/movie/now_playing?api_key=$_tmdbApiKey&language=pt-BR&region=BR',
+      'https://api.themoviedb.org/3/trending/tv/week?api_key=$_tmdbApiKey&language=pt-BR',
+      'https://api.themoviedb.org/3/tv/on_the_air?api_key=$_tmdbApiKey&language=pt-BR',
+    ];
+    for (final u in urls) {
+      try {
+        final res = await http.get(Uri.parse(u)).timeout(const Duration(seconds: 6));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final results = (data['results'] as List?) ?? [];
+          for (final r in results) {
+            if (r is Map) {
+              final id = (r['id'] ?? '').toString().trim();
+              if (id.isNotEmpty) _trendingTmdbIds.add(id);
+              for (final k in ['title', 'original_title', 'name', 'original_name']) {
+                final t = (r[k] ?? '').toString().trim();
+                final n = _normTituloRanking(t);
+                if (n.length >= 3) _trendingTitulosNorm.add(n);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    _trendingCarregado = true;
+  }
+
+  bool estaEmAltaTmdbImdb(ObraAgrupada o) {
+    if (o.tmdbId.isNotEmpty && _trendingTmdbIds.contains(o.tmdbId.trim())) {
+      return true;
+    }
+    final n = _normTituloRanking(o.titulo);
+    return n.isNotEmpty && _trendingTitulosNorm.contains(n);
+  }
+
+  int _extrairAnoNumerico(ObraAgrupada o) {
+    final m = RegExp(r'(19\d{2}|20\d{2})').firstMatch(o.ano);
+    if (m != null) return int.tryParse(m.group(1)!) ?? 0;
+    final m2 = RegExp(r'\((19\d{2}|20\d{2})\)').firstMatch(o.titulo);
+    if (m2 != null) return int.tryParse(m2.group(1)!) ?? 0;
+    return 0;
+  }
+
+  List<ObraAgrupada> ordenarCronologicoRelevancia(
+    List<ObraAgrupada> lista, {
+    bool priorizarTrendingNoTopo = true,
+  }) {
+    final copia = List<ObraAgrupada>.from(lista);
+    copia.sort((a, b) {
+      if (priorizarTrendingNoTopo) {
+        final trA = estaEmAltaTmdbImdb(a);
+        final trB = estaEmAltaTmdbImdb(b);
+        if (trA != trB) return trA ? -1 : 1;
+      }
+      final anoA = _extrairAnoNumerico(a);
+      final anoB = _extrairAnoNumerico(b);
+      if (anoA != anoB) return anoB.compareTo(anoA);
+
+      if ((b.notaImdb - a.notaImdb).abs() >= 0.2) {
+        return b.notaImdb.compareTo(a.notaImdb);
+      }
+
+      final midiaA = (a.bannerUrl.isNotEmpty ? 2 : 0) + (a.capaUrl.isNotEmpty ? 1 : 0);
+      final midiaB = (b.bannerUrl.isNotEmpty ? 2 : 0) + (b.capaUrl.isNotEmpty ? 1 : 0);
+      if (midiaA != midiaB) return midiaB.compareTo(midiaA);
+
+      return a.titulo.compareTo(b.titulo);
+    });
+    return copia;
+  }
+
+  List<ObraAgrupada> selecionarDestaquesBanner({
+    required List<ObraAgrupada> candidatos,
+    required int limite,
+  }) {
+    final ordenados = ordenarCronologicoRelevancia(
+      candidatos.where((o) => o.capaUrl.isNotEmpty || o.bannerUrl.isNotEmpty).toList(),
+      priorizarTrendingNoTopo: true,
+    );
+    final comBackdrop = ordenados.where((o) => o.bannerUrl.isNotEmpty).toList();
+    final resultado = <ObraAgrupada>[];
+    final vistos = <String>{};
+
+    for (final o in comBackdrop) {
+      if (resultado.length >= limite) break;
+      if (vistos.add(o.chaveAgrupamento)) resultado.add(o);
+    }
+    if (resultado.length < limite) {
+      for (final o in ordenados) {
+        if (resultado.length >= limite) break;
+        if (vistos.add(o.chaveAgrupamento)) resultado.add(o);
+      }
+    }
+    return resultado;
+  }
+
+  List<MapEntry<String, int>> extrairCategoriasDinamicas(List<ObraAgrupada> obras) {
+    final contagem = <String, int>{};
+    for (final o in obras) {
+      final bruto = '${o.categoria},${o.genero},${o.tags}';
+      final partes = bruto.split(RegExp(r'[,;|/]+'));
+      final vistosNaObra = <String>{};
+      for (final p in partes) {
+        var limpo = p.trim();
+        if (limpo.length < 3 || limpo.length > 34) continue;
+        final low = limpo.toLowerCase();
+        if (low == 'filme' ||
+            low == 'filmes' ||
+            low == 'serie' ||
+            low == 'series' ||
+            low == 'séries' ||
+            low == 'vod' ||
+            low == 'geral' ||
+            low == 'outros' ||
+            low == 'null' ||
+            low == 'n/a') {
+          continue;
+        }
+        limpo = limpo[0].toUpperCase() + limpo.substring(1);
+        if (vistosNaObra.add(limpo.toLowerCase())) {
+          contagem[limpo] = (contagem[limpo] ?? 0) + 1;
+        }
+      }
+    }
+    final lista = contagem.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return lista;
+  }
+
+  Future<List<ObraAgrupada>> buscarPaginaCatalogo({
+    required int offset,
+    int limit = 60,
+    String? tipo,
+    String? generoOuTag,
+    String? busca,
+    String ordenacao = 'cronologico',
+  }) async {
+    try {
+      final params = <String>[
+        'select=*',
+        'limit=$limit',
+        'offset=$offset',
+      ];
+      if (ordenacao == 'nota') {
+        params.add('order=nota_imdb.desc.nullslast,ano.desc.nullslast,id.desc');
+      } else if (ordenacao == 'az') {
+        params.add('order=titulo.asc');
+      } else {
+        params.add('order=ano.desc.nullslast,nota_imdb.desc.nullslast,id.desc');
+      }
+
+      if (tipo != null && tipo.isNotEmpty) {
+        params.add('tipo=ilike.*${Uri.encodeComponent(tipo)}*');
+      }
+      if (generoOuTag != null && generoOuTag.isNotEmpty && generoOuTag != 'Todos') {
+        final g = Uri.encodeComponent(generoOuTag);
+        params.add('or=(categoria.ilike.*$g*,genero.ilike.*$g*,tags.ilike.*$g*)');
+      }
+      if (busca != null && busca.trim().isNotEmpty) {
+        final q = Uri.encodeComponent(busca.trim());
+        params.add('or=(titulo.ilike.*$q*,genero.ilike.*$q*,tags.ilike.*$q*,sinopse.ilike.*$q*)');
+      }
+
+      final uri = Uri.parse('$_supabaseUrl/rest/v1/catalogo_agrupado_view?${params.join('&')}');
+      final res = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 12));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final raw = jsonDecode(res.body);
+        if (raw is List) {
+          return raw
+              .whereType>()
+              .map((row) => ObraAgrupada.fromMap(row))
+              .toList();
+        }
+      }
+    } catch (_) {}
+    return [];
+  }
+
 }

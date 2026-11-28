@@ -1,0 +1,99 @@
+[1mdiff --git a/lib/screens/tv_home_screen.dart b/lib/screens/tv_home_screen.dart[m
+[1mindex a9fede5..a1cabac 100644[m
+[1m--- a/lib/screens/tv_home_screen.dart[m
+[1m+++ b/lib/screens/tv_home_screen.dart[m
+[36m@@ -311,9 +311,9 @@[m [mclass _TvHomeScreenState extends State<TvHomeScreen> {[m
+     );[m
+   }[m
+ [m
+[31m-  Widget _buildAbaInicio() {[m
+[32m+[m[32mWidget _buildAbaInicio() {[m
+     final filmesDestaque = (_filmes.where((o) => o.emDestaque || o.tags.any((t) => t.toLowerCase().contains('banner'))).toList()[m
+[31m-          ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))[m
+[32m+[m[32m            ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))[m
+         .take(4)[m
+         .toList();[m
+     if (filmesDestaque.length < 4) {[m
+[36m@@ -324,7 +324,7 @@[m [mclass _TvHomeScreenState extends State<TvHomeScreen> {[m
+     }[m
+ [m
+     final seriesDestaque = (_series.where((o) => o.emDestaque || o.tags.any((t) => t.toLowerCase().contains('banner'))).toList()[m
+[31m-          ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))[m
+[32m+[m[32m            ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))[m
+         .take(4)[m
+         .toList();[m
+     if (seriesDestaque.length < 4) {[m
+[36m@@ -336,34 +336,52 @@[m [mclass _TvHomeScreenState extends State<TvHomeScreen> {[m
+ [m
+     final continuar = widget.catalogo.where((o) => _progressoMap.containsKey(o.chaveGrupo)).toList();[m
+     final top10 = _cacheTop10;[m
+[31m-    final destaquesUnificados = <ObraAgrupada>[];[m
+[31m-    for (int i = 0; i < 4; i++) {[m
+[31m-      if (i < filmesDestaque.length) destaquesUnificados.add(filmesDestaque[i]);[m
+[31m-      if (i < seriesDestaque.length) destaquesUnificados.add(seriesDestaque[i]);[m
+[31m-    }[m
+ [m
+     return ListView([m
+       cacheExtent: 320,[m
+       padding: const EdgeInsets.fromLTRB(26, 8, 26, 36),[m
+       children: [[m
+[31m-        ValueListenableBuilder<ObraAgrupada?>([m
+[31m-          valueListenable: _obraPreviewNotifier,[m
+[31m-          builder: (_, obraFocada, __) {[m
+[31m-            return SizedBox([m
+[31m-              height: 268,[m
+[31m-              child: _buildCarrosselHero([m
+[31m-                tituloSecao: obraFocada != null ? 'Em Foco' : 'Destaques CineMax',[m
+[31m-                itens: destaquesUnificados,[m
+[31m-                obraPreview: obraFocada,[m
+[31m-                paginaAtual: _idxBannerFilme,[m
+[31m-                onPageChanged: (i) {[m
+[31m-                  _obraPreviewNotifier.value = null;[m
+[31m-                  setState(() => _idxBannerFilme = i);[m
+[31m-                },[m
+[32m+[m[32m        // ====================== NOVO BLOCO: GRADE DIVIDIDA FILMES × SÉRIES ======================[m
+[32m+[m[32m        Padding([m
+[32m+[m[32m          padding: const EdgeInsets.symmetric(vertical: 12),[m
+[32m+[m[32m          child: Row([m
+[32m+[m[32m            crossAxisAlignment: CrossAxisAlignment.start,[m
+[32m+[m[32m            children: [[m
+[32m+[m[32m              Expanded([m
+[32m+[m[32m                flex: 1,[m
+[32m+[m[32m                child: GridView.count([m
+[32m+[m[32m                  shrinkWrap: true,[m
+[32m+[m[32m                  physics: const NeverScrollableScrollPhysics(),[m
+[32m+[m[32m                  crossAxisCount: 2,[m
+[32m+[m[32m                  crossAxisSpacing: 10,[m
+[32m+[m[32m                  mainAxisSpacing: 10,[m
+[32m+[m[32m                  children: filmesDestaque.map((obra) {[m
+[32m+[m[32m                    return CinemaFocusBox([m
+[32m+[m[32m                      child: TvPosterCard(obra: obra),[m
+[32m+[m[32m                    );[m
+[32m+[m[32m                  }).toList(),[m
+[32m+[m[32m                ),[m
+               ),[m
+[31m-            );[m
+[31m-          },[m
+[32m+[m[32m              const SizedBox(width: 12),[m
+[32m+[m[32m              Expanded([m
+[32m+[m[32m                flex: 1,[m
+[32m+[m[32m                child: GridView.count([m
+[32m+[m[32m                  shrinkWrap: true,[m
+[32m+[m[32m                  physics: const NeverScrollableScrollPhysics(),[m
+[32m+[m[32m                  crossAxisCount: 2,[m
+[32m+[m[32m                  crossAxisSpacing: 10,[m
+[32m+[m[32m                  mainAxisSpacing: 10,[m
+[32m+[m[32m                  children: seriesDestaque.map((obra) {[m
+[32m+[m[32m                    return CinemaFocusBox([m
+[32m+[m[32m                      child: TvPosterCard(obra: obra),[m
+[32m+[m[32m                    );[m
+[32m+[m[32m                  }).toList(),[m
+[32m+[m[32m                ),[m
+[32m+[m[32m              ),[m
+[32m+[m[32m            ],[m
+[32m+[m[32m          ),[m
+         ),[m
+[32m+[m[32m        // ==========================================================================================[m
+         const SizedBox(height: 22),[m
+         if (continuar.isNotEmpty)[m
+           _buildPrateleira([m

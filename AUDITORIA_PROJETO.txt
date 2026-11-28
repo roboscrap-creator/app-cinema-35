@@ -1,0 +1,53 @@
+==================================================
+AUDITORIA ESTRUTURA COMPLETA DO PROJETO EXPO
+==================================================
+
+==================== ESTRUTURA DE PASTAS ====================
+.
+├── AUDITORIA_PROJETO.txt
+├── INSTRUCOES_SECRETS.md
+├── _historico
+│   ├── auditoria_app.shmd
+│   ├── cinemax_codigo_completo.txt
+│   ├── cinemax_projeto_completo.txt
+│   ├── mic_trecho.txt
+│   └── patch_player.py
+├── cinema-release.jks
+├── gerar_icone.py
+├── lib
+│   ├── main.dart
+│   ├── models
+│   │   └── midia_model.dart
+│   ├── screens
+│   │   ├── detalhe_obra_screen.dart
+│   │   ├── player_screen.dart
+│   │   ├── tv_aux_screens.dart
+│   │   └── tv_home_screen.dart
+│   ├── services
+│   │   ├── app_logger.dart
+│   │   ├── app_updater_service.dart
+│   │   ├── catalog_audit_service.dart
+│   │   ├── cdn_stream_service.dart
+│   │   ├── max_assistant_service.dart
+│   │   ├── max_memory_service.dart
+│   │   ├── pedidos_scrape_service.dart
+│   │   ├── subtitle_service.dart
+│   │   ├── supabase_service.dart
+│   │   └── torrserver_service.dart
+│   └── widgets
+│       ├── cinema_widgets.dart
+│       ├── max_assistant_overlay.dart
+│       └── perfis_usuario_screen.dart
+├── pubspec.yaml
+└── test
+    └── visual_audit_test.dart
+
+8 directories, 30 files
+
+==================== package.json ====================
+
+==================== app.json ====================
+
+==================== eas.json ====================
+
+==================== LISTA DE ARQUIVOS DE CÓDIGO ====================

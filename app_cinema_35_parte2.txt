@@ -1,0 +1,1862 @@
+==========================================
+ARQUIVO: lib/services/torrserver_service.dart
+==========================================
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/services.dart';
+
+class TorrentStreamInfo {
+  final String playUrl;
+  final String fileName;
+  final int fileSizeBytes;
+  final int activePeers;
+  final int totalSeeds;
+  final double downloadSpeedBytes;
+  final bool viaCloudCache;
+
+  const TorrentStreamInfo({
+    required this.playUrl,
+    required this.fileName,
+    required this.fileSizeBytes,
+    required this.activePeers,
+    required this.totalSeeds,
+    required this.downloadSpeedBytes,
+    this.viaCloudCache = false,
+  });
+}
+
+class TorrServerService {
+  static const MethodChannel _channel = MethodChannel('com.chiavegatti.cinema/torrserver');
+  static const String baseUrl = 'http://127.0.0.1:8090';
+  static Process? _process;
+  static bool _configurado = false;
+  static Future<bool>? _iniciandoFuture;
+  static String ultimoErro = '';
+
+  static void encerrar() {
+    try {
+      _process?.kill();
+      _process = null;
+      _configurado = false;
+    } catch (_) {}
+  }
+
+  static Future<bool> _portaAberta() async {
+    try {
+      final s = await Socket.connect('127.0.0.1', 8090, timeout: const Duration(milliseconds: 350));
+      s.destroy();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> _aplicarConfiguracoes() async {
+    if (_configurado) return;
+    try {
+      await _postJson('/settings', {
+        'action': 'set',
+        'sets': {
+          'CacheSize': 16777216,
+          'ReaderReadAHead': 95,
+          'PreloadCache': 2,
+          'UseDisk': false,
+          'ForceEncrypt': false,
+          'RetrackersMode': 1,
+          'TorrentDisconnectTimeout': 30,
+          'EnableIPv6': true,
+          'DisableTCP': false,
+          'DisableUTP': false,
+          'DisableUPNP': false,
+          'DisableDHT': false,
+          'DisablePEX': false,
+          'DisableUpload': false,
+          'ConnectionsLimit': 60,
+          'PeersListenPort': 0,
+        },
+      });
+      _configurado = true;
+    } catch (_) {}
+  }
+
+  static Future<bool> garantirAtivo() {
+    if (_iniciandoFuture != null) return _iniciandoFuture!;
+    _iniciandoFuture = _garantirAtivoInterno().whenComplete(() => _iniciandoFuture = null);
+    return _iniciandoFuture!;
+  }
+
+  static Future<bool> _garantirAtivoInterno() async {
+    if (await _portaAberta()) {
+      await _aplicarConfiguracoes();
+      return true;
+    }
+    try {
+      final paths = await _channel.invokeMapMethod('getPaths');
+      final nativeLibDir = (paths?['nativeLibDir'] ?? '').toString();
+      final filesDir = (paths?['filesDir'] ?? '').toString();
+      final binPath = '$nativeLibDir/libtorrserver.so';
+      if (nativeLibDir.isEmpty || !await File(binPath).exists()) {
+        ultimoErro = 'Motor de streaming local não encontrado.';
+        return false;
+      }
+      final dataDir = Directory('$filesDir/torrserver');
+      if (!await dataDir.exists()) await dataDir.create(recursive: true);
+
+      final tentativas = [
+        ['-p', '8090', '-d', dataDir.path],
+        ['--port', '8090', '--path', dataDir.path],
+        ['']..clear(),
+      ];
+
+      for (final args in tentativas) {
+        _process?.kill();
+        _process = await Process.start(
+          binPath,
+          args,
+          workingDirectory: dataDir.path,
+          environment: {
+            'HOME': filesDir,
+            'TMPDIR': dataDir.path,
+            'RES_OPTIONS': 'ndots:0',
+            'GODEBUG': 'netdns=go',
+          },
+        );
+        _process!.stdout.listen((_) {}, onError: (_) {});
+        _process!.stderr.listen((_) {}, onError: (_) {});
+        for (int i = 0; i < 16; i++) {
+          await Future.delayed(const Duration(milliseconds: 200));
+          if (await _portaAberta()) {
+            ultimoErro = '';
+            await _aplicarConfiguracoes();
+            return true;
+          }
+        }
+      }
+      ultimoErro = 'Tempo esgotado ao iniciar o motor local.';
+      return false;
+    } catch (e) {
+      ultimoErro = 'Erro ao iniciar motor local: $e';
+      return false;
+    }
+  }
+
+  static Future _postJson(String endpoint, Map body) async {
+    final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    try {
+      final req = await c.postUrl(Uri.parse('$baseUrl$endpoint'));
+      req.headers.contentType = ContentType.json;
+      req.write(jsonEncode(body));
+      final res = await req.close().timeout(const Duration(seconds: 5));
+      final txt = await utf8.decoder.bind(res).join();
+      if (txt.trim().startsWith('{')) return jsonDecode(txt);
+    } catch (_) {} finally {
+      c.close(force: true);
+    }
+    return null;
+  }
+
+  static Future<void> removerTorrent(String magnetOuHash) async {
+    try {
+      final hash = magnetOuHash.length == 40 ? magnetOuHash.toLowerCase() : _extrairHash(magnetOuHash);
+      if (hash.length == 40) {
+        await _postJson('/torrents', {'action': 'rem', 'hash': hash});
+      }
+    } catch (_) {}
+  }
+
+  static Future<List<int>?> _baixarTorrentCache(String hashHex) async {
+    final hUpper = hashHex.toUpperCase();
+    final urls = [
+      'https://itorrents.org/torrent/$hUpper.torrent',
+      'https://torrage.info/torrent.php?h=$hUpper',
+      'https://btcache.me/torrent/$hUpper',
+    ];
+    final completer = Completer<List<int>?>();
+    int pendentes = urls.length;
+    for (final u in urls) {
+      () async {
+        final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+        try {
+          final req = await c.getUrl(Uri.parse(u));
+          req.headers.set('User-Agent', 'Mozilla/5.0');
+          final res = await req.close().timeout(const Duration(seconds: 5));
+          if (res.statusCode == 200) {
+            final bytes = await res.fold<List<int>>([], (prev, el) => prev..addAll(el));
+            if (bytes.length > 100 && bytes.first == 100 && !completer.isCompleted) {
+              completer.complete(bytes);
+              return;
+            }
+          } else {
+            await res.drain();
+          }
+        } catch (_) {} finally {
+          c.close(force: true);
+          pendentes--;
+          if (pendentes == 0 && !completer.isCompleted) completer.complete(null);
+        }
+      }();
+    }
+    return completer.future;
+  }
+
+  static Future<bool> _uploadTorrentParaServidor(List<int> bytes, String hashHex) async {
+    final c = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    try {
+      const boundary = '----TorrServerBoundary7MA4YWxkTrZu0gW';
+      final req = await c.postUrl(Uri.parse('$baseUrl/torrent/upload'));
+      req.headers.set('Content-Type', 'multipart/form-data; boundary=$boundary');
+      final header = '--$boundary\r\n'
+          'Content-Disposition: form-data; name="file"; filename="$hashHex.torrent"\r\n'
+          'Content-Type: application/x-bittorrent\r\n\r\n';
+      const footer = '\r\n--$boundary--\r\n';
+      req.add(utf8.encode(header));
+      req.add(bytes);
+      req.add(utf8.encode(footer));
+      final res = await req.close().timeout(const Duration(seconds: 5));
+      await res.drain();
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (_) {
+      return false;
+    } finally {
+      c.close(force: true);
+    }
+  }
+
+  static String _base32ParaHex(String b32) {
+    const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    final clean = b32.toUpperCase().replaceAll('=', '');
+    int bits = 0, val = 0;
+    final bytes = [];
+    for (int i = 0; i < clean.length; i++) {
+      final idx = alpha.indexOf(clean[i]);
+      if (idx < 0) return b32.toLowerCase();
+      val = (val << 5) | idx;
+      bits += 5;
+      if (bits >= 8) {
+        bytes.add((val >> (bits - 8)) & 0xFF);
+        bits -= 8;
+      }
+    }
+    return bytes.map((b) => (b as int).toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  static String _extrairHash(String magnet) {
+    final m = RegExp(r'btih:([a-zA-Z0-9]{32,40})', caseSensitive: false).firstMatch(magnet);
+    if (m == null) return '';
+    final raw = m.group(1)!;
+    return raw.length == 32 ? _base32ParaHex(raw) : raw.toLowerCase();
+  }
+
+  static String _enriquecerMagnet(String magnet) {
+    var clean = magnet.trim().replaceFirstMapped(
+      RegExp(r'(btih:)([a-zA-Z2-7]{32})(?=&|$)', caseSensitive: false),
+      (m) => '${m.group(1)}${_base32ParaHex(m.group(2)!)}',
+    );
+    const trackers = [
+      'udp://tracker.opentrackr.org:1337/announce',
+      'http://tracker.opentrackr.org:1337/announce',
+      'udp://open.stealth.si:80/announce',
+      'udp://tracker.torrent.eu.org:451/announce',
+      'udp://open.demonii.com:1337/announce',
+      'udp://tracker.openbittorrent.com:6969/announce',
+      'http://tracker.openbittorrent.com:80/announce',
+      'udp://exodus.desync.com:6969/announce',
+      'udp://tracker.moeking.me:6969/announce',
+      'udp://explodie.org:6969/announce',
+      'udp://tracker.tiny-vps.com:6969/announce',
+      'udp://tracker.dler.org:6969/announce',
+      'https://tracker.tamersunion.org:443/announce',
+      'https://tracker.loligirl.cn:443/announce',
+      'https://tracker.gbitt.info:443/announce',
+      'http://93.158.213.92:1337/announce',
+      'udp://93.158.213.92:1337/announce',
+      'udp://tracker1.bt.moack.co.kr:80/announce',
+      'udp://tracker.theoks.net:6969/announce',
+      'udp://tracker.bittor.pw:1337/announce',
+      'udp://movies.zsw.ca:6969/announce',
+      'udp://tracker.cyberia.is:6969/announce',
+      'udp://retracker01-msk-virt.corbina.net:80/announce',
+      'udp://p4p.arenabg.com:1337/announce',
+      'udp://tracker.leechers-paradise.org:6969/announce',
+      'udp://tracker.coppersurfer.tk:6969/announce',
+      'udp://9.rarbg.com:2810/announce',
+      'udp://tracker.publictracker.xyz:6969/announce',
+    ];
+    final sb = StringBuffer(clean);
+    final lower = clean.toLowerCase();
+    for (final tr in trackers) {
+      final enc = Uri.encodeComponent(tr).toLowerCase();
+      if (!lower.contains(enc) && !lower.contains(tr.toLowerCase())) {
+        sb.write('&tr=${Uri.encodeComponent(tr)}');
+      }
+    }
+    return sb.toString();
+  }
+
+  static Future<TorrentStreamInfo?> prepararMagnet(
+    String magnetUrl, {
+    void Function(String)? onStatus,
+    void Function(double)? onProgress,
+    bool Function()? cancelado,
+  }) async {
+    ultimoErro = '';
+    if (!magnetUrl.trim().toLowerCase().startsWith('magnet:?xt=urn:btih:')) {
+      ultimoErro = 'Magnet negado: ausente prefixo obrigatório magnet:?xt=urn:btih:';
+      return null;
+    }
+    final cleanMagnet = _enriquecerMagnet(magnetUrl);
+    final hash = _extrairHash(cleanMagnet);
+    onProgress?.call(0.12);
+    onStatus?.call('Iniciando motor de vídeo...');
+    if (!await garantirAtivo()) return null;
+    if (cancelado != null && cancelado()) return null;
+
+    onProgress?.call(0.25);
+    onStatus?.call('Verificando fontes e trackers...');
+    bool subiuTorrent = false;
+    if (hash.length == 40) {
+      final torrentBytes = await _baixarTorrentCache(hash);
+      if (torrentBytes != null) {
+        subiuTorrent = await _uploadTorrentParaServidor(torrentBytes, hash);
+      }
+    }
+
+    await _postJson('/torrents', {
+      'action': 'add',
+      'link': cleanMagnet,
+      'title': 'Stream',
+      'save_to_db': false,
+    });
+
+    int fileId = 1;
+    String fileName = 'video.mkv';
+    int fileSize = 0;
+    int activePeers = 0;
+    int totalSeeds = 0;
+    double speedBytes = 0;
+    bool encontrouArquivo = false;
+
+    for (int i = 0; i < 30; i++) {
+      if (cancelado != null && cancelado()) return null;
+      await Future.delayed(const Duration(milliseconds: 500));
+      onProgress?.call((0.30 + (i * 0.018)).clamp(0.30, 0.88));
+      final info = await _postJson('/torrents', {'action': 'get', 'hash': hash});
+      if (info is Map) {
+        activePeers = (info['active_peers'] is num) ? (info['active_peers'] as num).toInt() : 0;
+        totalSeeds = (info['connected_seeders'] is num)
+            ? (info['connected_seeders'] as num).toInt()
+            : ((info['total_peers'] is num) ? (info['total_peers'] as num).toInt() : 0);
+        speedBytes = (info['download_speed'] is num) ? (info['download_speed'] as num).toDouble() : 0.0;
+
+        final files = info['file_stats'];
+        if (files is List && files.isNotEmpty) {
+          Map? maior;
+          for (final f in files) {
+            if (f is Map) {
+              final p = (f['path'] ?? '').toString().toLowerCase();
+              final ehVid = p.endsWith('.mkv') || p.endsWith('.mp4') || p.endsWith('.avi') || p.endsWith('.ts');
+              if (ehVid && (maior == null || (f['length'] ?? 0) > (maior['length'] ?? 0))) {
+                maior = f;
+              }
+            }
+          }
+          maior ??= files.first as Map;
+          fileId = (maior['id'] is int) ? maior['id'] as int : 1;
+          fileName = (maior['path'] ?? 'video.mkv').toString().split('/').last;
+          fileSize = (maior['length'] is int) ? maior['length'] as int : 0;
+          encontrouArquivo = true;
+          if (activePeers > 0 || totalSeeds > 0 || i >= 8) break;
+        }
+      }
+      if (i >= 14 && !encontrouArquivo && activePeers == 0 && totalSeeds == 0) break;
+      onStatus?.call('Buscando peers ativos (peers: $activePeers)...');
+    }
+
+    if (!encontrouArquivo || (activePeers == 0 && totalSeeds == 0 && !subiuTorrent)) {
+      ultimoErro = 'Fonte sem peers ativos no momento.';
+      return null;
+    }
+
+    onProgress?.call(0.94);
+    onStatus?.call('Iniciando reprodução...');
+    return TorrentStreamInfo(
+      playUrl: '$baseUrl/play/$hash/$fileId?play',
+      fileName: fileName,
+      fileSizeBytes: fileSize,
+      activePeers: activePeers,
+      totalSeeds: totalSeeds,
+      downloadSpeedBytes: speedBytes,
+    );
+  }
+}
+
+==========================================
+ARQUIVO: lib/widgets/cinema_widgets.dart
+==========================================
+import 'package:flutter/services.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../models/midia_model.dart';
+
+class CinemaLogoWidget extends StatelessWidget {
+  final double height;
+  final double width;
+
+  const CinemaLogoWidget({
+    super.key,
+    this.height = 40,
+    this.width = 152,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: height,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF1D2230),
+            Color(0xFF0D1017),
+          ],
+        ),
+        border: Border.all(
+          color: const Color(0xFFF5B82E).withOpacity(0.55),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFF5B82E).withOpacity(0.16),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: height * 0.64,
+            height: height * 0.64,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(7),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFFFDF73), Color(0xFFF5B82E), Color(0xFFC98A12)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFF5B82E).withOpacity(0.45),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.play_arrow_rounded,
+              color: const Color(0xFF0B0D12),
+              size: height * 0.48,
+            ),
+          ),
+          const SizedBox(width: 8),
+          RichText(
+            text: TextSpan(
+              children: [
+                TextSpan(
+                  text: 'Cine',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: height * 0.48,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                TextSpan(
+                  text: 'MAX',
+                  style: TextStyle(
+                    color: const Color(0xFFF5B82E),
+                    fontSize: height * 0.48,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class TopIconeComTooltip extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  const TopIconeComTooltip({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  @override
+  State<TopIconeComTooltip> createState() => _TopIconeComTooltipState();
+}
+
+class _TopIconeComTooltipState extends State<TopIconeComTooltip> {
+  final LayerLink _layerLink = LayerLink();
+  OverlayEntry? _overlayEntry;
+  bool _focado = false;
+  Timer? _timer;
+
+  void _removerOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  void _mostrarOverlay() {
+    _removerOverlay();
+    _timer?.cancel();
+    if (!mounted) return;
+    final overlay = Overlay.maybeOf(context);
+    if (overlay == null) return;
+    _overlayEntry = OverlayEntry(
+      builder: (_) => Positioned(
+        width: 190,
+        child: CompositedTransformFollower(
+          link: _layerLink,
+          showWhenUnlinked: false,
+          targetAnchor: Alignment.bottomCenter,
+          followerAnchor: Alignment.topCenter,
+          offset: const Offset(0, 6),
+          child: IgnorePointer(
+            child: Material(
+              color: Colors.transparent,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF141821).withOpacity(0.98),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFF5B82E).withOpacity(0.85)),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black87, blurRadius: 10, offset: Offset(0, 4)),
+                    ],
+                  ),
+                  child: Text(
+                    widget.label,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(_overlayEntry!);
+    _timer = Timer(const Duration(seconds: 2), () {
+      if (mounted) _removerOverlay();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _removerOverlay();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _layerLink,
+      child: CinemaFocusBox(
+        onTap: widget.onPressed,
+        borderRadius: 24,
+        scaleOnFocus: 1.12,
+        onFocusChanged: (hasFocus) {
+          if (mounted) setState(() => _focado = hasFocus);
+          if (hasFocus) {
+            _mostrarOverlay();
+          } else {
+            _removerOverlay();
+          }
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.all(9),
+          decoration: BoxDecoration(
+            color: _focado
+                ? const Color(0xFFF5B82E).withOpacity(0.24)
+                : Colors.white.withOpacity(0.08),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            widget.icon,
+            size: 20,
+            color: _focado ? const Color(0xFFF5B82E) : Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class TvPosterCard extends StatefulWidget {
+  final ObraAgrupada obra;
+  final VoidCallback onTap;
+  final double width;
+  final double height;
+  final int? rankNumero;
+  final double? progresso;
+  final bool selecionadoEdicao;
+  final bool modoEdicao;
+  final VoidCallback? onFocused;
+
+  const TvPosterCard({
+    super.key,
+    required this.obra,
+    required this.onTap,
+    this.width = 148,
+    this.height = 216,
+    this.rankNumero,
+    this.progresso,
+    this.selecionadoEdicao = false,
+    this.modoEdicao = false,
+    this.onFocused,
+  });
+
+  @override
+  State<TvPosterCard> createState() => _TvPosterCardState();
+}
+
+class _TvPosterCardState extends State<TvPosterCard> {
+  bool _focado = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final o = widget.obra;
+    final img = o.capaUrl.isNotEmpty ? o.capaUrl : o.bannerUrl;
+
+    return CinemaFocusBox(
+      onTap: widget.onTap,
+      borderRadius: 10,
+      scaleOnFocus: 1.05,
+      onFocusChanged: (v) {
+        if (mounted) setState(() => _focado = v);
+        if (v) widget.onFocused?.call();
+      },
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final usarFlex = constraints.hasBoundedHeight && constraints.maxHeight < (widget.height + 28);
+          final cardW = constraints.hasBoundedWidth && constraints.maxWidth < widget.width ? constraints.maxWidth : widget.width;
+          final posterH = usarFlex ? (constraints.maxHeight - 24).clamp(110.0, widget.height) : widget.height;
+          return SizedBox(
+            width: cardW,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  height: posterH,
+                  width: cardW,
+              decoration: BoxDecoration(
+                color: const Color(0xFF161A23),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: widget.selecionadoEdicao
+                      ? Colors.redAccent
+                      : (_focado ? const Color(0xFFF5B82E) : Colors.white10),
+                  width: (_focado || widget.selecionadoEdicao) ? 2.2 : 1,
+                ),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (img.isNotEmpty)
+                    CachedNetworkImage(
+                      imageUrl: img,
+                      fit: BoxFit.cover,
+                      memCacheWidth: 220,
+                      fadeInDuration: Duration.zero,
+                      errorWidget: (_, __, ___) => const Center(
+                        child: Icon(Icons.movie_outlined, color: Colors.white30, size: 36),
+                      ),
+                    )
+                  else
+                    const Center(
+                      child: Icon(Icons.movie_outlined, color: Colors.white30, size: 36),
+                    ),
+                  if (widget.modoEdicao)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          color: widget.selecionadoEdicao ? Colors.redAccent : Colors.black54,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          widget.selecionadoEdicao ? Icons.check : Icons.circle_outlined,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  if (widget.rankNumero != null)
+                    Positioned(
+                      top: 6,
+                      left: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: widget.rankNumero! <= 3
+                              ? const Color(0xFFF5B82E)
+                              : Colors.black.withOpacity(0.78),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          '#${widget.rankNumero}',
+                          style: TextStyle(
+                            color: widget.rankNumero! <= 3 ? Colors.black : Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  Positioned(
+                    left: 6,
+                    right: 6,
+                    bottom: 6,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        if (o.notaImdb > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.75),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              o.notaImdb.toStringAsFixed(1),
+                              style: const TextStyle(
+                                color: Color(0xFFF5B82E),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          )
+                        else
+                          const SizedBox.shrink(),
+                        if (o.badgePoster.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.75),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              o.badgePoster,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (widget.progresso != null && widget.progresso! > 0)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: LinearProgressIndicator(
+                        value: widget.progresso,
+                        minHeight: 3.5,
+                        backgroundColor: Colors.white24,
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFF5B82E)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              o.titulo,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: _focado ? const Color(0xFFF5B82E) : Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+      }),
+    );
+  }
+}
+
+class CinemaFocusBox extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double borderRadius;
+  final double scaleOnFocus;
+  final bool autofocus;
+  final EdgeInsetsGeometry padding;
+  final ValueChanged<bool>? onFocusChanged;
+  final FocusNode? focusNode;
+
+  const CinemaFocusBox({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.borderRadius = 12,
+    this.scaleOnFocus = 1.045,
+    this.autofocus = false,
+    this.padding = EdgeInsets.zero,
+    this.onFocusChanged,
+    this.focusNode,
+  });
+
+  @override
+  State<CinemaFocusBox> createState() => _CinemaFocusBoxState();
+}
+
+class _CinemaFocusBoxState extends State<CinemaFocusBox> {
+  bool _focused = false;
+  bool _hovered = false;
+  DateTime _ultimoAcionamento = DateTime.fromMillisecondsSinceEpoch(0);
+
+  bool get _ativo => _focused || _hovered;
+
+  void _acionar() {
+    if (widget.onTap == null) return;
+    final agora = DateTime.now();
+    if (agora.difference(_ultimoAcionamento).inMilliseconds < 280) return;
+    _ultimoAcionamento = agora;
+    widget.onTap!();
+  }
+
+  bool _isConfirmKey(LogicalKeyboardKey key) {
+    return key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.accept ||
+        key == LogicalKeyboardKey.gameButtonA ||
+        key == LogicalKeyboardKey.space;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: widget.onTap != null ? SystemMouseCursors.click : MouseCursor.defer,
+      onEnter: (_) { if (mounted) setState(() => _hovered = true); },
+      onExit: (_) { if (mounted) setState(() => _hovered = false); },
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              _acionar();
+              return null;
+            },
+          ),
+          ButtonActivateIntent: CallbackAction<ButtonActivateIntent>(
+            onInvoke: (_) {
+              _acionar();
+              return null;
+            },
+          ),
+        },
+        child: Focus(
+          focusNode: widget.focusNode,
+          autofocus: widget.autofocus,
+          onFocusChange: (f) {
+            if (mounted) setState(() => _focused = f);
+            widget.onFocusChanged?.call(f);
+          },
+          onKeyEvent: (node, event) {
+            if (_isConfirmKey(event.logicalKey)) {
+              if (event is KeyDownEvent) {
+                _acionar();
+              }
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: GestureDetector(
+            onTap: _acionar,
+            child: AnimatedScale(
+              scale: _ativo ? widget.scaleOnFocus : 1.0,
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOutCubic,
+              child: Container(
+                padding: widget.padding,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(widget.borderRadius),
+                  border: Border.all(
+                    color: _ativo ? const Color(0xFFF5B82E) : Colors.transparent,
+                    width: 2.5,
+                  ),
+                ),
+                child: widget.child,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+==========================================
+ARQUIVO: lib/widgets/max_assistant_overlay.dart
+==========================================
+// [BLINDADO - IA MAX V3.5] NAO ALTERAR ESTE ARQUIVO SEM AUTORIZACAO EXPRESSA DO PROPRIETARIO.
+import 'package:flutter/material.dart';
+import 'cinema_widgets.dart';
+import '../services/max_assistant_service.dart';
+import '../services/max_memory_service.dart';
+import '../services/pedidos_scrape_service.dart';
+
+class MaxMicButton extends StatefulWidget {
+  final VoidCallback onPressed;
+  const MaxMicButton({super.key, required this.onPressed});
+
+  @override
+  State<MaxMicButton> createState() => _MaxMicButtonState();
+}
+
+class _MaxMicButtonState extends State<MaxMicButton> {
+  bool _focado = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: MaxAssistantService.instance,
+      builder: (context, _) {
+        final max = MaxAssistantService.instance;
+        final ativo = max.ouvindo || max.falando || max.processando;
+        return CinemaFocusBox(
+          onTap: widget.onPressed,
+          borderRadius: 24,
+          scaleOnFocus: 1.06,
+          onFocusChanged: (f) { if (mounted) setState(() => _focado = f); },
+          child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                gradient: LinearGradient(
+                  colors: ativo || _focado
+                      ? const [Color(0xFFFFDF73), Color(0xFFF5B82E)]
+                      : const [Color(0xFF232838), Color(0xFF151822)],
+                ),
+                border: Border.all(
+                  color: _focado ? Colors.white : const Color(0xFFF5B82E),
+                  width: _focado ? 2.2 : 1.2,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    max.ouvindo ? Icons.graphic_eq_rounded : Icons.mic_rounded,
+                    size: 18,
+                    color: ativo || _focado ? const Color(0xFF0B0D12) : const Color(0xFFF5B82E),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    max.ouvindo ? 'Ouvindo...' : 'Max',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: ativo || _focado ? const Color(0xFF0B0D12) : Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+      },
+    );
+  }
+}
+
+class PedidosScreenModal extends StatefulWidget {
+  const PedidosScreenModal({super.key});
+
+  static Future<void> abrir(BuildContext context) async {
+    await PedidosScrapeService.instance.inicializar();
+    if (!context.mounted) return;
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => const PedidosScreenModal(),
+    );
+  }
+
+  @override
+  State<PedidosScreenModal> createState() => _PedidosScreenModalState();
+}
+
+class _PedidosScreenModalState extends State<PedidosScreenModal> {
+  final TextEditingController _tituloCtrl = TextEditingController();
+  String _tipoSelecionado = 'Filme';
+  bool _enviando = false;
+
+  @override
+  void dispose() {
+    _tituloCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _enviar() async {
+    final titulo = _tituloCtrl.text.trim();
+    if (titulo.isEmpty) return;
+    setState(() => _enviando = true);
+    final remotoOk = await PedidosScrapeService.instance.enviarPedido(titulo: titulo, tipo: _tipoSelecionado);
+    _tituloCtrl.clear();
+    if (mounted) {
+      setState(() => _enviando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF1D2230),
+          content: Text(
+            remotoOk ? 'Pedido "$titulo" enviado para adição ao catálogo do CineMax!' : 'Pedido "$titulo" salvo na lista!',
+            style: const TextStyle(color: Color(0xFFFFDF73), fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: PedidosScrapeService.instance,
+      builder: (context, _) {
+        final lista = PedidosScrapeService.instance.pedidos;
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.78,
+          margin: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF10131C),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFF5B82E), width: 1.5),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.playlist_add_check_circle_rounded, color: Color(0xFFF5B82E), size: 28),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text('Pedidos de Filmes & Séries',
+                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                  ),
+                  CinemaFocusBox(
+                    borderRadius: 20,
+                    onTap: () => Navigator.pop(context),
+                    child: const Padding(
+                      padding: EdgeInsets.all(6),
+                      child: Icon(Icons.close_rounded, color: Colors.white70),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _tituloCtrl,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'Nome do filme, série ou anime...',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: const Color(0xFF1A1F2E),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      ),
+                      onSubmitted: (_) => _enviar(),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  DropdownButton<String>(
+                    value: _tipoSelecionado,
+                    dropdownColor: const Color(0xFF1A1F2E),
+                    style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w700),
+                    items: const [
+                      DropdownMenuItem(value: 'Filme', child: Text('Filme')),
+                      DropdownMenuItem(value: 'Série', child: Text('Série')),
+                      DropdownMenuItem(value: 'Anime', child: Text('Anime')),
+                    ],
+                    onChanged: (v) { if (v != null) setState(() => _tipoSelecionado = v); },
+                  ),
+                  const SizedBox(width: 10),
+                  CinemaFocusBox(
+                    borderRadius: 10,
+                    onTap: _enviando ? null : _enviar,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(10)),
+                      child: const Text('Pedir', style: TextStyle(color: Color(0xFF0B0D12), fontWeight: FontWeight.w900)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: lista.isEmpty
+                    ? const Center(child: Text('Nenhum pedido feito ainda.', style: TextStyle(color: Colors.white54)))
+                    : ListView.separated(
+                        itemCount: lista.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, idx) {
+                          final item = lista[idx];
+                          return ListTile(
+                            tileColor: const Color(0xFF171B26),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            leading: const Icon(Icons.movie_filter_rounded, color: Color(0xFFF5B82E)),
+                            title: Text(item.titulo, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                            subtitle: Text('${item.tipo} • ${item.solicitadoPor} (${item.dataHora})',
+                                style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                            trailing: Text(
+                              item.enviadoParaScrape ? 'Na fila' : 'Salvo',
+                              style: TextStyle(
+                                color: item.enviadoParaScrape ? Colors.greenAccent : Colors.amberAccent,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class MaxAssistantModal extends StatefulWidget {
+  const MaxAssistantModal({super.key});
+
+  static Future<void> abrir(BuildContext context) async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => const MaxAssistantModal(),
+    );
+  }
+
+  @override
+  State<MaxAssistantModal> createState() => _MaxAssistantModalState();
+}
+
+class _MaxAssistantModalState extends State<MaxAssistantModal> {
+  final TextEditingController _textoCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    MaxAssistantService.instance.pararTudo();
+    _textoCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: MaxAssistantService.instance,
+      builder: (context, _) {
+        final max = MaxAssistantService.instance;
+        final nomeUsuario = MaxMemoryService.instance.nomeAtual;
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: const Color(0xFF121621),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFF5B82E), width: 1.5),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const CircleAvatar(
+                      backgroundColor: Color(0xFFF5B82E),
+                      child: Icon(Icons.auto_awesome_rounded, color: Color(0xFF0B0D12)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        nomeUsuario.isNotEmpty ? 'Max • Olá, $nomeUsuario!' : 'Max • Assistente CineMax',
+                        style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w900, fontSize: 16),
+                      ),
+                    ),
+                    CinemaFocusBox(
+                      borderRadius: 14,
+                      onTap: () {
+                        Navigator.pop(context);
+                        PedidosScreenModal.abrir(context);
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        child: Text('Pedidos', style: TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    CinemaFocusBox(
+                      autofocus: true,
+                      borderRadius: 24,
+                      onTap: () {
+                        if (max.processando) return;
+                        if (max.ouvindo) {
+                          max.pararTudo();
+                        } else {
+                          max.iniciarEscuta();
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Icon(
+                          max.ouvindo ? Icons.stop_circle_rounded : Icons.mic_rounded,
+                          color: const Color(0xFFF5B82E),
+                          size: 30,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (max.textoReconhecido.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text('"${max.textoReconhecido}"',
+                      style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic)),
+                ],
+                const SizedBox(height: 12),
+                if (max.ouvindo || max.processando)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFF5B82E))),
+                        const SizedBox(width: 8),
+                        Text(max.ouvindo ? 'Ouvindo sua voz...' : 'Max está pensando...', style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 12.5, fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ),
+                Text(max.ultimaFalaMax, style: const TextStyle(color: Color(0xFFFFF4D2), fontSize: 15, height: 1.35)),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _textoCtrl,
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: 'Ou escreva para a Max...',
+                          hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
+                          isDense: true,
+                          filled: true,
+                          fillColor: const Color(0xFF1A1F2E),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                        ),
+                        onSubmitted: (v) {
+                          if (v.trim().isNotEmpty) {
+                            _textoCtrl.clear();
+                            max.processarComando(v.trim());
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    CinemaFocusBox(
+                      borderRadius: 20,
+                      onTap: () {
+                        final v = _textoCtrl.text.trim();
+                        if (v.isNotEmpty) {
+                          _textoCtrl.clear();
+                          max.processarComando(v);
+                        }
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(Icons.send_rounded, color: Color(0xFFF5B82E)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+==========================================
+ARQUIVO: lib/widgets/perfis_usuario_screen.dart
+==========================================
+import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../services/max_assistant_service.dart';
+import '../services/max_memory_service.dart';
+import 'cinema_widgets.dart';
+
+class AvatarTematico {
+  final String id;
+  final String nome;
+  final String categoria;
+  final String emoji;
+  final List<Color> cores;
+  final String? imageUrl;
+
+  const AvatarTematico({
+    required this.id,
+    required this.nome,
+    required this.categoria,
+    required this.emoji,
+    required this.cores,
+    this.imageUrl,
+  });
+}
+
+const List<AvatarTematico> kAvataresCineMax = [
+  AvatarTematico(id: 'geral_pipoca', nome: 'Pipoca VIP', categoria: 'Geral', emoji: '🍿', cores: [Color(0xFFF5B82E), Color(0xFFC97B0C)]),
+  AvatarTematico(id: 'geral_claquete', nome: 'Diretor', categoria: 'Geral', emoji: '🎬', cores: [Color(0xFF3A7BD5), Color(0xFF1F3C88)]),
+  AvatarTematico(id: 'filme_heroi', nome: 'Herói', categoria: 'Filmes', emoji: '🦸', cores: [Color(0xFFE53935), Color(0xFF8E0000)]),
+  AvatarTematico(id: 'filme_espaco', nome: 'Sci-Fi', categoria: 'Filmes', emoji: '🚀', cores: [Color(0xFF6A11CB), Color(0xFF2575FC)]),
+  AvatarTematico(id: 'filme_terror', nome: 'Suspense', categoria: 'Filmes', emoji: '👻', cores: [Color(0xFF434343), Color(0xFF121212)]),
+  AvatarTematico(id: 'serie_coroa', nome: 'Trono', categoria: 'Séries', emoji: '👑', cores: [Color(0xFFD4AF37), Color(0xFF7A5C00)]),
+  AvatarTematico(id: 'serie_detetive', nome: 'Detetive', categoria: 'Séries', emoji: '🕵️', cores: [Color(0xFF2C3E50), Color(0xFF4CA1AF)]),
+  AvatarTematico(id: 'serie_dragao', nome: 'Fantasia', categoria: 'Séries', emoji: '🐉', cores: [Color(0xFF11998E), Color(0xFF0B4F4A)]),
+  AvatarTematico(id: 'anime_ninja', nome: 'Ninja', categoria: 'Animes', emoji: '🥷', cores: [Color(0xFFFF512F), Color(0xFFDD2476)]),
+  AvatarTematico(id: 'anime_katana', nome: 'Samurai', categoria: 'Animes', emoji: '⚔️', cores: [Color(0xFF8E2DE2), Color(0xFF4A00E0)]),
+  AvatarTematico(id: 'anime_chama', nome: 'Shonen', categoria: 'Animes', emoji: '🔥', cores: [Color(0xFFFF8008), Color(0xFFFFC837)]),
+  AvatarTematico(id: 'desenho_estrela', nome: 'Estrelinha', categoria: 'Desenhos', emoji: '⭐', cores: [Color(0xFFFFB75E), Color(0xFFED8F03)]),
+  AvatarTematico(id: 'desenho_robo', nome: 'Robozinho', categoria: 'Desenhos', emoji: '🤖', cores: [Color(0xFF00B4DB), Color(0xFF0083B0)]),
+  AvatarTematico(id: 'desenho_dino', nome: 'Dino Kids', categoria: 'Desenhos', emoji: '🦖', cores: [Color(0xFF56AB2F), Color(0xFFA8E063)]),
+  AvatarTematico(id: 'desenho_unicornio', nome: 'Mágico', categoria: 'Desenhos', emoji: '🦄', cores: [Color(0xFFFC5C7D), Color(0xFF6A82FB)]),
+  AvatarTematico(id: 'ator_rdj', nome: 'Tony Stark', categoria: 'Filmes', emoji: '🦾', cores: [Color(0xFFB71C1C), Color(0xFFF5B82E)], imageUrl: 'https://image.tmdb.org/t/p/w185/5qHNjhtjMD4YWH3UP0rm4tKwxCL.jpg'),
+  AvatarTematico(id: 'ator_keanu', nome: 'John Wick', categoria: 'Filmes', emoji: '🕶️', cores: [Color(0xFF232526), Color(0xFF414345)], imageUrl: 'https://image.tmdb.org/t/p/w185/4D0PpNI0kmP58hgrwGC3wCjxhnm.jpg'),
+  AvatarTematico(id: 'ator_bale', nome: 'Batman', categoria: 'Filmes', emoji: '🦇', cores: [Color(0xFF141E30), Color(0xFF243B55)], imageUrl: 'https://image.tmdb.org/t/p/w185/qCpZn2e3dimwbryLnqxZuI88PTi.jpg'),
+  AvatarTematico(id: 'ator_depp', nome: 'Jack Sparrow', categoria: 'Filmes', emoji: '🏴‍☠️', cores: [Color(0xFF5D4157), Color(0xFFA8CABA)], imageUrl: 'https://image.tmdb.org/t/p/w185/ilPBHd3r3ahlipN1T4VWSPouMR.jpg'),
+  AvatarTematico(id: 'ator_scarlett', nome: 'Viúva Negra', categoria: 'Filmes', emoji: '🕷️', cores: [Color(0xFF8E0E00), Color(0xFF1F1C18)], imageUrl: 'https://image.tmdb.org/t/p/w185/6NsMbJXRlDZuDzatN2akFdGuTvx.jpg'),
+  AvatarTematico(id: 'ator_dicaprio', nome: 'DiCaprio', categoria: 'Filmes', emoji: '🎭', cores: [Color(0xFF1E3C72), Color(0xFF2A5298)], imageUrl: 'https://image.tmdb.org/t/p/w185/wo2hJpn04vbtmh0B9utCFdsQhxM.jpg'),
+  AvatarTematico(id: 'serie_walter', nome: 'Walter White', categoria: 'Séries', emoji: '🧪', cores: [Color(0xFF134E5E), Color(0xFF71B280)], imageUrl: 'https://image.tmdb.org/t/p/w185/7Jahy5LZX2Fo8fGJltMreAI49hC.jpg'),
+  AvatarTematico(id: 'serie_eleven', nome: 'Eleven', categoria: 'Séries', emoji: '⚡', cores: [Color(0xFF4A00E0), Color(0xFF8E2DE2)], imageUrl: 'https://image.tmdb.org/t/p/w185/2685xGmq68G6tmnzbfgSR6ctINZ.jpg'),
+  AvatarTematico(id: 'serie_wandinha', nome: 'Wandinha', categoria: 'Séries', emoji: '🖤', cores: [Color(0xFF2C3E50), Color(0xFF000000)], imageUrl: 'https://image.tmdb.org/t/p/w185/q1NRzyZQlYkxLY07GO9NVPkQnu8.jpg'),
+  AvatarTematico(id: 'serie_shelby', nome: 'Tommy Shelby', categoria: 'Séries', emoji: '🎩', cores: [Color(0xFF373B44), Color(0xFF4286F4)], imageUrl: 'https://image.tmdb.org/t/p/w185/llkbyWKwpfowZ6C8peBjIV9jj99.jpg'),
+  AvatarTematico(id: 'serie_pascal', nome: 'Joel / Mando', categoria: 'Séries', emoji: '🛡️', cores: [Color(0xFF603813), Color(0xFFB29F94)], imageUrl: 'https://image.tmdb.org/t/p/w185/9VYK7oxcqhjd5LAH6ZFJ3XzOlID.jpg'),
+  AvatarTematico(id: 'serie_jonsnow', nome: 'Jon Snow', categoria: 'Séries', emoji: '🐺', cores: [Color(0xFF232526), Color(0xFF606C88)], imageUrl: 'https://image.tmdb.org/t/p/w185/htGBMno71iVwih8LiQhWuJGjjmy.jpg'),
+  AvatarTematico(id: 'serie_professor', nome: 'Professor', categoria: 'Séries', emoji: '👓', cores: [Color(0xFF8E0E00), Color(0xFF1F1C18)], imageUrl: 'https://image.tmdb.org/t/p/w185/4wXuQxyWcaIQc3gk1xrbXusdXAB.jpg'),
+  AvatarTematico(id: 'anime_luffy', nome: 'Luffy', categoria: 'Animes', emoji: '👒', cores: [Color(0xFFE53935), Color(0xFFF5B82E)], imageUrl: 'https://cdn.myanimelist.net/images/characters/9/310307.jpg'),
+  AvatarTematico(id: 'anime_zoro', nome: 'Zoro', categoria: 'Animes', emoji: '⚔️', cores: [Color(0xFF1B5E20), Color(0xFF4CAF50)], imageUrl: 'https://cdn.myanimelist.net/images/characters/3/100534.jpg'),
+  AvatarTematico(id: 'anime_sanji', nome: 'Sanji', categoria: 'Animes', emoji: '🔥', cores: [Color(0xFF1A237E), Color(0xFFF5B82E)], imageUrl: 'https://cdn.myanimelist.net/images/characters/5/136769.jpg'),
+  AvatarTematico(id: 'anime_goku', nome: 'Goku', categoria: 'Animes', emoji: '🐉', cores: [Color(0xFFFF6F00), Color(0xFF1565C0)], imageUrl: 'https://cdn.myanimelist.net/images/characters/9/160679.jpg'),
+  AvatarTematico(id: 'anime_vegeta', nome: 'Vegeta', categoria: 'Animes', emoji: '⚡', cores: [Color(0xFF0D47A1), Color(0xFF42A5F5)], imageUrl: 'https://cdn.myanimelist.net/images/characters/14/86185.jpg'),
+  AvatarTematico(id: 'anime_naruto', nome: 'Naruto', categoria: 'Animes', emoji: '🍥', cores: [Color(0xFFFF8F00), Color(0xFFFFCA28)], imageUrl: 'https://cdn.myanimelist.net/images/characters/2/284121.jpg'),
+  AvatarTematico(id: 'anime_madara', nome: 'Madara', categoria: 'Animes', emoji: '👁️', cores: [Color(0xFF880E4F), Color(0xFF1A1A1A)], imageUrl: 'https://cdn.myanimelist.net/images/characters/12/450359.jpg'),
+  AvatarTematico(id: 'anime_gaara', nome: 'Gaara', categoria: 'Animes', emoji: '🏜️', cores: [Color(0xFF6D4C41), Color(0xFFD84315)], imageUrl: 'https://cdn.myanimelist.net/images/characters/10/293375.jpg'),
+  AvatarTematico(id: 'anime_hinata', nome: 'Hinata', categoria: 'Animes', emoji: '💜', cores: [Color(0xFF4A148C), Color(0xFF7E57C2)], imageUrl: 'https://cdn.myanimelist.net/images/characters/6/278736.jpg'),
+  AvatarTematico(id: 'anime_levi', nome: 'Levi', categoria: 'Animes', emoji: '🗡️', cores: [Color(0xFF263238), Color(0xFF546E7A)], imageUrl: 'https://cdn.myanimelist.net/images/characters/2/241413.jpg'),
+  AvatarTematico(id: 'anime_l', nome: 'L', categoria: 'Animes', emoji: '🕵️', cores: [Color(0xFF212121), Color(0xFF616161)], imageUrl: 'https://cdn.myanimelist.net/images/characters/10/249647.jpg'),
+  AvatarTematico(id: 'anime_lelouch', nome: 'Lelouch', categoria: 'Animes', emoji: '👑', cores: [Color(0xFF311B92), Color(0xFFD50000)], imageUrl: 'https://cdn.myanimelist.net/images/characters/8/406163.jpg'),
+];
+
+AvatarTematico buscarAvatarPorId(String id) {
+  for (final a in kAvataresCineMax) {
+    if (a.id == id) return a;
+  }
+  return kAvataresCineMax.first;
+}
+
+class AvatarIlustradoWidget extends StatelessWidget {
+  final String avatarId;
+  final double size;
+  final bool infantil;
+
+  const AvatarIlustradoWidget({super.key, required this.avatarId, this.size = 76, this.infantil = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final av = buscarAvatarPorId(avatarId);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: size,
+          height: size,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(size * 0.24),
+            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: av.cores),
+            boxShadow: [BoxShadow(color: av.cores.first.withOpacity(0.35), blurRadius: 10, offset: const Offset(0, 4))],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: (av.imageUrl != null && av.imageUrl!.isNotEmpty)
+              ? CachedNetworkImage(
+                  imageUrl: av.imageUrl!,
+                  width: size,
+                  height: size,
+                  fit: BoxFit.cover,
+                  memCacheWidth: 160,
+                  fadeInDuration: Duration.zero,
+                  placeholder: (_, __) => Center(child: Text(av.emoji, style: TextStyle(fontSize: size * 0.48))),
+                  errorWidget: (_, __, ___) => Center(child: Text(av.emoji, style: TextStyle(fontSize: size * 0.48))),
+                )
+              : Text(av.emoji, style: TextStyle(fontSize: size * 0.48)),
+        ),
+        if (infantil)
+          Positioned(
+            right: -4,
+            bottom: -4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00D2FF),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: const Color(0xFF0A0C10), width: 1.5),
+              ),
+              child: const Text('KIDS', style: TextStyle(color: Colors.black, fontSize: 8.5, fontWeight: FontWeight.w900)),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class PerfilChipTopButton extends StatefulWidget {
+  final VoidCallback onTap;
+  const PerfilChipTopButton({super.key, required this.onTap});
+
+  @override
+  State<PerfilChipTopButton> createState() => _PerfilChipTopButtonState();
+}
+
+class _PerfilChipTopButtonState extends State<PerfilChipTopButton> {
+  bool _focado = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final perfil = MaxMemoryService.instance.perfilAtual;
+    final nome = perfil?.nome ?? 'Geral';
+    final avatarId = perfil?.avatarId ?? 'geral_pipoca';
+    final kids = perfil?.infantil == true;
+
+    return CinemaFocusBox(
+      onTap: widget.onTap,
+      borderRadius: 22,
+      scaleOnFocus: 1.06,
+      onFocusChanged: (f) { if (mounted) setState(() => _focado = f); },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1F2E),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: _focado ? Colors.white : const Color(0xFFF5B82E).withOpacity(0.65), width: _focado ? 2.0 : 1.2),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AvatarIlustradoWidget(avatarId: avatarId, size: 24, infantil: false),
+            const SizedBox(width: 6),
+            Text(kids ? '$nome • Kids' : nome, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class PerfisSelectionOverlay extends StatefulWidget {
+  final VoidCallback? onPerfilSelecionado;
+  final bool obrigatorio;
+
+  const PerfisSelectionOverlay({super.key, this.onPerfilSelecionado, this.obrigatorio = false});
+
+  static Future<void> abrir(BuildContext context, {VoidCallback? onPerfilSelecionado}) async {
+    await MaxMemoryService.instance.inicializar();
+    if (!context.mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.88),
+      builder: (_) => PerfisSelectionOverlay(onPerfilSelecionado: onPerfilSelecionado),
+    );
+  }
+
+  @override
+  State<PerfisSelectionOverlay> createState() => _PerfisSelectionOverlayState();
+}
+
+class _PerfisSelectionOverlayState extends State<PerfisSelectionOverlay> {
+  bool _modoGerenciar = false;
+
+  Future<void> _selecionar(MaxPerfilUsuario perfil) async {
+    if (_modoGerenciar) {
+      await _abrirFormPerfil(editar: perfil);
+      return;
+    }
+    await MaxMemoryService.instance.definirPerfilAtivo(perfil.nome, infantil: perfil.infantil, avatarId: perfil.avatarId);
+    widget.onPerfilSelecionado?.call();
+    if (!widget.obrigatorio && mounted) Navigator.of(context).pop();
+    if (perfil.nome.toLowerCase() != 'geral') {
+      MaxAssistantService.instance.falar('Olá, ${perfil.nome}! O que vamos assistir hoje?');
+    }
+  }
+
+  Future<void> _abrirFormPerfil({MaxPerfilUsuario? editar}) async {
+    final ehEdicao = editar != null;
+    final ehGeral = editar?.nome.toLowerCase() == 'geral';
+    final nomeCtrl = TextEditingController(text: editar?.nome ?? '');
+    bool ehInfantil = editar?.infantil ?? false;
+    String categoriaFiltro = 'Todos';
+    String avatarSelecionado = editar?.avatarId ?? 'geral_pipoca';
+    const categorias = ['Todos', 'Filmes', 'Séries', 'Animes', 'Desenhos', 'Geral'];
+
+    try {
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          final avataresFiltrados = categoriaFiltro == 'Todos'
+              ? kAvataresCineMax
+              : kAvataresCineMax.where((a) => a.categoria == categoriaFiltro).toList();
+
+          return AlertDialog(
+            backgroundColor: const Color(0xFF141824),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFF5B82E), width: 1.4)),
+            title: Text(
+              ehEdicao ? 'Editar Perfil' : 'Novo Perfil CineMax',
+              style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w900),
+            ),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: nomeCtrl,
+                      enabled: !ehGeral,
+                      autofocus: !ehEdicao,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'Nome do perfil...',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: const Color(0xFF1E2436),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      activeColor: const Color(0xFFF5B82E),
+                      title: const Text('Perfil Kids (filtra conteúdo infantil)', style: TextStyle(color: Colors.white, fontSize: 13.5)),
+                      value: ehInfantil,
+                      onChanged: (v) => setLocal(() {
+                        ehInfantil = v;
+                        if (v) avatarSelecionado = 'desenho_estrela';
+                      }),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Escolha uma foto / avatar:', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 34,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: categorias.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 6),
+                        itemBuilder: (_, idx) {
+                          final cat = categorias[idx];
+                          final ativo = cat == categoriaFiltro;
+                          return CinemaFocusBox(
+                            borderRadius: 16,
+                            onTap: () => setLocal(() => categoriaFiltro = cat),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: ativo ? const Color(0xFFF5B82E) : Colors.white12,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(cat, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: ativo ? Colors.black : Colors.white)),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: avataresFiltrados.map((av) {
+                        final sel = av.id == avatarSelecionado;
+                        return CinemaFocusBox(
+                          borderRadius: 16,
+                          scaleOnFocus: 1.06,
+                          onTap: () => setLocal(() => avatarSelecionado = av.id),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: sel ? const Color(0xFFF5B82E) : Colors.transparent, width: 2.5),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AvatarIlustradoWidget(avatarId: av.id, size: 52),
+                                const SizedBox(height: 3),
+                                Text(av.nome, style: const TextStyle(color: Colors.white70, fontSize: 10)),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              if (ehEdicao && !ehGeral)
+                CinemaFocusBox(
+                  borderRadius: 10,
+                  onTap: () async {
+                    await MaxMemoryService.instance.excluirPerfil(editar!.nome);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (mounted) setState(() {});
+                    widget.onPerfilSelecionado?.call();
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                        SizedBox(width: 4),
+                        Text('Excluir', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+                  ),
+                ),
+              CinemaFocusBox(
+                borderRadius: 10,
+                onTap: () => Navigator.pop(ctx),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Text('Cancelar', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              CinemaFocusBox(
+                borderRadius: 10,
+                onTap: () async {
+                  final nome = nomeCtrl.text.trim();
+                  if (nome.isEmpty) return;
+                  if (ehEdicao) {
+                    await MaxMemoryService.instance.editarPerfil(
+                      nomeAntigo: editar!.nome,
+                      novoNome: nome,
+                      infantil: ehInfantil,
+                      avatarId: avatarSelecionado,
+                    );
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (mounted) setState(() {});
+                    widget.onPerfilSelecionado?.call();
+                  } else {
+                    await MaxMemoryService.instance.definirPerfilAtivo(nome, infantil: ehInfantil, avatarId: avatarSelecionado);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (mounted) setState(() {});
+                    widget.onPerfilSelecionado?.call();
+                    if (!widget.obrigatorio && mounted) Navigator.pop(context);
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                  decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(10)),
+                  child: const Text('Salvar', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900)),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    } finally {
+      nomeCtrl.dispose();
+    }
+  }
+
+  Widget _buildConteudo() {
+    final perfis = MaxMemoryService.instance.perfis;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CinemaLogoWidget(height: 46, width: 170),
+            const SizedBox(height: 20),
+            Text(
+              _modoGerenciar ? 'Toque em um perfil para editar ou excluir' : 'Quem está assistindo?',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 24),
+            Wrap(
+              spacing: 22,
+              runSpacing: 22,
+              alignment: WrapAlignment.center,
+              children: [
+                ...perfis.asMap().entries.map((entry) {
+                  final p = entry.value;
+                  return CinemaFocusBox(
+                    autofocus: entry.key == 0,
+                    borderRadius: 20,
+                    scaleOnFocus: 1.08,
+                    onTap: () => _selecionar(p),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              AvatarIlustradoWidget(avatarId: p.avatarId, size: 88, infantil: p.infantil),
+                              if (_modoGerenciar)
+                                Positioned.fill(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(21),
+                                    ),
+                                    child: const Icon(Icons.edit_rounded, color: Color(0xFFF5B82E), size: 34),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(p.nome, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800)),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                CinemaFocusBox(
+                  borderRadius: 20,
+                  scaleOnFocus: 1.08,
+                  onTap: () => _abrirFormPerfil(),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 88,
+                          height: 88,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF181D2B),
+                            borderRadius: BorderRadius.circular(21),
+                            border: Border.all(color: Colors.white30, width: 1.5),
+                          ),
+                          child: const Icon(Icons.add_rounded, color: Color(0xFFF5B82E), size: 42),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text('Adicionar Perfil', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            CinemaFocusBox(
+              borderRadius: 22,
+              scaleOnFocus: 1.05,
+              onTap: () => setState(() => _modoGerenciar = !_modoGerenciar),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                decoration: BoxDecoration(
+                  color: _modoGerenciar ? const Color(0xFFF5B82E) : Colors.white10,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: const Color(0xFFF5B82E)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _modoGerenciar ? Icons.check_rounded : Icons.manage_accounts_rounded,
+                      color: _modoGerenciar ? Colors.black : const Color(0xFFF5B82E),
+                      size: 19,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _modoGerenciar ? 'Concluir Edição' : 'Editar / Excluir Perfis',
+                      style: TextStyle(
+                        color: _modoGerenciar ? Colors.black : Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.obrigatorio) {
+      return Scaffold(backgroundColor: const Color(0xFF0A0C10), body: SafeArea(child: _buildConteudo()));
+    }
+    return Dialog(
+      backgroundColor: const Color(0xFF0E111A),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24), side: const BorderSide(color: Color(0xFFF5B82E), width: 1.5)),
+      child: _buildConteudo(),
+    );
+  }
+}
+

@@ -1,0 +1,96 @@
+==================================================
+AUDITORIA ESTRUTURA COMPLETA DO PROJETO FLUTTER
+==================================================
+
+==================== ESTRUTURA DE PASTAS ====================
+.
+├── AUDITORIA_FLUTTER.txt
+├── AUDITORIA_PROJETO.txt
+├── INSTRUCOES_SECRETS.md
+├── _historico
+│   ├── auditoria_app.shmd
+│   ├── cinemax_codigo_completo.txt
+│   ├── cinemax_projeto_completo.txt
+│   ├── mic_trecho.txt
+│   └── patch_player.py
+├── cinema-release.jks
+├── gerar_icone.py
+├── lib
+│   ├── main.dart
+│   ├── models
+│   │   └── midia_model.dart
+│   ├── screens
+│   │   ├── detalhe_obra_screen.dart
+│   │   ├── player_screen.dart
+│   │   ├── tv_aux_screens.dart
+│   │   └── tv_home_screen.dart
+│   ├── services
+│   │   ├── app_logger.dart
+│   │   ├── app_updater_service.dart
+│   │   ├── catalog_audit_service.dart
+│   │   ├── cdn_stream_service.dart
+│   │   ├── max_assistant_service.dart
+│   │   ├── max_memory_service.dart
+│   │   ├── pedidos_scrape_service.dart
+│   │   ├── subtitle_service.dart
+│   │   ├── supabase_service.dart
+│   │   └── torrserver_service.dart
+│   └── widgets
+│       ├── cinema_widgets.dart
+│       ├── max_assistant_overlay.dart
+│       └── perfis_usuario_screen.dart
+├── pubspec.yaml
+└── test
+    └── visual_audit_test.dart
+
+8 directories, 31 files
+
+==================== pubspec.yaml (DEPENDÊNCIAS FLUTTER) ====================
+name: app_cinema
+description: App Cinema 3.5 - Streaming conectado ao RoboScrap
+publish_to: 'none'
+version: 3.5.1+2
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter_tts: ^4.2.0
+  speech_to_text: ^7.0.0
+  media_kit: ^1.1.11
+  media_kit_video: ^1.2.5
+  media_kit_libs_android_video: ^1.3.7
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  cached_network_image: ^3.4.1
+  shared_preferences: ^2.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+==================== LISTA DE ARQUIVOS DART (.dart) ====================
+lib/main.dart
+lib/models/midia_model.dart
+lib/screens/tv_home_screen.dart
+lib/screens/detalhe_obra_screen.dart
+lib/screens/player_screen.dart
+lib/screens/tv_aux_screens.dart
+lib/services/supabase_service.dart
+lib/services/torrserver_service.dart
+lib/services/cdn_stream_service.dart
+lib/services/app_updater_service.dart
+lib/services/max_memory_service.dart
+lib/services/pedidos_scrape_service.dart
+lib/services/app_logger.dart
+lib/services/subtitle_service.dart
+lib/services/catalog_audit_service.dart
+lib/services/max_assistant_service.dart
+lib/widgets/cinema_widgets.dart
+lib/widgets/max_assistant_overlay.dart
+lib/widgets/perfis_usuario_screen.dart

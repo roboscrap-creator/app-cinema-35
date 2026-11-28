@@ -1,32 +1,28 @@
-import 'package:flutter/services.dart';
-import '../services/max_assistant_service.dart';
-import '../widgets/max_assistant_overlay.dart';
-import '../widgets/perfis_usuario_screen.dart';
-import '../services/max_memory_service.dart';
-import '../services/app_updater_service.dart';
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
-import '../services/catalog_audit_service.dart';
+import '../services/live_sports_service.dart';
+import '../services/max_memory_service.dart';
 import '../widgets/cinema_widgets.dart';
+import '../widgets/max_assistant_overlay.dart';
+import '../widgets/perfis_usuario_screen.dart';
+import 'detalhes_screen.dart';
+import 'player_screen.dart';
 import 'tv_aux_screens.dart';
 
 class TvHomeScreen extends StatefulWidget {
   final List<ObraAgrupada> catalogo;
   final VoidCallback onRefresh;
-  final void Function(ObraAgrupada) onAbrirObra;
-  final VoidCallback onAlternarModoMobile;
-  final ValueNotifier<int>? abaExternaNotifier;
+  final VoidCallback onToggleModoMobile;
 
   const TvHomeScreen({
     super.key,
     required this.catalogo,
     required this.onRefresh,
-    required this.onAbrirObra,
-    required this.onAlternarModoMobile,
-    this.abaExternaNotifier,
+    required this.onToggleModoMobile,
   });
 
   @override
@@ -34,1089 +30,808 @@ class TvHomeScreen extends StatefulWidget {
 }
 
 class _TvHomeScreenState extends State<TvHomeScreen> {
-  int _abaIndex = 0;
-  int _focoTopBarIndex = -1;
-  int _idxBannerFilme = 0;
-  int _idxBannerSerie = 0;
-  final Map<String, int> _idxBannerCategoria = {};
-  Timer? _bannerRotativoTimer;
-  Timer? _previewDebounce;
-  final ValueNotifier<ObraAgrupada?> _obraPreviewNotifier = ValueNotifier<ObraAgrupada?>(null);
-  Map<String, Map<String, dynamic>> _progressoMap = {};
+  static const List<String> _abas = [
+    'Início', 'Filmes', 'Séries', 'Sports', 'TV',
+    'Kids', 'Animes', 'Max', 'Procurar', 'Favoritos',
+    'Pedidos', 'Histórico',
+  ];
 
-  List<ObraAgrupada> _cacheFilmes = const [];
-  List<ObraAgrupada> _cacheSeries = const [];
-  List<ObraAgrupada> _cacheKids = const [];
-  List<ObraAgrupada> _cacheAnimes = const [];
-  List<ObraAgrupada> _cacheTop10 = const [];
-  final Map<String, List<ObraAgrupada>> _cacheGeneros = {};
+  String _abaAtual = 'Início';
+  int _bannerIndex = 0;
+  Timer? _bannerTimer;
+  List<JogoAoVivoInfo> _jogosAoVivo = [];
+  bool _carregandoJogos = true;
 
-  static const List<String> _abas = ['INÍCIO', 'FILMES', 'SÉRIES', 'KIDS', 'ANIME'];
-
-  void _onAbaExt() { final i = widget.abaExternaNotifier?.value; if (i != null && i != _abaIndex && mounted) { setState(() => _abaIndex = i); MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[i]); } }
   @override
   void initState() {
     super.initState();
-    _reconstruirIndiceCatalogo();
-    widget.abaExternaNotifier?.addListener(_onAbaExt);
-    MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[_abaIndex]);
-    _carregarProgresso();
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) AppUpdaterService.verificarAtualizacao(context, silencioso: true);
-    });
-    // Auto-play desativado para manter TV Box rápida e sem reconstrução constante
-  }
-
-  Future<void> _carregarProgresso() async {
-    final p = await SupabaseService.carregarProgressoAssistido();
-    if (mounted) setState(() => _progressoMap = p);
-  }
-
-  @override
-  void didUpdateWidget(covariant TvHomeScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.catalogo, widget.catalogo)) {
-      _reconstruirIndiceCatalogo();
-    }
-  }
-
-  void _reconstruirIndiceCatalogo() {
-    _cacheFilmes = _dedup(widget.catalogo.where((o) => o.categoria.toLowerCase().contains('filme') && !o.isSerie));
-    _cacheSeries = _dedup(widget.catalogo.where((o) => o.isSerie));
-    _cacheKids = _dedup(widget.catalogo.where((o) {
-      if (_ehAnime(o)) return false;
-      final c = SupabaseService.normalizarTexto(o.categoria);
-      final g = SupabaseService.normalizarTexto(o.genero);
-      final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
-      return c.contains('infantil') || c.contains('kids') || g.contains('infantil') || g.contains('animacao') || t.contains('kids');
-    }));
-    _cacheAnimes = _dedup(widget.catalogo.where(_ehAnime));
-    final ordenados = List<ObraAgrupada>.from(widget.catalogo)
-      ..sort((a, b) => b.scorePopularidade.compareTo(a.scorePopularidade));
-    _cacheTop10 = ordenados.take(10).toList();
-    _cacheGeneros.clear();
-  }
-
-  void _agendarPreviewHero(ObraAgrupada obra) {
-    _previewDebounce?.cancel();
-    _bannerRotativoTimer?.cancel();
-    _previewDebounce = Timer(const Duration(milliseconds: 350), () {
-      if (mounted && _abaIndex == 0) {
-        _obraPreviewNotifier.value = obra;
-      }
-    });
+    _inicializarDadosTv();
+    _iniciarCarrossel();
   }
 
   @override
   void dispose() {
-    widget.abaExternaNotifier?.removeListener(_onAbaExt);
-    _previewDebounce?.cancel();
-    _obraPreviewNotifier.dispose();
+    _bannerTimer?.cancel();
     super.dispose();
   }
 
-  bool _ehCanalTv(ObraAgrupada o) {
-    final c = SupabaseService.normalizarTexto(o.categoria);
-    final g = SupabaseService.normalizarTexto(o.genero);
-    final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
-    if (c.contains('tv') || c.contains('canal') || c.contains('live') || c.contains('esporte') || c.contains('sport')) return true;
-    if (g.contains('tv ao vivo') || t.contains('tv') || t.contains('livestream')) return true;
-    if (o.fontes.isNotEmpty) {
-      final u = o.fontes.first.urlStream.toLowerCase();
-      if (u.contains('/live/') || u.endsWith('.ts')) return true;
-    }
-    return false;
-  }
-
-  List<ObraAgrupada> _agruparCanaisIdenticos(Iterable<ObraAgrupada> lista) {
-    final Map<String, ObraAgrupada> porNomeExato = {};
-    for (final item in lista) {
-      final chaveExata = item.titulo.trim().toLowerCase();
-      if (!porNomeExato.containsKey(chaveExata)) {
-        porNomeExato[chaveExata] = ObraAgrupada(
-          chaveGrupo: item.chaveGrupo,
-          titulo: item.titulo,
-          tituloOriginal: item.tituloOriginal,
-          categoria: item.categoria,
-          capaUrl: item.capaUrl,
-          bannerUrl: item.bannerUrl,
-          sinopse: item.sinopse,
-          genero: item.genero,
-          ano: item.ano,
-          notaImdb: item.notaImdb,
-          tmdbId: item.tmdbId,
-          pais: item.pais,
-          emDestaque: item.emDestaque,
-          ordemDestaque: item.ordemDestaque,
-          aberturaSegundos: item.aberturaSegundos,
-          tags: List<String>.from(item.tags),
-          fontes: List<FonteMidia>.from(item.fontes),
-        );
-      } else {
-        final existente = porNomeExato[chaveExata]!;
-        final urlsExistentes = existente.fontes.map((f) => f.urlStream.trim()).toSet();
-        for (final f in item.fontes) {
-          if (f.urlStream.trim().isNotEmpty && urlsExistentes.add(f.urlStream.trim())) {
-            existente.fontes.add(f);
-          }
-        }
+  void _iniciarCarrossel() {
+    _bannerTimer?.cancel();
+    _bannerTimer = Timer.periodic(const Duration(seconds: 7), (_) {
+      if (!mounted || _abaAtual != 'Início') return;
+      final filmes = _filmesDestaque;
+      if (filmes.length > 1) {
+        setState(() => _bannerIndex = (_bannerIndex + 1) % filmes.length);
       }
+    });
+  }
+
+  Future<void> _inicializarDadosTv() async {
+    await SupabaseService.instance.carregarTendenciasTmdb();
+    final jogos = await LiveSportsService.instance.buscarJogosPrincipais();
+    if (mounted) {
+      setState(() {
+        _jogosAoVivo = jogos;
+        _carregandoJogos = false;
+      });
     }
-    return porNomeExato.values.toList();
   }
 
-  List<ObraAgrupada> _dedup(Iterable<ObraAgrupada> src) { final v = <String>{}; return src.where((o) { if (o.capaUrl.isEmpty && o.bannerUrl.isEmpty) return false; final k = SupabaseService.normalizarTexto(o.titulo).replaceAll(RegExp(r'[^a-z0-9]'), ''); return k.isNotEmpty && v.add(k); }).toList(); }
-  List<ObraAgrupada> get _filmes => _cacheFilmes;
-
-  List<ObraAgrupada> get _series => _cacheSeries;
-
-  bool _ehAnime(ObraAgrupada o) {
-    final c = SupabaseService.normalizarTexto(o.categoria);
-    final g = SupabaseService.normalizarTexto(o.genero);
-    final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
-    if (c.contains('anime') || g.contains('anime') || t.contains('anime')) return true;
-    return CatalogAuditService.ehAnime(
-      titulo: o.titulo,
-      generos: o.genero.split(','),
-      tags: o.tags,
-      paisOrigem: o.pais,
-      sinopse: o.sinopse,
-    );
+  bool _ehSports(ObraAgrupada o) {
+    final t = '${o.tipo} ${o.categoria} ${o.genero} ${o.tags} ${o.titulo}'.toLowerCase();
+    return t.contains('sport') || t.contains('esporte') || t.contains('futebol') ||
+        t.contains('premiere') || t.contains('espn') || t.contains('sportv') ||
+        t.contains('caze') || t.contains('combate') || t.contains('ufc') || t.contains('nba');
   }
 
-  List<ObraAgrupada> get _kids => _cacheKids;
-
-  List<ObraAgrupada> get _animes => _cacheAnimes;
-
-  List<ObraAgrupada> _filtrarTagOuGenero(List<ObraAgrupada> base, String termo) {
-    final cacheKey = '${base.length}_$termo';
-    final hit = _cacheGeneros[cacheKey];
-    if (hit != null) return hit;
-    final q = SupabaseService.normalizarTexto(termo);
-    final res = base.where((o) {
-      final g = SupabaseService.normalizarTexto(o.genero);
-      final c = SupabaseService.normalizarTexto(o.categoria);
-      final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
-      return g.contains(q) || c.contains(q) || t.any((x) => x.contains(q));
-    }).toList();
-    _cacheGeneros[cacheKey] = res;
-    return res;
+  bool _ehTvAoVivo(ObraAgrupada o) {
+    if (_ehSports(o)) return false;
+    final tipo = o.tipo.toLowerCase();
+    final cat = '${o.categoria} ${o.tags}'.toLowerCase();
+    return tipo.contains('tv') || tipo.contains('canal') || tipo.contains('live') ||
+        cat.contains('tv ao vivo') || cat.contains('canais');
   }
 
-  void _abrirBusca() {
-    Navigator.push(
-      context,
+  bool _ehAnime(ObraAgrupada o) =>
+      '${o.tipo} ${o.categoria} ${o.genero} ${o.tags}'.toLowerCase().contains('anime');
+
+  bool _ehKids(ObraAgrupada o) {
+    final t = '${o.tipo} ${o.categoria} ${o.genero} ${o.tags}'.toLowerCase();
+    return t.contains('kids') || t.contains('infantil') ||
+        t.contains('animação') || t.contains('animacao') || t.contains('desenho');
+  }
+
+  bool _ehSerie(ObraAgrupada o) {
+    if (_ehSports(o) || _ehTvAoVivo(o)) return false;
+    final t = o.tipo.toLowerCase();
+    return t.contains('serie') || t.contains('série') || t.contains('novela') || t.contains('dorama');
+  }
+
+  bool _ehFilme(ObraAgrupada o) => !_ehSports(o) && !_ehTvAoVivo(o) && !_ehSerie(o);
+
+  List<ObraAgrupada> get _todosFilmes =>
+      SupabaseService.instance.ordenarCronologicoRelevancia(widget.catalogo.where(_ehFilme).toList());
+
+  List<ObraAgrupada> get _todasSeries =>
+      SupabaseService.instance.ordenarCronologicoRelevancia(widget.catalogo.where(_ehSerie).toList());
+
+  List<ObraAgrupada> get _canaisSports => widget.catalogo.where(_ehSports).toList();
+  List<ObraAgrupada> get _canaisTv => widget.catalogo.where(_ehTvAoVivo).toList();
+
+  List<ObraAgrupada> get _obrasKids =>
+      SupabaseService.instance.ordenarCronologicoRelevancia(widget.catalogo.where(_ehKids).toList());
+
+  List<ObraAgrupada> get _obrasAnimes =>
+      SupabaseService.instance.ordenarCronologicoRelevancia(widget.catalogo.where(_ehAnime).toList());
+
+  List<ObraAgrupada> get _filmesDestaque =>
+      SupabaseService.instance.selecionarDestaquesBanner(candidatos: _todosFilmes, limite: 6);
+
+  List<ObraAgrupada> get _seriesDestaque =>
+      SupabaseService.instance.selecionarDestaquesBanner(candidatos: _todasSeries, limite: 5);
+
+  void _abrirObra(ObraAgrupada obra) {
+    if (_ehSports(obra) || _ehTvAoVivo(obra)) {
+      _reproduzirDireto(obra);
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetalhesScreen(obra: obra)));
+  }
+
+  Future<void> _reproduzirDireto(ObraAgrupada obra) async {
+    final fontes = await SupabaseService.instance.buscarFontesDaObra(obra);
+    if (!mounted) return;
+    if (fontes.isEmpty) {
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetalhesScreen(obra: obra)));
+      return;
+    }
+    final f = fontes.first;
+    Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => TvBuscaScreen(catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra),
-      ),
-    ).then((_) => _carregarProgresso());
-  }
-
-  void _abrirFiltro([String tipo = 'Filmes']) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => TvFiltroScreen(catalogo: widget.catalogo, tipoInicial: tipo, onAbrirObra: widget.onAbrirObra),
-      ),
-    ).then((_) => _carregarProgresso());
-  }
-
-  void _abrirHistoricoFavoritos() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => TvHistoricoFavoritosScreen(catalogo: widget.catalogo, onAbrirObra: widget.onAbrirObra),
-      ),
-    ).then((_) => _carregarProgresso());
-  }
-
-  void _abrirTop100(String fonte, String categoria) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => TvTop100RankingScreen(
-          fonte: fonte,
-          categoriaInicial: categoria,
-          catalogo: widget.catalogo,
-          onAbrirObra: widget.onAbrirObra,
+        builder: (_) => CinemaPlayerScreen(
+          titulo: obra.titulo,
+          url: f.streamUrl,
+          subtitulo: obra.categoria,
+          obra: obra,
+          fonteAtual: f,
+          fontesDisponiveis: fontes,
         ),
       ),
     );
   }
 
-  void _abrirSubpagina(String titulo, List<ObraAgrupada> itens, List<String> subfiltros, [String? inicial]) {
-    Navigator.push(
-      context,
+  void _abrirHubStreaming(String nomeHub, List<String> termos) {
+    final lowTermos = termos.map((e) => e.toLowerCase()).toList();
+    final filtrados = SupabaseService.instance.ordenarCronologicoRelevancia(
+      widget.catalogo.where((o) {
+        final blob = '${o.titulo} ${o.categoria} ${o.genero} ${o.tags}'.toLowerCase();
+        return lowTermos.any((t) => blob.contains(t));
+      }).toList(),
+    );
+    Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => TvSubcategoriaScreen(
-          titulo: titulo,
-          itens: itens,
-          subfiltros: subfiltros,
-          filtroInicial: inicial,
-          onAbrirObra: widget.onAbrirObra,
-          onAbrirBusca: _abrirBusca,
-          onAbrirFiltro: () => _abrirFiltro(titulo),
+        builder: (_) => TvExploradorCompletoScreen(
+          tituloPagina: nomeHub,
+          obrasIniciais: filtrados,
+          filtroTermoHub: termos.first,
+          onAbrirObra: _abrirObra,
         ),
       ),
     );
+  }
+
+  void _selecionarAba(String aba) {
+    if (aba == 'Max') {
+      MaxAssistantModal.abrir(context);
+      return;
+    }
+    if (aba == 'Procurar') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => TvBuscaScreen(catalogo: widget.catalogo, onAbrirObra: _abrirObra)),
+      );
+      return;
+    }
+    if (aba == 'Pedidos') {
+      PedidosScreenModal.abrir(context);
+      return;
+    }
+    setState(() => _abaAtual = aba);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0C10),
-      body: Column(
-        children: [
-          _buildTopBar(),
-          Expanded(
-            child: _abaIndex == 0
-                ? _buildAbaInicio()
-                : _abaIndex == 1
-                    ? _buildAbaCategoria('Filmes', _filmes)
-                    : _abaIndex == 2
-                        ? _buildAbaCategoria('Séries', _series)
-                        : _abaIndex == 3
-                            ? _buildAbaCategoria('Kids', _kids)
-                            : _buildAbaCategoria('Anime', _animes),
-          ),
-        ],
+      backgroundColor: const Color(0xFF090B10),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildBarraSuperior(),
+            Expanded(child: _buildConteudoAba()),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildTopBar() {
+  Widget _buildBarraSuperior() {
     return Container(
-      height: 68,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF10131B), Color(0x000A0C10)],
-        ),
+      height: 62,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C0F16),
+        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.08))),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 26),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CinemaLogoWidget(height: 36, width: 124),
-            const SizedBox(width: 16),
-            ...List.generate(_abas.length, (i) {
-                final ativo = _abaIndex == i;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: Focus(
-                    onFocusChange: (temFoco) {
-                      if (mounted) {
-                        setState(() {
-                          if (temFoco) {
-                            _focoTopBarIndex = i;
-                          } else if (_focoTopBarIndex == i) {
-                            _focoTopBarIndex = -1;
-                          }
-                        });
-                      }
-                    },
-                    child: Builder(
-                      builder: (context) {
-                        final focado = _focoTopBarIndex == i;
-                        return CinemaFocusBox(
-                          autofocus: i == 0,
-                          onTap: () {
-                            setState(() => _abaIndex = i);
-                            MaxAssistantService.instance.definirContextoTela(tela: 'home', aba: _abas[i]);
-                          },
-                          borderRadius: 20,
-                          scaleOnFocus: 1.06,
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 160),
-                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.transparent,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: Colors.transparent,
-                                width: 0,
-                              ),
-                            ),
-                            child: Text(
-                              _abas[i],
-                              style: TextStyle(
-                                color: (focado || ativo) ? const Color(0xFFF5B82E) : Colors.white70,
-                                fontSize: 15,
-                                fontWeight: (focado || ativo) ? FontWeight.w900 : FontWeight.w600,
-                                letterSpacing: 0.7,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
+      child: Row(
+        children: [
+          const CinemaLogoWidget(height: 34, width: 132),
+          const SizedBox(width: 14),
+          Expanded(
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _abas.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 6),
+              itemBuilder: (context, idx) {
+                final aba = _abas[idx];
+                final ativa = _abaAtual == aba;
+                return Center(
+                  child: CinemaFocusBox(
+                    autofocus: idx == 0,
+                    borderRadius: 20,
+                    scaleOnFocus: 1.06,
+                    onTap: () => _selecionarAba(aba),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: ativa ? const Color(0xFFF5B82E) : Colors.white.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        aba,
+                        style: TextStyle(
+                          color: ativa ? const Color(0xFF090B10) : Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
                   ),
                 );
-              }),
-            const SizedBox(width: 14),
-            PerfilChipTopButton(
-              onTap: () => PerfisSelectionOverlay.abrir(
-                context,
-                onPerfilSelecionado: () {
-                  if (mounted) setState(() {});
-                },
-              ),
-            ),
-            const SizedBox(width: 8),
-            MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)),
-            const SizedBox(width: 8),
-            TopIconeComTooltip(
-              icon: Icons.playlist_add_rounded,
-              label: 'Pedidos',
-              onPressed: () => PedidosScreenModal.abrir(context),
-            ),
-            const SizedBox(width: 8),
-            TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: _abrirBusca),
-            const SizedBox(width: 8),
-            TopIconeComTooltip(
-              icon: Icons.filter_alt_outlined,
-              label: 'Filtro',
-              onPressed: () => _abrirFiltro(
-                _abaIndex == 2 ? 'Séries' : _abaIndex == 3 ? 'Kids' : _abaIndex == 4 ? 'Anime' : 'Filmes',
-              ),
-            ),
-            const SizedBox(width: 8),
-            TopIconeComTooltip(
-              icon: Icons.history,
-              label: 'Meus Favoritos e Histórico',
-              onPressed: _abrirHistoricoFavoritos,
-            ),
-            const SizedBox(width: 8),
-            TopIconeComTooltip(
-              icon: Icons.system_update,
-              label: 'Atualizar Aplicativo',
-              onPressed: () => AppUpdaterService.verificarAtualizacao(context, silencioso: false),
-            ),
-            const SizedBox(width: 8),
-            TopIconeComTooltip(
-              icon: Icons.phone_android,
-              label: 'Modo Celular',
-              onPressed: widget.onAlternarModoMobile,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _garantirTimerBannerInicio(int qtdFilmes, int qtdSeries) {
-      if (!mounted) {
-        _bannerRotativoTimer?.cancel();
-        _bannerRotativoTimer = null;
-        return;
-      }
-      if (_bannerRotativoTimer != null && _bannerRotativoTimer!.isActive) return;
-
-      _bannerRotativoTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-        if (!mounted) {
-          _bannerRotativoTimer?.cancel();
-          _bannerRotativoTimer = null;
-          return;
-        }
-        setState(() {
-          if (_abaIndex == 0) {
-            if (qtdFilmes > 0) {
-              _idxBannerFilme = (_idxBannerFilme + 1) % qtdFilmes;
-            }
-            if (qtdSeries > 0) {
-              _idxBannerSerie = (_idxBannerSerie + 1) % qtdSeries;
-            }
-          }
-          final abaAtual = (_abaIndex >= 0 && _abaIndex < _abas.length) ? _abas[_abaIndex] : '';
-          if (abaAtual.isNotEmpty && abaAtual.toUpperCase() != 'INÍCIO' && abaAtual.toUpperCase() != 'INICIO') {
-            final atual = _idxBannerCategoria[abaAtual] ?? 0;
-            _idxBannerCategoria[abaAtual] = (atual + 1) % 4;
-          }
-        });
-      });
-    }
-
-  Widget _buildBannerRotativoCard({
-    required String rotulo,
-    required List<ObraAgrupada> itens,
-    required int indiceAtual,
-  }) {
-    if (itens.isEmpty) {
-      return Container(
-        height: 230,
-        decoration: BoxDecoration(
-          color: const Color(0xFF141821),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white12),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          rotulo,
-          style: const TextStyle(color: Colors.white54, fontSize: 15),
-        ),
-      );
-    }
-
-    final idx = indiceAtual.clamp(0, itens.length - 1);
-    final obra = itens[idx];
-    final imgUrl = obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl;
-
-    return CinemaFocusBox(
-      onTap: () => widget.onAbrirObra(obra),
-      child: SizedBox(
-        height: 230,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (imgUrl.isNotEmpty)
-                Image(
-                  image: ResizeImage(NetworkImage(imgUrl), width: 960),
-                  fit: BoxFit.cover,
-                  filterQuality: FilterQuality.medium,
-                  errorBuilder: (_, __, ___) => Container(
-                    color: const Color(0xFF181D28),
-                    alignment: Alignment.center,
-                    child: const Icon(Icons.movie_creation_outlined, color: Colors.white38, size: 36),
-                  ),
-                )
-              else
-                Container(
-                  color: const Color(0xFF181D28),
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.movie_creation_outlined, color: Colors.white38, size: 36),
-                ),
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black26,
-                      Colors.transparent,
-                      Colors.black87,
-                    ],
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 10,
-                left: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFA000),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    rotulo,
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: 14,
-                right: 14,
-                bottom: 12,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        obra.titulo,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 17,
-                          shadows: [Shadow(blurRadius: 6, color: Colors.black)],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: List.generate(itens.length, (i) {
-                        final ativo = i == idx;
-                        return Container(
-                          width: ativo ? 16 : 6,
-                          height: 6,
-                          margin: const EdgeInsets.only(left: 4),
-                          decoration: BoxDecoration(
-                            color: ativo ? const Color(0xFFFFB300) : Colors.white38,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        );
-                      }),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAbaInicio() {
-    final filmesDestaque = (_filmes
-            .where((o) => o.emDestaque || o.tags.any((t) => t.toLowerCase().contains('banner')))
-            .toList()
-          ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))
-        .take(4)
-        .toList();
-    if (filmesDestaque.length < 4) {
-      for (final f in _filmes) {
-        if (!filmesDestaque.contains(f)) filmesDestaque.add(f);
-        if (filmesDestaque.length == 4) break;
-      }
-    }
-
-    final seriesDestaque = (_series
-            .where((o) => o.emDestaque || o.tags.any((t) => t.toLowerCase().contains('banner')))
-            .toList()
-          ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)))
-        .take(4)
-        .toList();
-    if (seriesDestaque.length < 4) {
-      for (final s in _series) {
-        if (!seriesDestaque.contains(s)) seriesDestaque.add(s);
-        if (seriesDestaque.length == 4) break;
-      }
-    }
-
-    _garantirTimerBannerInicio(filmesDestaque.length, seriesDestaque.length);
-
-    final todosContinuar = widget.catalogo.where((o) => _progressoMap.containsKey(o.chaveGrupo)).toList();
-    final continuarVod = todosContinuar.where((o) => !_ehCanalTv(o)).toList();
-    final continuarTv = _agruparCanaisIdenticos(todosContinuar.where(_ehCanalTv));
-    final canaisEsportes = _agruparCanaisIdenticos(
-      widget.catalogo.where((o) {
-        final c = SupabaseService.normalizarTexto(o.categoria);
-        final g = SupabaseService.normalizarTexto(o.genero);
-        final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
-        return c.contains('sport') || c.contains('esporte') || g.contains('sport') || g.contains('esporte') || t.any((x) => x.contains('sport') || x.contains('esporte'));
-      }),
-    );
-    final canaisTvTodos = _agruparCanaisIdenticos(widget.catalogo.where(_ehCanalTv));
-    final top10 = _cacheTop10;
-
-    return ListView(
-      cacheExtent: 320,
-      padding: const EdgeInsets.fromLTRB(26, 8, 26, 36),
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 1,
-                child: _buildBannerRotativoCard(
-                  rotulo: 'FILMES',
-                  itens: filmesDestaque,
-                  indiceAtual: _idxBannerFilme,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                flex: 1,
-                child: _buildBannerRotativoCard(
-                  rotulo: 'SÉRIES',
-                  itens: seriesDestaque,
-                  indiceAtual: _idxBannerSerie,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        if (continuarVod.isNotEmpty)
-          _buildPrateleira(
-            titulo: 'Continuar Assistindo (Filmes e Séries)',
-            itens: continuarVod,
-            mostrarProgresso: true,
-          ),
-        if (continuarTv.isNotEmpty)
-          _buildPrateleira(
-            titulo: 'Continuar Assistindo TV',
-            itens: continuarTv,
-            mostrarProgresso: false,
-          ),
-        _buildPrateleira(
-          titulo: 'Top 10 em Alta',
-          itens: top10.take(10).toList(),
-          numerado: true,
-        ),
-        _buildPrateleira(
-          titulo: 'Esportes',
-          itens: canaisEsportes.take(10).toList(),
-          onVerTodos: canaisEsportes.length > 10
-              ? () => _abrirSubpagina('Esportes', canaisEsportes, const ['Todos'])
-              : null,
-        ),
-        _buildPrateleira(
-          titulo: 'Canais de TV',
-          itens: canaisTvTodos.take(10).toList(),
-          onVerTodos: canaisTvTodos.length > 10
-              ? () => _abrirSubpagina('Canais de TV', canaisTvTodos, const ['Todos'])
-              : null,
-        ),
-        _buildPrateleira(
-          titulo: 'No Cinema',
-          itens: _filtrarTagOuGenero(widget.catalogo, 'Cinema'),
-        ),
-        _buildPrateleira(
-          titulo: 'Coleções',
-          itens: _filtrarTagOuGenero(widget.catalogo, 'Cole'),
-        ),
-        _buildPrateleira(
-          titulo: 'Ação',
-          itens: _filtrarTagOuGenero(widget.catalogo, 'Ação'),
-        ),
-        _buildPrateleira(
-          titulo: 'Mistério',
-          itens: _filtrarTagOuGenero(widget.catalogo, 'Mistério'),
-        ),
-        _buildPrateleira(
-          titulo: 'Suspense',
-          itens: _filtrarTagOuGenero(widget.catalogo, 'Suspense'),
-        ),
-        _buildPrateleira(
-          titulo: 'Netflix',
-          itens: _filtrarTagOuGenero(widget.catalogo, 'Netflix'),
-        ),
-        _buildPrateleira(
-          titulo: 'Disney+',
-          itens: _filtrarTagOuGenero(widget.catalogo, 'Disney'),
-        ),
-        _buildPrateleira(
-          titulo: 'Globoplay',
-          itens: _filtrarTagOuGenero(widget.catalogo, 'Globoplay'),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCarrosselHero({
-    required String tituloSecao,
-    required List<ObraAgrupada> itens,
-    ObraAgrupada? obraPreview,
-    required int paginaAtual,
-    required void Function(int) onPageChanged,
-  }) {
-    if (itens.isEmpty) {
-      return Container(
-        decoration: BoxDecoration(color: const Color(0xFF141821), borderRadius: BorderRadius.circular(14)),
-        alignment: Alignment.center,
-        child: Text(tituloSecao, style: const TextStyle(color: Colors.white54)),
-      );
-    }
-    final idxSeguro = paginaAtual.clamp(0, itens.length - 1);
-    final obra = obraPreview ?? itens[idxSeguro];
-    final img = obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl;
-
-    return Focus(
-      canRequestFocus: false,
-      skipTraversal: true,
-      onKeyEvent: (_, ev) {
-        if (ev is KeyDownEvent && itens.length > 1) {
-          if (ev.logicalKey == LogicalKeyboardKey.arrowRight) {
-            onPageChanged((idxSeguro + 1) % itens.length);
-            return KeyEventResult.handled;
-          }
-          if (ev.logicalKey == LogicalKeyboardKey.arrowLeft) {
-            onPageChanged((idxSeguro - 1 + itens.length) % itens.length);
-            return KeyEventResult.handled;
-          }
-        }
-        return KeyEventResult.ignored;
-      },
-      child: CinemaFocusBox(
-        onTap: () => widget.onAbrirObra(obra),
-        borderRadius: 14,
-        scaleOnFocus: 1.025,
-        child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (img.isNotEmpty)
-              CachedNetworkImage(
-                key: ValueKey('${obra.chaveGrupo}_$idxSeguro'),
-                imageUrl: img,
-                fit: BoxFit.cover,
-                memCacheWidth: 540,
-                fadeInDuration: Duration.zero,
-              )
-            else
-              Container(color: const Color(0xFF181D27)),
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.black12, Colors.black87],
-                ),
-              ),
-            ),
-            Positioned(
-              left: 16,
-              right: 84,
-              bottom: 14,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF5B82E),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      tituloSecao,
-                      style: const TextStyle(color: Colors.black, fontSize: 10.5, fontWeight: FontWeight.w900),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    obra.titulo,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900),
-                  ),
-                  Row(
-                    children: [
-                      if (obra.notaImdb > 0) ...[
-                        Text('★ ${obra.notaImdb.toStringAsFixed(1)}', style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 12.5, fontWeight: FontWeight.w900)),
-                        const SizedBox(width: 8),
-                      ],
-                      Expanded(
-                        child: Text(
-                          '${obra.ano} • ${obra.genero}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (obra.sinopse.isNotEmpty && !obra.sinopse.trim().startsWith('Classificação:') && !obra.sinopse.trim().startsWith('Direção:') && !obra.sinopse.trim().startsWith('Elenco:')) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      obra.sinopse,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white60, fontSize: 12, height: 1.25),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            Positioned(
-              right: 14,
-              bottom: 16,
-              child: Row(
-                children: List.generate(
-                  itens.length,
-                  (i) => GestureDetector(
-                    onTap: () => onPageChanged(i),
-                    child: Container(
-                      width: i == idxSeguro ? 18 : 7,
-                      height: 7,
-                      margin: const EdgeInsets.only(left: 4),
-                      decoration: BoxDecoration(
-                        color: i == idxSeguro ? const Color(0xFFF5B82E) : Colors.white38,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-      ),
-    );
-  }
-
-  Widget _buildAbaCategoria(String nomeAba, List<ObraAgrupada> base) {
-    final destaques = base.where((o) => o.emDestaque).toList()
-      ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque));
-    final trio = <ObraAgrupada>[
-      ...destaques.take(3),
-      ...base.where((o) => !destaques.contains(o)).take(3),
-    ];
-
-    final subfiltros = nomeAba == 'Filmes'
-        ? ['Todos', 'Ação', 'Suspense', 'Mistério', 'Drama', 'Comédia', 'Crime', 'Ficção científica', 'Terror']
-        : nomeAba == 'Séries'
-            ? ['Todos', 'Ação', 'Drama', 'Crime', 'Suspense', 'Mistério', 'Ficção científica', 'Netflix', 'Disney', 'Globoplay']
-            : nomeAba == 'Kids'
-                ? ['Todos', 'Animação', 'Aventura', 'Comédia', 'Disney']
-                : ['Todos', 'Ação', 'Aventura', 'Fantasia', 'Shonen'];
-
-    return ListView(
-      cacheExtent: 320,
-      padding: const EdgeInsets.fromLTRB(26, 8, 26, 36),
-      children: [
-        // Mosaico Fixo com Banner Principal + 2 Pôsteres Laterais
-        if (trio.isNotEmpty)
-          SizedBox(
-            height: 250,
-            child: Row(
-              children: [
-                Builder(
-                  builder: (_) {
-                    final candidatosCat = <ObraAgrupada>[
-                      ...base.where((o) => o.emDestaque).toList()
-                        ..sort((a, b) => a.ordemDestaque.compareTo(b.ordemDestaque)),
-                      ...base.where((o) => !o.emDestaque),
-                    ];
-                    final vistos = <String>{};
-                    final rotativos4 = <ObraAgrupada>[];
-                    for (final item in candidatosCat) {
-                      if (vistos.add(item.chaveGrupo)) {
-                        rotativos4.add(item);
-                        if (rotativos4.length == 4) break;
-                      }
-                    }
-                    final listaBanner = rotativos4.isNotEmpty ? rotativos4 : [trio[0]];
-                    final idxCat = (_idxBannerCategoria[nomeAba] ?? 0) % listaBanner.length;
-                    final obraBannerGrande = listaBanner[idxCat];
-                    return Expanded(
-                      flex: 6,
-                      child: _cardMosaico(obraBannerGrande, grande: true),
-                    );
-                  },
-                ),
-                if (trio.length > 1) ...[
-                  const SizedBox(width: 14),
-                  Expanded(flex: 2, child: _cardMosaico(trio[1])),
-                ],
-                if (trio.length > 2) ...[
-                  const SizedBox(width: 14),
-                  Expanded(flex: 2, child: _cardMosaico(trio[2])),
-                ],
-              ],
+              },
             ),
           ),
-        const SizedBox(height: 18),
-        // Barra de Subpáginas + Top 100 IMDb & Top 100 TMDB
-        SizedBox(
-          height: 44,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              _botaoAcaoCategoria(
-                icon: Icons.emoji_events,
-                label: 'Top 100 IMDb',
-                destaque: true,
-                onTap: () => _abrirTop100('imdb', nomeAba),
-              ),
-              const SizedBox(width: 10),
-              _botaoAcaoCategoria(
-                icon: Icons.star_rate_rounded,
-                label: 'Top 100 TMDB',
-                destaque: true,
-                onTap: () => _abrirTop100('tmdb', nomeAba),
-              ),
-              const SizedBox(width: 10),
-              _botaoAcaoCategoria(
-                icon: Icons.grid_view_rounded,
-                label: 'Explorar Subpáginas',
-                onTap: () => _abrirSubpagina(nomeAba, base, subfiltros),
-              ),
-              const SizedBox(width: 10),
-              ...subfiltros.skip(1).take(6).map(
-                    (g) => Padding(
-                      padding: const EdgeInsets.only(right: 10),
-                      child: _botaoAcaoCategoria(
-                        label: g,
-                        onTap: () => _abrirSubpagina(nomeAba, base, subfiltros, g),
-                      ),
-                    ),
-                  ),
-            ],
+          const SizedBox(width: 10),
+          TopIconeComTooltip(
+            icon: Icons.refresh_rounded,
+            label: 'Atualizar Catálogo & Jogos',
+            onPressed: () {
+              widget.onRefresh();
+              _inicializarDadosTv();
+            },
           ),
-        ),
-        const SizedBox(height: 20),
-        _buildPrateleira(titulo: 'Adicionados Recentemente em $nomeAba', itens: base.take(20).toList()),
-        _buildPrateleira(titulo: 'Ação e Aventura', itens: _filtrarTagOuGenero(base, 'Ação')),
-        _buildPrateleira(titulo: 'Suspense e Mistério', itens: _filtrarTagOuGenero(base, 'Suspense')),
-        _buildPrateleira(titulo: 'Drama e Crime', itens: _filtrarTagOuGenero(base, 'Drama')),
-      ],
-    );
-  }
-
-  Widget _cardMosaico(ObraAgrupada obra, {bool grande = false}) {
-    final img = grande
-        ? (obra.bannerUrl.isNotEmpty ? obra.bannerUrl : obra.capaUrl)
-        : (obra.capaUrl.isNotEmpty ? obra.capaUrl : obra.bannerUrl);
-    return CinemaFocusBox(
-      onTap: () => widget.onAbrirObra(obra),
-      borderRadius: 12,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (img.isNotEmpty)
-              CachedNetworkImage(imageUrl: img, fit: BoxFit.cover, memCacheWidth: 540, fadeInDuration: Duration.zero, errorWidget: (_, __, ___) => Container(color: const Color(0xFF161A23)))
-            else
-              Container(color: const Color(0xFF161A23)),
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Colors.black87],
-                ),
-              ),
-            ),
-            Positioned(
-              left: 14,
-              right: 14,
-              bottom: 12,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    obra.titulo,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Colors.white, fontSize: grande ? 20 : 14.5, fontWeight: FontWeight.w900),
-                  ),
-                  if (grande)
-                    Text(
-                      '${obra.ano} • ${obra.genero}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white70, fontSize: 12.5),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _botaoAcaoCategoria({IconData? icon, required String label, bool destaque = false, required VoidCallback onTap}) {
-    return CinemaFocusBox(
-      onTap: onTap,
-      borderRadius: 10,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: destaque ? const Color(0xFFF5B82E) : const Color(0xFF161B26),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: destaque ? const Color(0xFFF5B82E) : Colors.white12),
-        ),
-        child: Row(
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 17, color: destaque ? Colors.black : const Color(0xFFF5B82E)),
-              const SizedBox(width: 7),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                color: destaque ? Colors.black : Colors.white,
-                fontWeight: FontWeight.w800,
-                fontSize: 13.5,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPrateleira({
-    required String titulo,
-    required List<ObraAgrupada> itens,
-    bool numerado = false,
-    bool mostrarProgresso = false,
-    VoidCallback? onVerTodos,
-  }) {
-    if (itens.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  titulo,
-                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
-                ),
-              ),
-              if (onVerTodos != null)
-                CinemaFocusBox(
-                  onTap: onVerTodos,
-                  borderRadius: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF161B26),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFF5B82E).withOpacity(0.55)),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('Ver todos', style: TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w800, fontSize: 12.5)),
-                        SizedBox(width: 4),
-                        Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFFF5B82E), size: 12),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
+          const SizedBox(width: 8),
+          TopIconeComTooltip(
+            icon: Icons.smartphone_rounded,
+            label: 'Mudar para Modo Celular',
+            onPressed: widget.onToggleModoMobile,
           ),
-          const SizedBox(height: 12),
-          FocusTraversalGroup(
-            child: SizedBox(
-              height: 248,
-              child: ListView.separated(
-                clipBehavior: Clip.none,
-                scrollDirection: Axis.horizontal,
-                itemCount: itens.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 14),
-                itemBuilder: (_, idx) {
-                  final obra = itens[idx];
-                  final prog = mostrarProgresso
-                      ? (_progressoMap[obra.chaveGrupo]?['progresso'] as double?)
-                      : null;
-                  return TvPosterCard(
-                    obra: obra,
-                    rankNumero: numerado ? idx + 1 : null,
-                    progresso: prog,
-                    onFocused: () => _agendarPreviewHero(obra),
-                    onTap: () => widget.onAbrirObra(obra),
-                  );
-                },
-              ),
+          const SizedBox(width: 8),
+          PerfilChipTopButton(
+            onTap: () => PerfisSelectionOverlay.abrir(
+              context,
+              onPerfilSelecionado: () {
+                if (mounted) setState(() {});
+                widget.onRefresh();
+              },
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildConteudoAba() {
+    switch (_abaAtual) {
+      case 'Início':
+        return _buildInicioBentoTv();
+      case 'Filmes':
+        return TvVitrineCategoriaScreen(titulo: 'Filmes', tipoBanco: 'Filme', obras: _todosFilmes, onAbrirObra: _abrirObra);
+      case 'Séries':
+        return TvVitrineCategoriaScreen(titulo: 'Séries', tipoBanco: 'Serie', obras: _todasSeries, onAbrirObra: _abrirObra);
+      case 'Kids':
+        return TvVitrineCategoriaScreen(titulo: 'Kids & Família', tipoBanco: '', obras: _obrasKids, onAbrirObra: _abrirObra);
+      case 'Animes':
+        return TvVitrineCategoriaScreen(titulo: 'Animes', tipoBanco: '', obras: _obrasAnimes, onAbrirObra: _abrirObra);
+      case 'Sports':
+        return TvCanaisGradeScreen(titulo: 'Sports Ao Vivo', canais: _canaisSports, jogosAoVivo: _jogosAoVivo, onAbrirCanal: _reproduzirDireto);
+      case 'TV':
+        return TvCanaisGradeScreen(titulo: 'Canais de TV Ao Vivo', canais: _canaisTv, jogosAoVivo: const [], onAbrirCanal: _reproduzirDireto);
+      case 'Favoritos':
+        final favIds = MaxMemoryService.instance.favoritos;
+        final favs = widget.catalogo.where((o) => favIds.contains(o.chaveAgrupamento) || favIds.contains(o.titulo)).toList();
+        return TvVitrineCategoriaScreen(titulo: 'Meus Favoritos', tipoBanco: '', obras: favs, onAbrirObra: _abrirObra);
+      case 'Histórico':
+        final hist = MaxMemoryService.instance.historico;
+        final histObras = widget.catalogo.where((o) => hist.any((h) => h.titulo == o.titulo)).toList();
+        return TvVitrineCategoriaScreen(titulo: 'Continuar Assistindo', tipoBanco: '', obras: histObras, onAbrirObra: _abrirObra);
+      default:
+        return _buildInicioBentoTv();
+    }
+  }
+
+  Widget _buildInicioBentoTv() {
+    final filmesBanner = _filmesDestaque;
+    final seriesFila = _seriesDestaque;
+    final filmesRecentes = _todosFilmes.take(18).toList();
+    final seriesRecentes = _todasSeries.take(18).toList();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            height: 410,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  flex: 62,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 58, child: _buildBannerRotativoFilmes(filmesBanner)),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          const Text('Séries em Alta (TMDB & IMDb)',
+                              style: TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w800)),
+                          const Spacer(),
+                          CinemaFocusBox(
+                            borderRadius: 12,
+                            onTap: () => _selecionarAba('Séries'),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              child: Text('Ver todas ›',
+                                  style: TextStyle(color: Color(0xFFF5B82E), fontSize: 12, fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Expanded(flex: 42, child: _buildFileira5Series(seriesFila)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(flex: 38, child: _buildColuna3JogosAoVivo()),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _buildBarraHubsInferior(),
+          const SizedBox(height: 22),
+          if (filmesRecentes.isNotEmpty) ...[
+            _buildCabecalhoPrateleira(
+              titulo: 'Lançamentos de Filmes (2026 • Em Alta)',
+              total: _todosFilmes.length,
+              onVerTodos: () => _selecionarAba('Filmes'),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 245,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                cacheExtent: 420,
+                itemCount: filmesRecentes.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                itemBuilder: (_, i) => TvPosterCard(obra: filmesRecentes[i], onTap: () => _abrirObra(filmesRecentes[i])),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+          if (seriesRecentes.isNotEmpty) ...[
+            _buildCabecalhoPrateleira(
+              titulo: 'Lançamentos de Séries (2026 • Em Alta)',
+              total: _todasSeries.length,
+              onVerTodos: () => _selecionarAba('Séries'),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 245,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                cacheExtent: 420,
+                itemCount: seriesRecentes.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                itemBuilder: (_, i) => TvPosterCard(obra: seriesRecentes[i], onTap: () => _abrirObra(seriesRecentes[i])),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBannerRotativoFilmes(List<ObraAgrupada> filmes) {
+    if (filmes.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(color: const Color(0xFF141824), borderRadius: BorderRadius.circular(14)),
+        alignment: Alignment.center,
+        child: const Text('Carregando lançamentos de filmes...', style: TextStyle(color: Colors.white60)),
+      );
+    }
+
+    final idx = _bannerIndex % filmes.length;
+    final filme = filmes[idx];
+    final temBackdrop = filme.bannerUrl.isNotEmpty;
+    final imgUrl = temBackdrop ? filme.bannerUrl : filme.capaUrl;
+
+    return CinemaFocusBox(
+      borderRadius: 14,
+      scaleOnFocus: 1.015,
+      onTap: () => _abrirObra(filme),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF111520),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withOpacity(0.12)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (temBackdrop)
+              Positioned(
+                right: 0, top: 0, bottom: 0, width: 460,
+                child: CachedNetworkImage(
+                  imageUrl: imgUrl,
+                  fit: BoxFit.cover,
+                  alignment: const Alignment(0.0, -0.25),
+                  memCacheWidth: 960,
+                  fadeInDuration: Duration.zero,
+                ),
+              )
+            else if (imgUrl.isNotEmpty) ...[
+              ImageFiltered(
+                imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                child: CachedNetworkImage(imageUrl: imgUrl, fit: BoxFit.cover, memCacheWidth: 320, fadeInDuration: Duration.zero),
+              ),
+              Container(color: Colors.black.withOpacity(0.55)),
+              Positioned(
+                right: 22, top: 14, bottom: 14,
+                child: AspectRatio(
+                  aspectRatio: 2 / 3,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: CachedNetworkImage(imageUrl: imgUrl, fit: BoxFit.cover, memCacheWidth: 420, fadeInDuration: Duration.zero),
+                  ),
+                ),
+              ),
+            ],
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  stops: [0.0, 0.44, 0.78, 1.0],
+                  colors: [Color(0xFF0C0F17), Color(0xF20C0F17), Color(0x550C0F17), Colors.transparent],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(6)),
+                        child: const Text('TOP LANÇAMENTOS • FILMES',
+                            style: TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.w900)),
+                      ),
+                      if (filme.ano.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Text(filme.ano, style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w700)),
+                      ],
+                      if (filme.notaImdb > 0) ...[
+                        const SizedBox(width: 8),
+                        Text('★ ${filme.notaImdb.toStringAsFixed(1)} IMDb',
+                            style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 12, fontWeight: FontWeight.w800)),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: 340,
+                    child: Text(filme.titulo, maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900, height: 1.12)),
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: 330,
+                    child: Text(filme.sinopse.isNotEmpty ? filme.sinopse : filme.genero,
+                        maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.3)),
+                  ),
+                  const Spacer(),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                        decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(8)),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.play_arrow_rounded, color: Colors.black, size: 18),
+                            SizedBox(width: 4),
+                            Text('Assistir Agora', style: TextStyle(color: Colors.black, fontSize: 12.5, fontWeight: FontWeight.w900)),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      Row(
+                        children: List.generate(filmes.length, (i) {
+                          final sel = i == idx;
+                          return GestureDetector(
+                            onTap: () => setState(() => _bannerIndex = i),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              margin: const EdgeInsets.only(left: 5),
+                              width: sel ? 20 : 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: sel ? const Color(0xFFF5B82E) : Colors.white38,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFileira5Series(List<ObraAgrupada> series) {
+    if (series.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(color: const Color(0xFF141824), borderRadius: BorderRadius.circular(10)),
+        alignment: Alignment.center,
+        child: const Text('Nenhuma série em destaque no momento', style: TextStyle(color: Colors.white54, fontSize: 12)),
+      );
+    }
+    return Row(
+      children: List.generate(series.length, (i) {
+        final s = series[i];
+        final img = s.bannerUrl.isNotEmpty ? s.bannerUrl : s.capaUrl;
+        return Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(right: i == series.length - 1 ? 0 : 8),
+            child: CinemaFocusBox(
+              borderRadius: 10,
+              scaleOnFocus: 1.05,
+              onTap: () => _abrirObra(s),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF151924),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white12),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (img.isNotEmpty)
+                      CachedNetworkImage(
+                        imageUrl: img, fit: BoxFit.cover, alignment: const Alignment(0.0, -0.2),
+                        memCacheWidth: 360, fadeInDuration: Duration.zero,
+                      ),
+                    Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Color(0xE6090B10)],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 5, left: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(color: Colors.black.withOpacity(0.75), borderRadius: BorderRadius.circular(4)),
+                        child: Text('#${i + 1} SÉRIE',
+                            style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 9, fontWeight: FontWeight.w900)),
+                      ),
+                    ),
+                    Positioned(
+                      left: 7, right: 7, bottom: 6,
+                      child: Text(s.titulo, maxLines: 2, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800, height: 1.15)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildColuna3JogosAoVivo() {
+    if (_carregandoJogos && _jogosAoVivo.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(color: const Color(0xFF121622), borderRadius: BorderRadius.circular(14)),
+        alignment: Alignment.center,
+        child: const CircularProgressIndicator(color: Color(0xFFF5B82E)),
+      );
+    }
+    final jogo1 = _jogosAoVivo.isNotEmpty ? _jogosAoVivo[0] : null;
+    final jogo2 = _jogosAoVivo.length > 1 ? _jogosAoVivo[1] : null;
+    final jogo3 = _jogosAoVivo.length > 2 ? _jogosAoVivo[2] : null;
+
+    return Column(
+      children: [
+        Expanded(flex: 54, child: _buildCardJogoLive(jogo1, destaqueGrande: true)),
+        const SizedBox(height: 10),
+        Expanded(
+          flex: 46,
+          child: Row(
+            children: [
+              Expanded(child: _buildCardJogoLive(jogo2, destaqueGrande: false)),
+              const SizedBox(width: 10),
+              Expanded(child: _buildCardJogoLive(jogo3, destaqueGrande: false)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCardJogoLive(JogoAoVivoInfo? jogo, {required bool destaqueGrande}) {
+    final canaisSports = _canaisSports;
+    final canalDestino = jogo != null
+        ? LiveSportsService.instance.encontrarCanalParaJogo(jogo, canaisSports)
+        : (canaisSports.isNotEmpty ? canaisSports.first : null);
+
+    return CinemaFocusBox(
+      borderRadius: 14,
+      scaleOnFocus: 1.03,
+      onTap: () => canalDestino != null ? _reproduzirDireto(canalDestino) : _selecionarAba('Sports'),
+      child: Container(
+        padding: EdgeInsets.all(destaqueGrande ? 14 : 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: destaqueGrande
+                ? const [Color(0xFF1A2A1E), Color(0xFF0E141D)]
+                : const [Color(0xFF171E2E), Color(0xFF0D1119)],
+          ),
+          border: Border.all(
+            color: (jogo?.aoVivo == true) ? Colors.redAccent.withOpacity(0.75) : Colors.white.withOpacity(0.14),
+            width: 1.3,
+          ),
+        ),
+        child: jogo == null
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.sports_soccer_rounded, color: Color(0xFFF5B82E), size: 30),
+                  const SizedBox(height: 6),
+                  Text('Sports Ao Vivo', textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: destaqueGrande ? 15 : 12, fontWeight: FontWeight.w800)),
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                        decoration: BoxDecoration(
+                          color: jogo.aoVivo ? const Color(0xFFE53935) : const Color(0xFFF5B82E),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(jogo.aoVivo ? 'LIVE' : 'HOJE',
+                            style: TextStyle(color: jogo.aoVivo ? Colors.white : Colors.black, fontSize: 9.5, fontWeight: FontWeight.w900)),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(jogo.campeonato, maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontWeight: FontWeight.w700)),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildEscudoTime(nome: jogo.timeCasa, escudoUrl: jogo.escudoCasa, tamanho: destaqueGrande ? 44 : 28),
+                      Column(
+                        children: [
+                          Text(jogo.aoVivo ? '${jogo.placarCasa} x ${jogo.placarFora}' : 'VS',
+                              style: TextStyle(color: Colors.white, fontSize: destaqueGrande ? 20 : 14, fontWeight: FontWeight.w900)),
+                          const SizedBox(height: 2),
+                          Text(jogo.statusTexto,
+                              style: TextStyle(
+                                color: jogo.aoVivo ? Colors.greenAccent : const Color(0xFFF5B82E),
+                                fontSize: destaqueGrande ? 10.5 : 9,
+                                fontWeight: FontWeight.w800,
+                              )),
+                        ],
+                      ),
+                      _buildEscudoTime(nome: jogo.timeFora, escudoUrl: jogo.escudoFora, tamanho: destaqueGrande ? 44 : 28),
+                    ],
+                  ),
+                  const Spacer(),
+                  if (canalDestino != null)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.42), borderRadius: BorderRadius.circular(6)),
+                      child: Text('▶ ${canalDestino.titulo}', maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                          style: const TextStyle(color: Color(0xFFFFDF73), fontSize: 10, fontWeight: FontWeight.w700)),
+                    ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _buildEscudoTime({required String nome, required String escudoUrl, required double tamanho}) {
+    return SizedBox(
+      width: tamanho + 34,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (escudoUrl.isNotEmpty)
+            CachedNetworkImage(
+              imageUrl: escudoUrl, width: tamanho, height: tamanho, fit: BoxFit.contain,
+              memCacheWidth: 120, fadeInDuration: Duration.zero,
+              errorWidget: (_, __, ___) => Icon(Icons.shield_rounded, color: Colors.white54, size: tamanho),
+            )
+          else
+            Icon(Icons.shield_rounded, color: Colors.white54, size: tamanho),
+          const SizedBox(height: 4),
+          Text(nome, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w800)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBarraHubsInferior() {
+    final hubs = >[
+      {'nome': 'NETFLIX', 'cor': const Color(0xFFE50914), 'onTap': () => _abrirHubStreaming('Catálogo Netflix', ['netflix'])},
+      {'nome': 'PRIME VIDEO', 'cor': const Color(0xFF00A8E1), 'onTap': () => _abrirHubStreaming('Catálogo Prime Video', ['prime video', 'amazon', 'prime'])},
+      {'nome': 'HBO MAX', 'cor': const Color(0xFF7B2CBF), 'onTap': () => _abrirHubStreaming('Catálogo HBO Max', ['hbo', 'max'])},
+      {'nome': 'DISNEY+', 'cor': const Color(0xFF113CCF), 'onTap': () => _abrirHubStreaming('Catálogo Disney+', ['disney', 'pixar', 'marvel', 'star wars'])},
+      {'nome': 'ESPN', 'cor': const Color(0xFFD00000), 'onTap': () => _abrirHubStreaming('Canais & Jogos ESPN', ['espn'])},
+      {'nome': 'PREMIERE / SPORTV', 'cor': const Color(0xFF1B8A3D), 'onTap': () => _abrirHubStreaming('Premiere & SporTV Ao Vivo', ['premiere', 'sportv', 'globo'])},
+      {'nome': 'TELECINE', 'cor': const Color(0xFFB5179E), 'onTap': () => _abrirHubStreaming('Catálogo Telecine', ['telecine'])},
+    ];
+
+    return SizedBox(
+      height: 54,
+      child: Row(
+        children: List.generate(hubs.length, (i) {
+          final h = hubs[i];
+          final cor = h['cor'] as Color;
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: i == hubs.length - 1 ? 0 : 10),
+              child: CinemaFocusBox(
+                borderRadius: 11,
+                scaleOnFocus: 1.05,
+                onTap: h['onTap'] as VoidCallback,
+                child: Container(
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(11),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft, end: Alignment.bottomRight,
+                      colors: [cor.withOpacity(0.88), const Color(0xFF121622)],
+                    ),
+                    border: Border.all(color: Colors.white.withOpacity(0.16)),
+                  ),
+                  child: Text(h['nome'] as String, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w900, letterSpacing: 0.6)),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildCabecalhoPrateleira({required String titulo, required int total, required VoidCallback onVerTodos}) {
+    return Row(
+      children: [
+        Text(titulo, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
+        const SizedBox(width: 8),
+        Text('($total)', style: const TextStyle(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.w700)),
+        const Spacer(),
+        CinemaFocusBox(
+          borderRadius: 14,
+          onTap: onVerTodos,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            child: Text('Ver todos ›', style: TextStyle(color: Color(0xFFF5B82E), fontSize: 13, fontWeight: FontWeight.w800)),
+          ),
+        ),
+      ],
     );
   }
 }

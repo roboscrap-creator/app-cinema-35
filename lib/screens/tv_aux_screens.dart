@@ -1,23 +1,637 @@
-import 'dart:async';
-import '../widgets/max_assistant_overlay.dart';
-import '../widgets/perfis_usuario_screen.dart';
-import '../services/max_memory_service.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/midia_model.dart';
 import '../services/supabase_service.dart';
-import '../services/catalog_audit_service.dart';
+import '../services/live_sports_service.dart';
 import '../widgets/cinema_widgets.dart';
+
+class TvVitrineCategoriaScreen extends StatefulWidget {
+  final String titulo;
+  final String tipoBanco;
+  final List<ObraAgrupada> obras;
+  final ValueChanged<ObraAgrupada> onAbrirObra;
+
+  const TvVitrineCategoriaScreen({
+    super.key,
+    required this.titulo,
+    required this.tipoBanco,
+    required this.obras,
+    required this.onAbrirObra,
+  });
+
+  @override
+  State<TvVitrineCategoriaScreen> createState() => _TvVitrineCategoriaScreenState();
+}
+
+class _TvVitrineCategoriaScreenState extends State<TvVitrineCategoriaScreen> {
+  String _categoriaSelecionada = 'Todos';
+
+  List<MapEntry<String, int>> get _categoriasDinamicas =>
+      SupabaseService.instance.extrairCategoriasDinamicas(widget.obras);
+
+  List<ObraAgrupada> _filtrarPorCategoria(String cat) {
+    if (cat == 'Todos') return widget.obras;
+    final low = cat.toLowerCase();
+    return widget.obras.where((o) => '${o.categoria},${o.genero},${o.tags}'.toLowerCase().contains(low)).toList();
+  }
+
+  void _abrirExploradorCompleto(String? categoria) {
+    final iniciais = (categoria == null || categoria == 'Todos') ? widget.obras : _filtrarPorCategoria(categoria);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TvExploradorCompletoScreen(
+          tituloPagina: categoria == null || categoria == 'Todos'
+              ? '${widget.titulo} • Catálogo Completo'
+              : '${widget.titulo} • $categoria',
+          tipoBanco: widget.tipoBanco,
+          generoFiltro: (categoria == null || categoria == 'Todos') ? null : categoria,
+          obrasIniciais: iniciais,
+          onAbrirObra: widget.onAbrirObra,
+        ),
+      ),
+    );
+  }
+
+  void _abrirPainelTodasCategorias(List<MapEntry<String, int>> cats) {
+    final sortedAz = List<MapEntry<String, int>>.from(cats)..sort((a, b) => a.key.compareTo(b.key));
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: const Color(0xFF121622),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: Color(0xFFF5B82E), width: 1.4),
+        ),
+        child: Container(
+          width: 720,
+          height: 480,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text('Todas as Categorias de ${widget.titulo} (${sortedAz.length})',
+                      style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 18, fontWeight: FontWeight.w900)),
+                  const Spacer(),
+                  CinemaFocusBox(
+                    borderRadius: 16,
+                    onTap: () => Navigator.pop(ctx),
+                    child: const Padding(padding: EdgeInsets.all(6), child: Icon(Icons.close_rounded, color: Colors.white70)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: GridView.builder(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 3.6,
+                  ),
+                  itemCount: sortedAz.length,
+                  itemBuilder: (_, i) {
+                    final item = sortedAz[i];
+                    return CinemaFocusBox(
+                      borderRadius: 10,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _abrirExploradorCompleto(item.key);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(color: const Color(0xFF1A2030), borderRadius: BorderRadius.circular(10)),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(item.key, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
+                            ),
+                            Text('${item.value}',
+                                style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w900, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cats = _categoriasDinamicas;
+    final topCats = cats.take(14).toList();
+    return Column(
+      children: [
+        Container(
+          height: 50,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+          child: Row(
+            children: [
+              CinemaFocusBox(
+                borderRadius: 18,
+                onTap: () => _abrirPainelTodasCategorias(cats),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5B82E).withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFF5B82E)),
+                  ),
+                  child: Text('Todas as Categorias (${cats.length})',
+                      style: const TextStyle(color: Color(0xFFF5B82E), fontSize: 12, fontWeight: FontWeight.w800)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              CinemaFocusBox(
+                borderRadius: 18,
+                onTap: () => _abrirExploradorCompleto('Todos'),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(18)),
+                  child: Text('Ver Tudo (${widget.obras.length})',
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: topCats.length + 1,
+                  separatorBuilder: (_, __) => const SizedBox(width: 6),
+                  itemBuilder: (_, idx) {
+                    final label = idx == 0 ? 'Todos' : topCats[idx - 1].key;
+                    final qtd = idx == 0 ? widget.obras.length : topCats[idx - 1].value;
+                    final ativo = _categoriaSelecionada == label;
+                    return CinemaFocusBox(
+                      borderRadius: 18,
+                      onTap: () => setState(() => _categoriaSelecionada = label),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: ativo ? const Color(0xFFF5B82E) : Colors.white.withOpacity(0.07),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text('$label ($qtd)',
+                            style: TextStyle(color: ativo ? Colors.black : Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _categoriaSelecionada != 'Todos'
+              ? _buildGradeDireta(_filtrarPorCategoria(_categoriaSelecionada))
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+                  itemCount: cats.length + 1,
+                  itemBuilder: (context, idx) {
+                    if (idx == 0) {
+                      return _buildPrateleira(
+                        titulo: 'Mais Recentes & Em Alta (${widget.titulo})',
+                        total: widget.obras.length,
+                        itens: widget.obras.take(20).toList(),
+                        onVerTodos: () => _abrirExploradorCompleto('Todos'),
+                      );
+                    }
+                    final cat = cats[idx - 1];
+                    final itensCat = _filtrarPorCategoria(cat.key).take(20).toList();
+                    if (itensCat.isEmpty) return const SizedBox.shrink();
+                    return _buildPrateleira(
+                      titulo: cat.key,
+                      total: cat.value,
+                      itens: itensCat,
+                      onVerTodos: () => _abrirExploradorCompleto(cat.key),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPrateleira({required String titulo, required int total, required List<ObraAgrupada> itens, required VoidCallback onVerTodos}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('$titulo ($total)', style: const TextStyle(color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.w900)),
+              const Spacer(),
+              CinemaFocusBox(
+                borderRadius: 12,
+                onTap: onVerTodos,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                  child: Text('Ver todos ›', style: TextStyle(color: Color(0xFFF5B82E), fontSize: 12.5, fontWeight: FontWeight.w800)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 245,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              cacheExtent: 360,
+              itemCount: itens.length + 1,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (_, i) {
+                if (i == itens.length) {
+                  return CinemaFocusBox(
+                    borderRadius: 10,
+                    onTap: onVerTodos,
+                    child: Container(
+                      width: 148,
+                      height: 216,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF161B28),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFF5B82E).withOpacity(0.5)),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.grid_view_rounded, color: Color(0xFFF5B82E), size: 34),
+                          const SizedBox(height: 8),
+                          Text('Ver Todos\n($total)', textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+                return TvPosterCard(obra: itens[i], onTap: () => widget.onAbrirObra(itens[i]));
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGradeDireta(List<ObraAgrupada> itens) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+          child: Row(
+            children: [
+              Text('$_categoriaSelecionada (${itens.length} títulos)',
+                  style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
+              const Spacer(),
+              CinemaFocusBox(
+                borderRadius: 12,
+                onTap: () => _abrirExploradorCompleto(_categoriaSelecionada),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  child: Text('Abrir Explorador Completo (Paginado) ›',
+                      style: TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w800, fontSize: 12.5)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: GridView.builder(
+            padding: const EdgeInsets.fromLTRB(18, 6, 18, 24),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 6, mainAxisSpacing: 14, crossAxisSpacing: 12, childAspectRatio: 0.62,
+            ),
+            itemCount: itens.length,
+            itemBuilder: (_, i) => TvPosterCard(obra: itens[i], onTap: () => widget.onAbrirObra(itens[i])),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class TvExploradorCompletoScreen extends StatefulWidget {
+  final String tituloPagina;
+  final String? tipoBanco;
+  final String? generoFiltro;
+  final String? filtroTermoHub;
+  final List<ObraAgrupada> obrasIniciais;
+  final ValueChanged<ObraAgrupada> onAbrirObra;
+
+  const TvExploradorCompletoScreen({
+    super.key,
+    required this.tituloPagina,
+    this.tipoBanco,
+    this.generoFiltro,
+    this.filtroTermoHub,
+    required this.obrasIniciais,
+    required this.onAbrirObra,
+  });
+
+  @override
+  State<TvExploradorCompletoScreen> createState() => _TvExploradorCompletoScreenState();
+}
+
+class _TvExploradorCompletoScreenState extends State<TvExploradorCompletoScreen> {
+  final ScrollController _scrollCtrl = ScrollController();
+  late List<ObraAgrupada> _lista;
+  String _ordenacao = 'cronologico';
+  String _filtroAudio = 'Todos';
+  bool _carregandoMais = false;
+  bool _temMais = true;
+  int _offsetBanco = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _lista = List<ObraAgrupada>.from(widget.obrasIniciais);
+    _offsetBanco = _lista.length;
+    _scrollCtrl.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollCtrl.position.pixels >= _scrollCtrl.position.maxScrollExtent - 500) {
+      _carregarProximaPagina();
+    }
+  }
+
+  Future<void> _carregarProximaPagina({bool resetar = false}) async {
+    if (_carregandoMais || (!_temMais && !resetar)) return;
+    setState(() => _carregandoMais = true);
+    if (resetar) {
+      _offsetBanco = 0;
+      _temMais = true;
+    }
+
+    final novos = await SupabaseService.instance.buscarPaginaCatalogo(
+      offset: _offsetBanco,
+      limit: 60,
+      tipo: widget.tipoBanco,
+      generoOuTag: widget.generoFiltro ?? widget.filtroTermoHub,
+      ordenacao: _ordenacao,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      if (resetar) _lista = [];
+      final chaves = _lista.map((e) => e.chaveAgrupamento).toSet();
+      for (final n in novos) {
+        if (chaves.add(n.chaveAgrupamento)) _lista.add(n);
+      }
+      _offsetBanco += novos.length;
+      if (novos.length < 60) _temMais = false;
+      _carregandoMais = false;
+    });
+  }
+
+  List<ObraAgrupada> get _listaFiltrada {
+    var base = _lista;
+    if (_filtroAudio == 'Dublado') {
+      base = base.where((o) => '${o.titulo} ${o.tags}'.toLowerCase().contains('dub')).toList();
+    } else if (_filtroAudio == 'Legendado') {
+      base = base.where((o) => '${o.titulo} ${o.tags}'.toLowerCase().contains('leg')).toList();
+    }
+    if (_ordenacao == 'nota') {
+      return List<ObraAgrupada>.from(base)..sort((a, b) => b.notaImdb.compareTo(a.notaImdb));
+    } else if (_ordenacao == 'az') {
+      return List<ObraAgrupada>.from(base)..sort((a, b) => a.titulo.compareTo(b.titulo));
+    }
+    return SupabaseService.instance.ordenarCronologicoRelevancia(base);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final exibidos = _listaFiltrada;
+    return Scaffold(
+      backgroundColor: const Color(0xFF090B10),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              height: 60,
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              color: const Color(0xFF0E121B),
+              child: Row(
+                children: [
+                  CinemaFocusBox(
+                    autofocus: true,
+                    borderRadius: 18,
+                    onTap: () => Navigator.pop(context),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      child: Row(
+                        children: [
+                          Icon(Icons.arrow_back_rounded, color: Color(0xFFF5B82E), size: 20),
+                          SizedBox(width: 6),
+                          Text('Voltar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text('${widget.tituloPagina} (${exibidos.length})',
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900)),
+                  ),
+                  _chipFiltro('2026→Antigos', _ordenacao == 'cronologico', () {
+                    setState(() => _ordenacao = 'cronologico');
+                    _carregarProximaPagina(resetar: true);
+                  }),
+                  const SizedBox(width: 6),
+                  _chipFiltro('Nota IMDb', _ordenacao == 'nota', () {
+                    setState(() => _ordenacao = 'nota');
+                    _carregarProximaPagina(resetar: true);
+                  }),
+                  const SizedBox(width: 6),
+                  _chipFiltro('A–Z', _ordenacao == 'az', () {
+                    setState(() => _ordenacao = 'az');
+                    _carregarProximaPagina(resetar: true);
+                  }),
+                  const SizedBox(width: 12),
+                  _chipFiltro('Todos Áudios', _filtroAudio == 'Todos', () => setState(() => _filtroAudio = 'Todos')),
+                  const SizedBox(width: 6),
+                  _chipFiltro('Dublado', _filtroAudio == 'Dublado', () => setState(() => _filtroAudio = 'Dublado')),
+                  const SizedBox(width: 6),
+                  _chipFiltro('Legendado', _filtroAudio == 'Legendado', () => setState(() => _filtroAudio = 'Legendado')),
+                ],
+              ),
+            ),
+            Expanded(
+              child: exibidos.isEmpty
+                  ? const Center(child: Text('Nenhum título encontrado neste filtro.', style: TextStyle(color: Colors.white60)))
+                  : GridView.builder(
+                      controller: _scrollCtrl,
+                      padding: const EdgeInsets.all(18),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 6, mainAxisSpacing: 14, crossAxisSpacing: 12, childAspectRatio: 0.62,
+                      ),
+                      itemCount: exibidos.length,
+                      itemBuilder: (_, i) => TvPosterCard(obra: exibidos[i], onTap: () => widget.onAbrirObra(exibidos[i])),
+                    ),
+            ),
+            if (_carregandoMais)
+              const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator(color: Color(0xFFF5B82E))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _chipFiltro(String label, bool ativo, VoidCallback onTap) {
+    return CinemaFocusBox(
+      borderRadius: 16,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+        decoration: BoxDecoration(
+          color: ativo ? const Color(0xFFF5B82E) : Colors.white10,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(label,
+            style: TextStyle(color: ativo ? Colors.black : Colors.white, fontSize: 11.5, fontWeight: FontWeight.w800)),
+      ),
+    );
+  }
+}
+
+class TvCanaisGradeScreen extends StatefulWidget {
+  final String titulo;
+  final List<ObraAgrupada> canais;
+  final List<JogoAoVivoInfo> jogosAoVivo;
+  final ValueChanged<ObraAgrupada> onAbrirCanal;
+
+  const TvCanaisGradeScreen({
+    super.key,
+    required this.titulo,
+    required this.canais,
+    required this.jogosAoVivo,
+    required this.onAbrirCanal,
+  });
+
+  @override
+  State<TvCanaisGradeScreen> createState() => _TvCanaisGradeScreenState();
+}
+
+class _TvCanaisGradeScreenState extends State<TvCanaisGradeScreen> {
+  String _cat = 'Todos';
+
+  @override
+  Widget build(BuildContext context) {
+    final cats = <String>{'Todos'};
+    for (final c in widget.canais) {
+      if (c.categoria.trim().isNotEmpty) cats.add(c.categoria.trim());
+    }
+    final catList = cats.toList();
+    final filtrados = _cat == 'Todos'
+        ? widget.canais
+        : widget.canais.where((c) => c.categoria.trim() == _cat).toList();
+
+    return Row(
+      children: [
+        Container(
+          width: 220,
+          color: const Color(0xFF0D1018),
+          child: ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: catList.length,
+            itemBuilder: (_, i) {
+              final c = catList[i];
+              final sel = c == _cat;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: CinemaFocusBox(
+                  borderRadius: 10,
+                  onTap: () => setState(() => _cat = c),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: sel ? const Color(0xFFF5B82E) : Colors.white.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(c, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: sel ? Colors.black : Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        Expanded(
+          child: GridView.builder(
+            padding: const EdgeInsets.all(18),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 2.1,
+            ),
+            itemCount: filtrados.length,
+            itemBuilder: (_, i) {
+              final canal = filtrados[i];
+              final img = canal.capaUrl.isNotEmpty ? canal.capaUrl : canal.bannerUrl;
+              return CinemaFocusBox(
+                borderRadius: 12,
+                onTap: () => widget.onAbrirCanal(canal),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF141926),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Row(
+                    children: [
+                      if (img.isNotEmpty)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: CachedNetworkImage(
+                            imageUrl: img, width: 54, height: 54, fit: BoxFit.contain,
+                            memCacheWidth: 140, fadeInDuration: Duration.zero,
+                          ),
+                        )
+                      else
+                        const Icon(Icons.live_tv_rounded, color: Color(0xFFF5B82E), size: 36),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(canal.titulo, maxLines: 2, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13.5)),
+                            const SizedBox(height: 4),
+                            const Text('AO VIVO', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w900, fontSize: 10)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 class TvBuscaScreen extends StatefulWidget {
   final List<ObraAgrupada> catalogo;
-  final void Function(ObraAgrupada) onAbrirObra;
+  final ValueChanged<ObraAgrupada> onAbrirObra;
 
-  const TvBuscaScreen({
-    super.key,
-    required this.catalogo,
-    required this.onAbrirObra,
-  });
+  const TvBuscaScreen({super.key, required this.catalogo, required this.onAbrirObra});
 
   @override
   State<TvBuscaScreen> createState() => _TvBuscaScreenState();
@@ -25,1316 +639,71 @@ class TvBuscaScreen extends StatefulWidget {
 
 class _TvBuscaScreenState extends State<TvBuscaScreen> {
   final TextEditingController _ctrl = TextEditingController();
-  final FocusNode _tvInputFocus = FocusNode(canRequestFocus: false, skipTraversal: true);
-  Timer? _debounceBusca;
-  int _tokenBusca = 0;
-  bool _modoNumeros = false;
-  bool _buscando = false;
-  List<ObraAgrupada> _resultados = [];
-  List<ObraAgrupada> _populares = [];
-
-  static const List<String> _letras = [
-    'A', 'B', 'C', 'D', 'E', 'F', 'G',
-    'H', 'I', 'J', 'K', 'L', 'M', 'N',
-    'O', 'P', 'Q', 'R', 'S', 'T', 'U',
-    'V', 'W', 'X', 'Y', 'Z',
-  ];
-
-  static const List<String> _numeros = [
-    '1', '2', '3', '4', '5', '6', '7',
-    '8', '9', '0', '-', ':', '.', '/',
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _atualizarPopulares();
-  }
+  String _query = '';
 
   @override
   void dispose() {
-    _debounceBusca?.cancel();
     _ctrl.dispose();
-    _tvInputFocus.dispose();
     super.dispose();
   }
 
-  void _atualizarPopulares() {
-    final ordenados = List<ObraAgrupada>.from(widget.catalogo)
-      ..sort((a, b) => b.scorePopularidade.compareTo(a.scorePopularidade));
-    final top = ordenados.take(30).toList()..shuffle();
-    setState(() => _populares = top.take(10).toList());
-  }
-
-  void _agendarBusca() {
-    _debounceBusca?.cancel();
-    final q = _ctrl.text.trim();
-    if (q.isEmpty) {
-      _tokenBusca++;
-      setState(() {
-        _resultados = [];
-        _buscando = false;
-      });
-      return;
-    }
-    _debounceBusca = Timer(const Duration(milliseconds: 350), _executarBusca);
-  }
-
-  Future<void> _executarBusca() async {
-    final q = _ctrl.text.trim();
-    if (q.isEmpty) {
-      setState(() {
-        _resultados = [];
-        _buscando = false;
-      });
-      return;
-    }
-    final tok = ++_tokenBusca;
-    setState(() => _buscando = true);
-    final res = await SupabaseService.buscarComElencoEDiretores(q, widget.catalogo);
-    if (mounted && tok == _tokenBusca) {
-      setState(() {
-        _resultados = res;
-        _buscando = false;
-      });
-    }
-  }
-
-  void _digitar(String char) {
-    _ctrl.text = '${_ctrl.text}$char';
-    _agendarBusca();
-  }
-
-  void _apagarUltimo() {
-    if (_ctrl.text.isNotEmpty) {
-      _ctrl.text = _ctrl.text.substring(0, _ctrl.text.length - 1);
-      _agendarBusca();
-    }
-  }
-
-  void _limpar() {
-    _ctrl.clear();
-    setState(() => _resultados = []);
-  }
-
   @override
   Widget build(BuildContext context) {
-    final emBusca = _ctrl.text.trim().isNotEmpty;
-    final listaExibida = emBusca ? _resultados : _populares;
-    final isMobile = MediaQuery.of(context).size.width < 650;
-
-    if (isMobile) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF0E141B),
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          title: const Text('Pesquisar', style: TextStyle(fontWeight: FontWeight.w700)),
-        ),
-        body: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 6, 14, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Focus(
-                canRequestFocus: false,
-                skipTraversal: true,
-                onKeyEvent: (node, event) {
-                  if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.arrowDown) {
-                    FocusScope.of(context).nextFocus();
-                    return KeyEventResult.handled;
-                  }
-                  return KeyEventResult.ignored;
-                },
-                child: TextField(
-                  controller: _ctrl,
-                  autofocus: true,
-                  textInputAction: TextInputAction.search,
-                  onEditingComplete: () => FocusScope.of(context).nextFocus(),
-                  onChanged: (_) {
-                  setState(() {});
-                  _agendarBusca();
-                },
-                style: const TextStyle(color: Colors.white, fontSize: 15),
-                decoration: InputDecoration(
-                  hintText: 'Pesquise filmes, séries ou diretores...',
-                  hintStyle: const TextStyle(color: Colors.white54, fontSize: 14),
-                  prefixIcon: const Icon(Icons.search, color: Color(0xFFF5B82E)),
-                  suffixIcon: emBusca
-                      ? IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white70),
-                          onPressed: _limpar,
-                        )
-                      : null,
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.12),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                ),
-              ),
-                ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Text(
-                    emBusca ? 'Resultados da busca' : 'Buscas populares',
-                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(width: 8),
-                  if (!emBusca)
-                    InkWell(
-                      onTap: _atualizarPopulares,
-                      child: const Icon(Icons.refresh, color: Color(0xFFF5B82E), size: 18),
-                    ),
-                  const Spacer(),
-                  Text(
-                    'Total: ${listaExibida.length}',
-                    style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              if (_buscando)
-                const Expanded(child: Center(child: CircularProgressIndicator(color: Color(0xFFF5B82E))))
-              else if (listaExibida.isEmpty)
-                const Expanded(
-                  child: Center(
-                    child: Text('Nenhum filme, série ou diretor encontrado.', style: TextStyle(color: Colors.white54, fontSize: 15)),
-                  ),
-                )
-              else
-                Expanded(
-                  child: GridView.builder(
-                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      childAspectRatio: 0.60,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
-                    ),
-                    itemCount: listaExibida.length,
-                    itemBuilder: (_, idx) => TvPosterCard(
-                      obra: listaExibida[idx],
-                      onTap: () => widget.onAbrirObra(listaExibida[idx]),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      );
-    }
+    final q = _query.trim().toLowerCase();
+    final resultados = q.isEmpty
+        ? widget.catalogo.take(24).toList()
+        : SupabaseService.instance.ordenarCronologicoRelevancia(
+            widget.catalogo.where((o) {
+              final blob = '${o.titulo} ${o.categoria} ${o.genero} ${o.tags} ${o.ano}'.toLowerCase();
+              return blob.contains(q);
+            }).toList(),
+          );
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0E141B),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        title: const Text('Pesquisar', style: TextStyle(fontWeight: FontWeight.w700)),
-      ),
-      body: Row(
-        children: [
-          Container(
-            width: 340,
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
-            color: Colors.black.withOpacity(0.28),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _ctrl,
-                  focusNode: _tvInputFocus,
-                  readOnly: true,
-                  onChanged: (_) => _agendarBusca(),
-                  style: const TextStyle(color: Colors.white, fontSize: 15),
-                  decoration: InputDecoration(
-                    hintText: 'Pesquise filmes, séries ou diretores.',
-                    hintStyle: const TextStyle(color: Colors.white54, fontSize: 13.5),
-                    filled: true,
-                    fillColor: Colors.white.withOpacity(0.12),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _teclaEspecial(
-                      label: _modoNumeros ? 'ABC' : '123',
-                      onTap: () => setState(() => _modoNumeros = !_modoNumeros),
-                    ),
-                    _teclaEspecial(icon: Icons.delete_outline, onTap: _limpar),
-                    _teclaEspecial(icon: Icons.backspace_outlined, onTap: _apagarUltimo),
-                    CinemaFocusBox(
-                      onTap: _executarBusca,
-                      borderRadius: 6,
-                      scaleOnFocus: 1.07,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                        decoration: BoxDecoration(color: const Color(0xFFF5B82E), borderRadius: BorderRadius.circular(6)),
-                        child: const Text('Buscar', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w800)),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Expanded(
-                  child: GridView.count(
-                    crossAxisCount: 7,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                    children: [
-                      ...(_modoNumeros ? _numeros : _letras).map(
-                        (ch) => CinemaFocusBox(
-                          autofocus: ch == 'A' || ch == '1',
-                          onTap: () => _digitar(ch),
-                          borderRadius: 6,
-                          scaleOnFocus: 1.08,
-                          child: Container(
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.07),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              ch,
-                              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ),
-                      ),
-                      CinemaFocusBox(
-                        onTap: () => _digitar(' '),
-                        borderRadius: 6,
-                        scaleOnFocus: 1.08,
-                        child: Container(
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Icon(Icons.space_bar, color: Colors.white, size: 18),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                CinemaFocusBox(
-                  borderRadius: 8,
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Pedido registrado! Nossa equipe atualiza o catálogo diariamente.')),
-                    );
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    alignment: Alignment.center,
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    decoration: BoxDecoration(border: Border.all(color: Colors.white24), borderRadius: BorderRadius.circular(8)),
-                    child: const Text('Feedback / Pedir Título', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 10, 24, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        emBusca ? 'Resultados da busca' : 'Buscas populares',
-                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(width: 14),
-                      if (!emBusca)
-                        CinemaFocusBox(
-                          borderRadius: 16,
-                          onTap: _atualizarPopulares,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(16)),
-                            child: const Text('Atualizar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                          ),
-                        ),
-                      const Spacer(),
-                      Text(
-                        'Total: ${listaExibida.length}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (_buscando)
-                    const Expanded(child: Center(child: CircularProgressIndicator(color: Color(0xFFF5B82E))))
-                  else if (listaExibida.isEmpty)
-                    const Expanded(
-                      child: Center(
-                        child: Text('Nenhum filme, série ou diretor encontrado.', style: TextStyle(color: Colors.white54, fontSize: 16)),
-                      ),
-                    )
-                  else
-                    Expanded(
-                      child: GridView.builder(
-                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 168,
-                          childAspectRatio: 0.62,
-                          crossAxisSpacing: 14,
-                          mainAxisSpacing: 14,
-                        ),
-                        itemCount: listaExibida.length,
-                        itemBuilder: (_, idx) => TvPosterCard(
-                          obra: listaExibida[idx],
-                          onTap: () => widget.onAbrirObra(listaExibida[idx]),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _teclaEspecial({String? label, IconData? icon, required VoidCallback onTap}) {
-    return CinemaFocusBox(
-      onTap: onTap,
-      borderRadius: 6,
-      scaleOnFocus: 1.07,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-        decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-        child: label != null
-            ? Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))
-            : Icon(icon, color: Colors.white, size: 19),
-      ),
-    );
-  }
-}
-
-class TvFiltroScreen extends StatefulWidget {
-  final List<ObraAgrupada> catalogo;
-  final String tipoInicial;
-  final void Function(ObraAgrupada) onAbrirObra;
-
-  const TvFiltroScreen({
-    super.key,
-    required this.catalogo,
-    this.tipoInicial = 'Filmes',
-    required this.onAbrirObra,
-  });
-
-  @override
-  State<TvFiltroScreen> createState() => _TvFiltroScreenState();
-}
-
-class _TvFiltroScreenState extends State<TvFiltroScreen> {
-  late String _tipo;
-  String _genero = 'Todos';
-  String _ano = 'Todos';
-  String _pais = 'Todos';
-  String _audio = 'Todos';
-
-  static const List<String> _tipos = ['Filmes', 'Séries', 'Kids', 'Anime'];
-  static const List<String> _generos = [
-    'Todos', 'Ação', 'Drama', 'Aventura', 'Crime',
-    'Ficção científica', 'Desenho', 'Comédia', 'Romance',
-    'Animação', 'Suspense', 'Terror', 'Mistério',
-  ];
-  static const List<String> _anos = [
-    'Todos', '2026', '2025', '2024', '2023', '2022',
-    '2021', '2020', '2019', '2018', '2017', 'Anteriores',
-  ];
-  static const List<String> _paises = [
-    'Todos', 'Brasil', 'Portugal', 'Estados Unidos', 'México',
-    'Reino Unido', 'Japão', 'Coreia do Sul', 'Espanha', 'Alemanha',
-  ];
-  static const List<String> _audios = ['Todos', 'Português', 'Espanhol', 'Inglês'];
-
-  @override
-  void initState() {
-    super.initState();
-    _tipo = widget.tipoInicial;
-  }
-
-  List<ObraAgrupada> get _filtrados {
-    return widget.catalogo.where((o) {
-      final cat = o.categoria.toLowerCase();
-      final gen = SupabaseService.normalizarTexto(o.genero);
-      final tags = o.tags.map((t) => SupabaseService.normalizarTexto(t)).toList();
-
-      if (_tipo == 'Filmes' && (!cat.contains('filme') || cat.contains('série') || cat.contains('serie'))) return false;
-      if (_tipo == 'Séries' && !(cat.contains('série') || cat.contains('serie'))) return false;
-      final ehAnime = cat.contains('anime') || gen.contains('anime') || tags.contains('anime') ||
-          CatalogAuditService.ehAnime(titulo: o.titulo, generos: o.genero.split(','), paisOrigem: o.pais, sinopse: o.sinopse);
-      if (_tipo == 'Kids' && (ehAnime || !(cat.contains('infantil') || cat.contains('kids') || gen.contains('infantil') || gen.contains('animacao') || tags.contains('kids')))) return false;
-      if (_tipo == 'Anime' && !ehAnime) return false;
-
-      if (_genero != 'Todos') {
-        final gBusca = SupabaseService.normalizarTexto(_genero);
-        if (!gen.contains(gBusca) && !tags.any((t) => t.contains(gBusca))) return false;
-      }
-
-      if (_ano != 'Todos') {
-        if (_ano == 'Anteriores') {
-          final y = int.tryParse(o.ano.trim()) ?? 9999;
-          if (y >= 2017) return false;
-        } else if (!o.ano.contains(_ano)) {
-          return false;
-        }
-      }
-
-      if (_pais != 'Todos') {
-        final pNorm = SupabaseService.normalizarTexto(o.pais);
-        final pBusca = SupabaseService.normalizarTexto(_pais);
-        if (pNorm.isNotEmpty && !pNorm.contains(pBusca)) return false;
-      }
-
-      if (_audio != 'Todos') {
-        final aBusca = SupabaseService.normalizarTexto(_audio);
-        final temAudio = o.audiosDisponiveis.any((a) {
-          final an = SupabaseService.normalizarTexto(a);
-          if (aBusca == 'portugues') return an.contains('portugues') || an.contains('dublado') || an.contains('nacional') || an == 'pt';
-          if (aBusca == 'ingles') return an.contains('ingles') || an.contains('legendado') || an == 'en';
-          return an.contains(aBusca);
-        });
-        if (!temAudio) return false;
-      }
-      return true;
-    }).toList();
-  }
-
-  Widget _linhaFiltro({required String titulo, required List<String> opcoes, required String selecionado, required void Function(String) onSelect, bool autofocusPrimeiro = false}) {
-    return SizedBox(
-      height: 36,
-      child: Row(
-        children: [
-          SizedBox(width: 72, child: Text('$titulo:', style: const TextStyle(color: Colors.white70, fontSize: 13.5, fontWeight: FontWeight.w700))),
-          Expanded(
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: opcoes.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (_, i) {
-                final item = opcoes[i];
-                final ativo = item == selecionado;
-                return CinemaFocusBox(
-                  autofocus: autofocusPrimeiro && i == 0,
-                  onTap: () => onSelect(item),
-                  borderRadius: 18,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    decoration: BoxDecoration(color: ativo ? const Color(0xFFF5B82E) : Colors.transparent, borderRadius: BorderRadius.circular(18)),
-                    alignment: Alignment.center,
-                    child: Text(item, style: TextStyle(color: ativo ? Colors.black : Colors.white, fontSize: 13.5, fontWeight: ativo ? FontWeight.w800 : FontWeight.w500)),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final lista = _filtrados;
-    return Scaffold(
-      backgroundColor: const Color(0xFF0E141B),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        title: const Text('Filtro Avançado', style: TextStyle(fontWeight: FontWeight.w700)),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 20),
-            child: Center(child: Text('${lista.length} encontrados', style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w700))),
-          ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 6, 24, 16),
+      backgroundColor: const Color(0xFF090B10),
+      body: SafeArea(
         child: Column(
           children: [
-            _linhaFiltro(titulo: 'Tipo', opcoes: _tipos, selecionado: _tipo, onSelect: (v) => setState(() => _tipo = v), autofocusPrimeiro: true),
-            const SizedBox(height: 6),
-            _linhaFiltro(titulo: 'Gênero', opcoes: _generos, selecionado: _genero, onSelect: (v) => setState(() => _genero = v)),
-            const SizedBox(height: 6),
-            _linhaFiltro(titulo: 'Ano', opcoes: _anos, selecionado: _ano, onSelect: (v) => setState(() => _ano = v)),
-            const SizedBox(height: 6),
-            _linhaFiltro(titulo: 'País', opcoes: _paises, selecionado: _pais, onSelect: (v) => setState(() => _pais = v)),
-            const SizedBox(height: 6),
-            _linhaFiltro(titulo: 'Áudio', opcoes: _audios, selecionado: _audio, onSelect: (v) => setState(() => _audio = v)),
-            const SizedBox(height: 16),
-            Expanded(
-              child: lista.isEmpty
-                  ? const Center(child: Text('Nenhum título encontrado com essa combinação de filtros.', style: TextStyle(color: Colors.white54, fontSize: 16)))
-                  : GridView.builder(
-                      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 168, childAspectRatio: 0.62, crossAxisSpacing: 14, mainAxisSpacing: 14),
-                      itemCount: lista.length,
-                      itemBuilder: (_, idx) => TvPosterCard(obra: lista[idx], onTap: () => widget.onAbrirObra(lista[idx])),
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class TvHistoricoFavoritosScreen extends StatefulWidget {
-  final List<ObraAgrupada> catalogo;
-  final void Function(ObraAgrupada) onAbrirObra;
-
-  const TvHistoricoFavoritosScreen({
-    super.key,
-    required this.catalogo,
-    required this.onAbrirObra,
-  });
-
-  @override
-  State<TvHistoricoFavoritosScreen> createState() => _TvHistoricoFavoritosScreenState();
-}
-
-class _TvHistoricoFavoritosScreenState extends State<TvHistoricoFavoritosScreen> {
-  int _abaLateral = 0;
-  bool _somenteSeries = false;
-  bool _modoEdicao = false;
-  final Set<String> _selecionados = {};
-  Map<String, Map<String, dynamic>> _historicoMap = {};
-  Set<String> _favoritosSet = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _carregarDados();
-  }
-
-  Future<void> _carregarDados() async {
-    final hist = await SupabaseService.carregarProgressoAssistido();
-    final favs = await SupabaseService.carregarFavoritos();
-    if (mounted) {
-      setState(() {
-        _historicoMap = hist;
-        _favoritosSet = favs;
-      });
-    }
-  }
-
-  List<ObraAgrupada> get _itensAtuais {
-    final base = _abaLateral == 0
-        ? widget.catalogo.where((o) => _historicoMap.containsKey(o.chaveGrupo)).toList()
-        : widget.catalogo.where((o) => _favoritosSet.contains(o.chaveGrupo)).toList();
-    return base.where((o) => _somenteSeries ? o.isSerie : !o.isSerie).toList();
-  }
-
-  Future<void> _excluirSelecionados() async {
-    if (_selecionados.isEmpty) return;
-    if (_abaLateral == 0) {
-      await SupabaseService.removerDoHistorico(_selecionados.toList());
-    } else {
-      for (final ch in _selecionados) {
-        await SupabaseService.alternarFavorito(ch);
-      }
-    }
-    setState(() {
-      _selecionados.clear();
-      _modoEdicao = false;
-    });
-    await _carregarDados();
-  }
-
-  Future<void> _limparTudo() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF161B24),
-        title: Text(_abaLateral == 0 ? 'Limpar Histórico?' : 'Limpar Favoritos?'),
-        content: const Text('Tem certeza que deseja remover todos os itens desta lista?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Excluir tudo'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      if (_abaLateral == 0) {
-        await SupabaseService.limparTodoHistorico();
-      } else {
-        for (final ch in _favoritosSet.toList()) {
-          await SupabaseService.alternarFavorito(ch);
-        }
-      }
-      setState(() {
-        _selecionados.clear();
-        _modoEdicao = false;
-      });
-      await _carregarDados();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final baseAtual = _abaLateral == 0
-        ? widget.catalogo.where((o) => _historicoMap.containsKey(o.chaveGrupo)).toList()
-        : widget.catalogo.where((o) => _favoritosSet.contains(o.chaveGrupo)).toList();
-    final totalFilmes = baseAtual.where((o) => !o.isSerie).length;
-    final totalSeries = baseAtual.where((o) => o.isSerie).length;
-    final exibidos = _itensAtuais;
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF0E141B),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        title: Text(_abaLateral == 0 ? 'Histórico' : 'Favoritos'),
-      ),
-      body: Row(
-        children: [
-          Container(
-            width: MediaQuery.of(context).size.width < 420 ? 96 : (MediaQuery.of(context).size.width < 700 ? 112 : 230),
-            padding: const EdgeInsets.symmetric(vertical: 20),
-            color: Colors.black.withOpacity(0.24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _itemMenuLateral(
-                  titulo: 'Histórico',
-                  ativo: _abaLateral == 0,
-                  autofocus: true,
-                  onTap: () => setState(() {
-                    _abaLateral = 0;
-                    _modoEdicao = false;
-                    _selecionados.clear();
-                  }),
-                ),
-                const SizedBox(height: 8),
-                _itemMenuLateral(
-                  titulo: 'Meus Favoritos',
-                  ativo: _abaLateral == 1,
-                  onTap: () => setState(() {
-                    _abaLateral = 1;
-                    _modoEdicao = false;
-                    _selecionados.clear();
-                  }),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            Padding(
+              padding: const EdgeInsets.all(18),
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      _pilulaTipo(label: 'Filmes', ativo: !_somenteSeries, onTap: () => setState(() => _somenteSeries = false)),
-                      const SizedBox(width: 12),
-                      _pilulaTipo(label: 'Séries', ativo: _somenteSeries, onTap: () => setState(() => _somenteSeries = true)),
-                      const SizedBox(width: 24),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(20)),
-                        child: Row(
-                          children: [
-                            CinemaFocusBox(
-                              borderRadius: 18,
-                              onTap: () => setState(() {
-                                _modoEdicao = !_modoEdicao;
-                                _selecionados.clear();
-                              }),
-                              child: Padding(
-                                padding: const EdgeInsets.all(6),
-                                child: Icon(Icons.edit_note, color: _modoEdicao ? const Color(0xFFF5B82E) : Colors.white),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            CinemaFocusBox(
-                              borderRadius: 18,
-                              onTap: _limparTudo,
-                              child: const Padding(
-                                padding: EdgeInsets.all(6),
-                                child: Icon(Icons.delete_outline, color: Colors.white),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (_modoEdicao && _selecionados.isNotEmpty) ...[
-                        const SizedBox(width: 12),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                          onPressed: _excluirSelecionados,
-                          icon: const Icon(Icons.delete, size: 18),
-                          label: Text('Remover (${_selecionados.length})'),
-                        ),
-                      ],
-                      const Spacer(),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text('Total de filmes  $totalFilmes', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                          Text('Total de séries  $totalSeries', style: const TextStyle(color: Color(0xFFF5B82E), fontWeight: FontWeight.w700)),
-                        ],
-                      ),
-                    ],
+                  CinemaFocusBox(
+                    borderRadius: 18,
+                    onTap: () => Navigator.pop(context),
+                    child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.arrow_back_rounded, color: Color(0xFFF5B82E))),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: exibidos.isEmpty
-                        ? Center(
-                            child: Text(
-                              _abaLateral == 0 ? 'Nenhum título assistido ainda.' : 'Nenhum título nos seus favoritos ainda.',
-                              style: const TextStyle(color: Colors.white54, fontSize: 16),
-                            ),
-                          )
-                        : GridView.builder(
-                            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 168,
-                              childAspectRatio: 0.62,
-                              crossAxisSpacing: 14,
-                              mainAxisSpacing: 14,
-                            ),
-                            itemCount: exibidos.length,
-                            itemBuilder: (_, idx) {
-                              final obra = exibidos[idx];
-                              final prog = _historicoMap[obra.chaveGrupo]?['progresso'] as double?;
-                              final sel = _selecionados.contains(obra.chaveGrupo);
-                              return TvPosterCard(
-                                obra: obra,
-                                progresso: _abaLateral == 0 ? prog : null,
-                                modoEdicao: _modoEdicao,
-                                selecionadoEdicao: sel,
-                                onTap: () {
-                                  if (_modoEdicao) {
-                                    setState(() {
-                                      if (sel) {
-                                        _selecionados.remove(obra.chaveGrupo);
-                                      } else {
-                                        _selecionados.add(obra.chaveGrupo);
-                                      }
-                                    });
-                                  } else {
-                                    widget.onAbrirObra(obra);
-                                  }
-                                },
-                              );
-                            },
-                          ),
+                    child: TextField(
+                      controller: _ctrl,
+                      autofocus: true,
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                      decoration: InputDecoration(
+                        hintText: 'Buscar filme, série, faroeste, série turca, ator ou canal...',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: const Color(0xFF161B28),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                      ),
+                      onChanged: (v) => setState(() => _query = v),
+                    ),
                   ),
                 ],
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _itemMenuLateral({required String titulo, required bool ativo, required VoidCallback onTap, bool autofocus = false}) {
-    return CinemaFocusBox(
-      autofocus: autofocus,
-      onTap: onTap,
-      borderRadius: 8,
-      scaleOnFocus: 1.02,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        decoration: BoxDecoration(
-          gradient: ativo ? const LinearGradient(colors: [Color(0xFFF5B82E), Color(0x22F5B82E)]) : null,
-        ),
-        child: Text(titulo, style: TextStyle(color: ativo ? Colors.black : Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
-      ),
-    );
-  }
-
-  Widget _pilulaTipo({required String label, required bool ativo, required VoidCallback onTap}) {
-    return CinemaFocusBox(
-      onTap: onTap,
-      borderRadius: 20,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
-        decoration: BoxDecoration(
-          color: ativo ? Colors.white24 : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: ativo ? const Color(0xFFF5B82E) : Colors.white30),
-        ),
-        child: Text(label, style: TextStyle(color: ativo ? const Color(0xFFF5B82E) : Colors.white, fontWeight: FontWeight.w700)),
-      ),
-    );
-  }
-}
-
-class TvTop100RankingScreen extends StatefulWidget {
-  final String fonte;
-  final String categoriaInicial;
-  final List<ObraAgrupada> catalogo;
-  final void Function(ObraAgrupada) onAbrirObra;
-
-  const TvTop100RankingScreen({
-    super.key,
-    required this.fonte,
-    this.categoriaInicial = 'Filmes',
-    required this.catalogo,
-    required this.onAbrirObra,
-  });
-
-  @override
-  State<TvTop100RankingScreen> createState() => _TvTop100RankingScreenState();
-}
-
-class _TvTop100RankingScreenState extends State<TvTop100RankingScreen> {
-  late String _categoria;
-  bool _carregando = true;
-  List<ObraAgrupada> _lista = [];
-  static const List<String> _cats = ['Filmes', 'Séries', 'Kids', 'Anime'];
-
-  @override
-  void initState() {
-    super.initState();
-    _categoria = widget.categoriaInicial;
-    _carregar();
-  }
-
-  Future<void> _carregar() async {
-    setState(() => _carregando = true);
-    final res = await SupabaseService.carregarTop100Ranking(
-      fonte: widget.fonte,
-      categoria: _categoria,
-      catalogoLocal: widget.catalogo,
-    );
-    if (mounted) {
-      setState(() {
-        _lista = res;
-        _carregando = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final tituloBase = widget.fonte == 'imdb' ? 'Top 100 IMDb' : 'Top 100 TMDB';
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B0C10),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        title: Text('$tituloBase • $_categoria', style: const TextStyle(fontWeight: FontWeight.w800)),
-      ),
-      body: Column(
-        children: [
-          SizedBox(
-            height: 44,
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              scrollDirection: Axis.horizontal,
-              itemCount: _cats.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 10),
-              itemBuilder: (_, idx) {
-                final c = _cats[idx];
-                final ativo = c == _categoria;
-                return CinemaFocusBox(
-                  autofocus: ativo,
-                  borderRadius: 18,
-                  onTap: () {
-                    setState(() => _categoria = c);
-                    _carregar();
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: ativo ? const Color(0xFFF5B82E) : Colors.white12,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Text(c, style: TextStyle(color: ativo ? Colors.black : Colors.white, fontWeight: FontWeight.w700)),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 14),
-          Expanded(
-            child: _carregando
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFFF5B82E)))
-                : GridView.builder(
-                    padding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 168,
-                      childAspectRatio: 0.62,
-                      crossAxisSpacing: 14,
-                      mainAxisSpacing: 14,
-                    ),
-                    itemCount: _lista.length,
-                    itemBuilder: (_, idx) => TvPosterCard(
-                      obra: _lista[idx],
-                      rankNumero: idx + 1,
-                      onTap: () => widget.onAbrirObra(_lista[idx]),
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class TvSubcategoriaScreen extends StatefulWidget {
-  final String titulo;
-  final List<ObraAgrupada> itens;
-  final List<String> subfiltros;
-  final String? filtroInicial;
-  final void Function(ObraAgrupada) onAbrirObra;
-  final VoidCallback onAbrirBusca;
-  final VoidCallback onAbrirFiltro;
-
-  const TvSubcategoriaScreen({
-    super.key,
-    required this.titulo,
-    required this.itens,
-    required this.subfiltros,
-    this.filtroInicial,
-    required this.onAbrirObra,
-    required this.onAbrirBusca,
-    required this.onAbrirFiltro,
-  });
-
-  @override
-  State<TvSubcategoriaScreen> createState() => _TvSubcategoriaScreenState();
-}
-
-class _TvSubcategoriaScreenState extends State<TvSubcategoriaScreen> {
-  bool _menuAberto = true;
-  late String _selecionado;
-  String _buscaCat = '';
-  Set<String> _favoritosIds = {};
-  final TextEditingController _catSearchCtrl = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _selecionado = widget.filtroInicial ?? 'Todos';
-    _carregarFavs();
-  }
-
-  @override
-  void dispose() {
-    _catSearchCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _carregarFavs() async {
-    final favs = await SupabaseService.carregarFavoritos();
-    if (mounted) setState(() => _favoritosIds = favs);
-  }
-
-  String _classificarCanal(ObraAgrupada o) {
-    for (final tg in o.tags) {
-      final low = tg.toLowerCase().trim();
-      if (low.startsWith('grupo:') && tg.length > 6) {
-        return tg.substring(6).trim();
-      }
-      if (low.startsWith('cat:') && tg.length > 4) {
-        return tg.substring(4).trim();
-      }
-    }
-    final gen = o.genero.trim();
-    final genLow = SupabaseService.normalizarTexto(gen);
-    if (gen.isNotEmpty &&
-        genLow != 'geral' &&
-        genLow != 'tv ao vivo' &&
-        genLow != 'ao vivo' &&
-        genLow != 'variedades' &&
-        !genLow.contains('sem genero')) {
-      return gen;
-    }
-    final t = SupabaseService.normalizarTexto('${o.titulo} ${o.tags.join(" ")}');
-    if (t.contains('24h') || t.contains('24 hrs')) return 'Canais 24h';
-    if (RegExp(r'\b(globo|sbt|record|band|rede tv|redetv|cultura|tv brasil|gazeta)\b').hasMatch(t)) return 'Abertos';
-    if (RegExp(r'\b(sportv|espn|premiere|combate|caze|tnt sports|band sports|bandsports|fox sports|dazn|ufc|nba|nfl|nosso futebol|paramount\+|prime video|ppv)\b').hasMatch(t)) return 'Esportes';
-    if (RegExp(r'\b(kids|cartoon|gloob|nickelodeon|nick jr|disney|discovery kids|boomerang|tooncast|baby|infantil)\b').hasMatch(t)) return 'Infantil';
-    if (RegExp(r'\b(telecine|hbo|megapix|tnt|space|warner|universal|axn|sony|fx|star|cinemax|paramount|amc|syfy|studio universal|tcm|filme)\b').hasMatch(t)) return 'Filmes e Séries';
-    if (RegExp(r'\b(discovery|animal planet|history|nat geo|national geographic|natgeo|h&h|tlc|investigacao|curta|arte 1)\b').hasMatch(t)) return 'Documentários';
-    if (RegExp(r'\b(globonews|cnn|bandnews|record news|jovem pan|bbc|bloomberg|noticia)\b').hasMatch(t)) return 'Notícias';
-    if (RegExp(r'\b(multishow|gnt|viva|e!|comedy central|mtv|bis|music|agro|terra viva|canal rural)\b').hasMatch(t)) return 'Variedades & Música';
-    if (RegExp(r'\b(aparecida|cancao nova|rede vida|novo tempo|gospel|evangel)\b').hasMatch(t)) return 'Religiosos';
-    return 'Outros Canais';
-  }
-
-  List<MapEntry<String, int>> get _categoriasDinamicas {
-    final bool ehTv = widget.itens.any((o) => o.isTvAoVivo) ||
-        widget.titulo.toLowerCase().contains('tv') ||
-        widget.titulo.toLowerCase().contains('esporte');
-    final Map<String, int> contagem = {};
-    if (ehTv) {
-      for (final item in widget.itens) {
-        final cat = _classificarCanal(item);
-        contagem[cat] = (contagem[cat] ?? 0) + 1;
-      }
-      final entradas = contagem.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value));
-      return entradas;
-    } else {
-      for (final f in widget.subfiltros) {
-        if (f == 'Todos' || f == 'Tudo') continue;
-        final busca = SupabaseService.normalizarTexto(f);
-        final qtd = widget.itens.where((o) {
-          final g = SupabaseService.normalizarTexto(o.genero);
-          final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
-          final tit = SupabaseService.normalizarTexto(o.titulo);
-          return g.contains(busca) || t.any((x) => x.contains(busca)) || tit.contains(busca);
-        }).length;
-        contagem[f] = qtd;
-      }
-      return contagem.entries.toList();
-    }
-  }
-
-  List<ObraAgrupada> get _filtrados {
-    if (_selecionado == 'Todos' || _selecionado == 'Tudo') return widget.itens;
-    if (_selecionado == 'Favoritos') {
-      return widget.itens.where((o) => _favoritosIds.contains(o.chaveGrupo)).toList();
-    }
-    final bool ehTv = widget.itens.any((o) => o.isTvAoVivo) ||
-        widget.titulo.toLowerCase().contains('tv') ||
-        widget.titulo.toLowerCase().contains('esporte');
-    if (ehTv) {
-      return widget.itens.where((o) => _classificarCanal(o) == _selecionado).toList();
-    }
-    final busca = SupabaseService.normalizarTexto(_selecionado);
-    return widget.itens.where((o) {
-      final g = SupabaseService.normalizarTexto(o.genero);
-      final t = o.tags.map((e) => SupabaseService.normalizarTexto(e)).toList();
-      final tit = SupabaseService.normalizarTexto(o.titulo);
-      return g.contains(busca) || t.any((x) => x.contains(busca)) || tit.contains(busca);
-    }).toList();
-  }
-
-  Widget _itemSidebar({
-    required String label,
-    required int count,
-    IconData? icon,
-    bool autofocus = false,
-  }) {
-    final ativo = _selecionado == label;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: CinemaFocusBox(
-        autofocus: autofocus,
-        borderRadius: 10,
-        scaleOnFocus: 1.02,
-        onTap: () => setState(() => _selecionado = label),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: ativo ? const Color(0xFFF5B82E).withOpacity(0.22) : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: ativo ? const Color(0xFFF5B82E).withOpacity(0.65) : Colors.transparent,
-            ),
-          ),
-          child: Row(
-            children: [
-              if (icon != null) ...[
-                Icon(icon, size: 16, color: ativo ? const Color(0xFFF5B82E) : Colors.white60),
-                const SizedBox(width: 8),
-              ],
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: ativo ? const Color(0xFFF5B82E) : Colors.white.withOpacity(0.85),
-                    fontWeight: ativo ? FontWeight.w800 : FontWeight.w600,
-                    fontSize: 13.5,
-                  ),
+            Expanded(
+              child: GridView.builder(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 6, mainAxisSpacing: 14, crossAxisSpacing: 12, childAspectRatio: 0.62,
                 ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '$count',
-                style: TextStyle(
-                  color: ativo ? const Color(0xFFF5B82E) : Colors.white38,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final lista = _filtrados;
-    final cats = _categoriasDinamicas.where((e) {
-      if (_buscaCat.trim().isEmpty) return true;
-      return SupabaseService.normalizarTexto(e.key)
-          .contains(SupabaseService.normalizarTexto(_buscaCat));
-    }).toList();
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B0C10),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
-        title: Row(
-          children: [
-            IconButton(
-              tooltip: _menuAberto ? 'Recolher menu' : 'Expandir menu',
-              icon: Icon(_menuAberto ? Icons.menu_open : Icons.menu),
-              onPressed: () => setState(() => _menuAberto = !_menuAberto),
-            ),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                '${widget.titulo} • $_selecionado (${lista.length})',
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w800),
+                itemCount: resultados.length,
+                itemBuilder: (_, i) => TvPosterCard(obra: resultados[i], onTap: () => widget.onAbrirObra(resultados[i])),
               ),
             ),
           ],
         ),
-        actions: [
-          PerfilChipTopButton(onTap: () => PerfisSelectionOverlay.abrir(context, onPerfilSelecionado: () { if (mounted) setState(() {}); })),
-          const SizedBox(width: 6),
-          MaxMicButton(onPressed: () => MaxAssistantModal.abrir(context)),
-          const SizedBox(width: 6),
-          TopIconeComTooltip(icon: Icons.playlist_add_rounded, label: 'Pedidos', onPressed: () => PedidosScreenModal.abrir(context)),
-          const SizedBox(width: 6),
-          TopIconeComTooltip(icon: Icons.search, label: 'Buscar', onPressed: widget.onAbrirBusca),
-          const SizedBox(width: 10),
-          TopIconeComTooltip(icon: Icons.filter_alt_outlined, label: 'Filtro', onPressed: widget.onAbrirFiltro),
-          const SizedBox(width: 20),
-        ],
-      ),
-      body: Row(
-        children: [
-          if (_menuAberto)
-            FocusTraversalGroup(
-              child: Container(
-                width: 240,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF11141C),
-                  border: Border(right: BorderSide(color: Colors.white.withOpacity(0.08))),
-                ),
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                      child: TextField(
-                        controller: _catSearchCtrl,
-                        onChanged: (v) => setState(() => _buscaCat = v),
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
-                        decoration: InputDecoration(
-                          hintText: 'Buscar categoria...',
-                          hintStyle: const TextStyle(color: Colors.white38, fontSize: 12.5),
-                          prefixIcon: const Icon(Icons.search, size: 17, color: Colors.white54),
-                          suffixIcon: _buscaCat.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.close, size: 15, color: Colors.white54),
-                                  onPressed: () {
-                                    _catSearchCtrl.clear();
-                                    setState(() => _buscaCat = '');
-                                  },
-                                )
-                              : null,
-                          filled: true,
-                          fillColor: Colors.white.withOpacity(0.06),
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Column(
-                        children: [
-                          _itemSidebar(
-                            label: 'Todos',
-                            count: widget.itens.length,
-                            icon: Icons.grid_view_rounded,
-                            autofocus: _selecionado == 'Todos',
-                          ),
-                          _itemSidebar(
-                            label: 'Favoritos',
-                            count: widget.itens.where((o) => _favoritosIds.contains(o.chaveGrupo)).length,
-                            icon: Icons.star_rounded,
-                            autofocus: _selecionado == 'Favoritos',
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.category_outlined, size: 14, color: Colors.white54),
-                          const SizedBox(width: 6),
-                          Text(
-                            'CATEGORIAS (${cats.length})',
-                            style: const TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.6,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 14),
-                        itemCount: cats.length,
-                        itemBuilder: (_, idx) {
-                          final entry = cats[idx];
-                          return _itemSidebar(
-                            label: entry.key,
-                            count: entry.value,
-                            autofocus: _selecionado == entry.key,
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          Expanded(
-            child: lista.isEmpty
-                ? const Center(child: Text('Nenhum título nesta subcategoria.', style: TextStyle(color: Colors.white54)))
-                : GridView.builder(
-                    padding: const EdgeInsets.all(20),
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 168,
-                      childAspectRatio: 0.62,
-                      crossAxisSpacing: 14,
-                      mainAxisSpacing: 14,
-                    ),
-                    itemCount: lista.length,
-                    itemBuilder: (_, idx) => TvPosterCard(obra: lista[idx], onTap: () => widget.onAbrirObra(lista[idx])),
-                  ),
-          ),
-        ],
       ),
     );
   }

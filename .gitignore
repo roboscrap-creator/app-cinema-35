@@ -1,0 +1,22 @@
+# Build e cache do Flutter/Dart
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.flutter-plugins-stamp
+
+# Segredos e assinatura (nunca versionar)
+*.jks
+*.keystore
+key.properties
+
+# Backups locais e arquivos historicos movidos
+backups/
+_historico/
+
+# SO e editores
+.DS_Store
+.idea/
+.vscode/
+*.iml

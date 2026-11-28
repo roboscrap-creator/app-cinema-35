@@ -1027,10 +1027,10 @@ class SupabaseService {
   Future<void> carregarTendenciasTmdb() async {
     if (_trendingCarregado && _trendingTitulosNorm.isNotEmpty) return;
     const urls = [
-      'https://api.themoviedb.org/3/trending/movie/week?api_key=$_tmdbApiKey&language=pt-BR',
-      'https://api.themoviedb.org/3/movie/now_playing?api_key=$_tmdbApiKey&language=pt-BR&region=BR',
-      'https://api.themoviedb.org/3/trending/tv/week?api_key=$_tmdbApiKey&language=pt-BR',
-      'https://api.themoviedb.org/3/tv/on_the_air?api_key=$_tmdbApiKey&language=pt-BR',
+      'https://api.themoviedb.org/3/trending/movie/week?api_key=$tmdbApiKey&language=pt-BR',
+      'https://api.themoviedb.org/3/movie/now_playing?api_key=$tmdbApiKey&language=pt-BR&region=BR',
+      'https://api.themoviedb.org/3/trending/tv/week?api_key=$tmdbApiKey&language=pt-BR',
+      'https://api.themoviedb.org/3/tv/on_the_air?api_key=$tmdbApiKey&language=pt-BR',
     ];
     for (final u in urls) {
       try {
@@ -1056,7 +1056,7 @@ class SupabaseService {
   }
 
   bool estaEmAltaTmdbImdb(ObraAgrupada o) {
-    if (o.tmdbId.isNotEmpty && _trendingTmdbIds.contains(o.tmdbId.trim())) {
+    if ((o.tmdbId != null && o.tmdbId! > 0) && _trendingTmdbIds.contains(o.tmdbId.trim())) {
       return true;
     }
     final n = _normTituloRanking(o.titulo);
@@ -1191,8 +1191,8 @@ class SupabaseService {
         params.add('or=(titulo.ilike.*$q*,genero.ilike.*$q*,tags.ilike.*$q*,sinopse.ilike.*$q*)');
       }
 
-      final uri = Uri.parse('$_supabaseUrl/rest/v1/catalogo_agrupado_view?${params.join('&')}');
-      final res = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 12));
+      final uri = Uri.parse('$baseUrl/rest/v1/catalogo_agrupado_view?${params.join('&')}');
+      final res = await http.get(uri, headers: {'apikey': getAnonKey(), 'Authorization': 'Bearer ${getAnonKey()}', 'Content-Type': 'application/json'}).timeout(const Duration(seconds: 12));
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final raw = jsonDecode(res.body);
         if (raw is List) {

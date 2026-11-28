@@ -66,6 +66,37 @@ class FonteMidia {
 }
 
 class ObraAgrupada {
+
+  String get tipo => categoria;
+  String get chaveAgrupamento => chaveGrupo;
+
+  factory ObraAgrupada.fromMap(Map<String, dynamic> map) {
+    final cat = (map['categoria'] ?? map['tipo'] ?? 'filme').toString();
+    final tit = (map['titulo'] ?? map['title'] ?? '').toString();
+    final anoStr = map['ano']?.toString();
+    final tmdbVal = map['tmdb_id'] is int
+        ? map['tmdb_id'] as int
+        : int.tryParse(map['tmdb_id']?.toString() ?? '');
+    return ObraAgrupada(
+      chaveGrupo: (map['chave_grupo'] ?? map['chave_agrupamento'] ?? '${cat}_$tit').toString(),
+      titulo: tit,
+      tituloOriginal: map['titulo_original']?.toString(),
+      categoria: cat,
+      ano: anoStr,
+      tmdbId: tmdbVal,
+      imdbId: map['imdb_id']?.toString(),
+      posterUrl: map['poster_url']?.toString(),
+      backdropUrl: map['backdrop_url']?.toString(),
+      sinopse: map['sinopse']?.toString(),
+      nota: double.tryParse(map['nota']?.toString() ?? ''),
+      generos: map['generos'] is List
+          ? List<String>.from(map['generos'])
+          : (map['generos']?.toString().split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList() ?? const []),
+      isSerie: cat.toLowerCase().contains('serie') || cat.toLowerCase().contains('anime'),
+      fontes: const [],
+    );
+  }
+
   final String chaveGrupo;
   final int? tmdbId;
   final String titulo;

@@ -500,7 +500,7 @@ class MaxAssistantService extends ChangeNotifier {
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
       if (limpo.length >= 2) {
-        final ficha = await _consultarFichaOficialImdb(titulo: tituloSinopse);
+        final ficha = await _consultarFichaOficialImdb(titulo: '');
         if (ficha != null && (ficha['sinopse'] ?? '').toString().trim().isNotEmpty) {
           final tit = (ficha['titulo'] ?? limpo).toString();
           final sin = ficha['sinopse'].toString().trim();
@@ -612,7 +612,7 @@ class MaxAssistantService extends ChangeNotifier {
           esperarSerie: ehSerieObra,
         );
       } else if (tituloSinopse != null && tituloSinopse.isNotEmpty) {
-        fichaImdbValidada = await _consultarFichaOficialImdb(titulo: tituloSinopse);
+        fichaImdbValidada = await _consultarFichaOficialImdb(titulo: titulo);
       } else if (_obraEmVisualizacao != null) {
         fichaImdbValidada = await _consultarFichaOficialImdb(
           titulo: _obraEmVisualizacao!.titulo,

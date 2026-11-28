@@ -66,6 +66,9 @@ class FonteMidia {
 }
 
 class ObraAgrupada {
+  String? get posterUrl => null?.toString();
+  List<String> get generos => const <String>[];
+
 
   String get tipo => categoria;
   String get chaveAgrupamento => chaveGrupo;

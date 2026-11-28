@@ -48,7 +48,28 @@ class SupabaseService {
     required String chaveGrupo,
     required double progresso,
     String? etiquetaEp,
+    int? posicaoSegundos,
+    int? duracaoSegundos,
+    String? fonteId,
   }) async {
+    final pct = progresso.clamp(0.01, 0.99);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final perfil = await _perfilAtualChave();
+      final raw = prefs.getString('cinemax_progresso_local_$perfil');
+      final Map<String, dynamic> mapa = raw != null && raw.isNotEmpty
+          ? Map<String, dynamic>.from(jsonDecode(raw))
+          : {};
+      mapa[chaveGrupo] = {
+        'progresso': pct,
+        'etiqueta': etiquetaEp ?? '',
+        'posicao_seg': posicaoSegundos ?? 0,
+        'duracao_seg': duracaoSegundos ?? 0,
+        'fonte_id': fonteId ?? '',
+        'atualizado_em': DateTime.now().toIso8601String(),
+      };
+      await prefs.setString('cinemax_progresso_local_$perfil', jsonEncode(mapa));
+    } catch (_) {}
     try {
       final perfil = await _perfilAtualChave();
       final key = await getAnonKey();
@@ -58,7 +79,7 @@ class SupabaseService {
         body: jsonEncode({
           'perfil': perfil,
           'chave_grupo': chaveGrupo,
-          'progresso': progresso.clamp(0.03, 0.99),
+          'progresso': pct,
           'etiqueta': etiquetaEp ?? '',
           'atualizado_em': DateTime.now().toIso8601String(),
         }),
@@ -66,8 +87,29 @@ class SupabaseService {
     } catch (_) {}
   }
 
-  static Future<Map<String, Map<String, dynamic>>> carregarProgressoAssistido() async {
+  static Future>> carregarProgressoAssistido() async {
     final Map<String, Map<String, dynamic>> out = {};
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final perfil = await _perfilAtualChave();
+      final raw = prefs.getString('cinemax_progresso_local_$perfil');
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          decoded.forEach((k, v) {
+            if (v is Map) {
+              out[k.toString()] = {
+                'progresso': (v['progresso'] as num?)?.toDouble() ?? 0.0,
+                'etiqueta': (v['etiqueta'] ?? '').toString(),
+                'posicao_seg': (v['posicao_seg'] as num?)?.toInt() ?? 0,
+                'duracao_seg': (v['duracao_seg'] as num?)?.toInt() ?? 0,
+                'fonte_id': (v['fonte_id'] ?? '').toString(),
+              };
+            }
+          });
+        }
+      }
+    } catch (_) {}
     try {
       final perfil = await _perfilAtualChave();
       final key = await getAnonKey();
@@ -76,9 +118,18 @@ class SupabaseService {
       if (resp.statusCode == 200) {
         for (final r in (jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>)) {
           if (r is Map && (r['chave_grupo'] ?? '').toString().isNotEmpty) {
-            out[r['chave_grupo'].toString()] = {
-              'progresso': (r['progresso'] as num?)?.toDouble() ?? 0.1,
-              'etiqueta': (r['etiqueta'] ?? '').toString(),
+            final cg = r['chave_grupo'].toString();
+            final local = out[cg] ?? {};
+            final progNuvem = (r['progresso'] as num?)?.toDouble() ?? 0.0;
+            final progLocal = (local['progresso'] as num?)?.toDouble() ?? 0.0;
+            out[cg] = {
+              'progresso': progLocal > 0 ? progLocal : progNuvem,
+              'etiqueta': (local['etiqueta'] ?? '').toString().isNotEmpty
+                  ? local['etiqueta']
+                  : (r['etiqueta'] ?? '').toString(),
+              'posicao_seg': local['posicao_seg'] ?? 0,
+              'duracao_seg': local['duracao_seg'] ?? 0,
+              'fonte_id': local['fonte_id'] ?? '',
             };
           }
         }
@@ -88,6 +139,16 @@ class SupabaseService {
   }
 
   static Future<void> removerDoHistorico(List<String> chaves) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final perfil = await _perfilAtualChave();
+      final raw = prefs.getString('cinemax_progresso_local_$perfil');
+      if (raw != null && raw.isNotEmpty) {
+        final mapa = Map<String, dynamic>.from(jsonDecode(raw));
+        for (final c in chaves) { mapa.remove(c); }
+        await prefs.setString('cinemax_progresso_local_$perfil', jsonEncode(mapa));
+      }
+    } catch (_) {}
     try {
       final perfil = await _perfilAtualChave();
       final key = await getAnonKey();

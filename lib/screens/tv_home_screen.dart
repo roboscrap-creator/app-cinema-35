@@ -2,212 +2,243 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/midia_model.dart';
-import '../services/supabase_service.dart';
 import '../services/live_sports_service.dart';
-import 'detalhe_obra_screen.dart';
-import 'cinema_player_screen.dart';
-import 'home_screen.dart';
+import '../services/supabase_service.dart';
+import 'player_screen.dart';
+import 'tv_aux_screens.dart';
 
 class TvHomeScreen extends StatefulWidget {
-  const TvHomeScreen({super.key});
+  final List<ObraAgrupada> catalogo;
+  final Future<void> Function() onRefresh;
+  final Function(ObraAgrupada) onAbrirObra;
+  final VoidCallback onAlternarModoMobile;
+  final ValueNotifier<String?>? abaExternaNotifier;
+
+  const TvHomeScreen({
+    super.key,
+    required this.catalogo,
+    required this.onRefresh,
+    required this.onAbrirObra,
+    required this.onAlternarModoMobile,
+    this.abaExternaNotifier,
+  });
 
   @override
   State<TvHomeScreen> createState() => _TvHomeScreenState();
 }
 
 class _TvHomeScreenState extends State<TvHomeScreen> {
-  final List<String> _abas = const [
-    'Início', 'Filmes', 'Séries', 'Sports', 'Tv',
-    'Kids', 'Animes', 'Max', 'Procurar', 'Favoritos', 'Histórico',
+  static const List<String> _abasSuperiores = [
+    'Início', 'Filmes', 'Séries', 'Sports', 'TV', 'Kids', 'Animes', 'Max', 'Procurar', 'Favoritos',
   ];
 
-  final List<dynamic> _plataformas = const [
-    {'nome': 'Netflix', 'cor': Color(0xFFE50914), 'query': 'Netflix'},
-    {'nome': 'Prime Video', 'cor': Color(0xFF00A8E1), 'query': 'Prime'},
-    {'nome': 'ESPN', 'cor': Color(0xFFD00000), 'query': 'ESPN'},
-    {'nome': 'HBO Max', 'cor': Color(0xFF5A2E98), 'query': 'HBO'},
-    {'nome': 'Disney+', 'cor': Color(0xFF113CCF), 'query': 'Disney'},
-    {'nome': 'Paramount+', 'cor': Color(0xFF0064FF), 'query': 'Paramount'},
-  ];
-
-  int _abaIndex = 0;
-  int _bannerIndex = 0;
-  bool _bannerFocado = false;
-  bool _carregando = true;
-  String _plataformaSelecionada = '';
-  String _termoBusca = '';
-  final TextEditingController _buscaController = TextEditingController();
-
-  List<ObraAgrupada> _catalogoCompleto = [];
-  List<ObraAgrupada> _favoritos = [];
-  List<ObraAgrupada> _historico = [];
-  List<dynamic> _jogosAoVivo = [];
-  Timer? _bannerTimer;
+  final PageController _bannerPageController = PageController();
+  Timer? _autoSlideTimer;
+  int _bannerAtual = 0;
+  String _abaSelecionada = 'Início';
+  List<JogoAoVivo> _jogosAoVivo = [];
+  bool _carregandoJogos = true;
 
   @override
   void initState() {
     super.initState();
-    _carregarTudo();
-    _iniciarTimerBanner();
+    _carregarJogosEsporte();
+    _iniciarCarrosselAutomatico();
+    widget.abaExternaNotifier?.addListener(_onAbaExterna);
+  }
+
+  void _onAbaExterna() {
+    final destino = widget.abaExternaNotifier?.value;
+    if (destino != null && destino.isNotEmpty) _navegarParaAba(destino);
+  }
+
+  void _iniciarCarrosselAutomatico() {
+    _autoSlideTimer?.cancel();
+    _autoSlideTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+      final filmes = _obter6FilmesDestaque();
+      if (!mounted || filmes.isEmpty || !_bannerPageController.hasClients) return;
+      final proximo = (_bannerAtual + 1) % filmes.length;
+      _bannerPageController.animateToPage(proximo, duration: const Duration(milliseconds: 500), curve: Curves.easeInOut);
+    });
+  }
+
+  Future<void> _carregarJogosEsporte() async {
+    try {
+      final jogos = await LiveSportsService.instance.buscarJogosPrincipais();
+      if (mounted) setState(() { _jogosAoVivo = jogos; _carregandoJogos = false; });
+    } catch (_) {
+      if (mounted) setState(() => _carregandoJogos = false);
+    }
   }
 
   @override
   void dispose() {
-    _bannerTimer?.cancel();
-    _buscaController.dispose();
+    widget.abaExternaNotifier?.removeListener(_onAbaExterna);
+    _autoSlideTimer?.cancel();
+    _bannerPageController.dispose();
     super.dispose();
   }
 
-  void _iniciarTimerBanner() {
-    _bannerTimer?.cancel();
-    _bannerTimer = Timer.periodic(const Duration(seconds: 7), (_) {
-      if (!mounted || _bannerFocado) return;
-      final banners = _obterBannersAtuais();
-      if (banners.length > 1) {
-        setState(() => _bannerIndex = (_bannerIndex + 1) % banners.length);
-      }
+  List<ObraAgrupada> _obter6FilmesDestaque() {
+    final filmes = widget.catalogo.where((o) {
+      final t = o.tipo.toLowerCase();
+      return t.contains('filme') && !t.contains('tv');
+    }).toList();
+
+    filmes.sort((a, b) {
+      final aAlta = SupabaseService.estaEmAltaTmdbImdb(a) ? 1 : 0;
+      final bAlta = SupabaseService.estaEmAltaTmdbImdb(b) ? 1 : 0;
+      final aTemBanner = (a.bannerUrl != null && a.bannerUrl!.isNotEmpty) ? 1 : 0;
+      final bTemBanner = (b.bannerUrl != null && b.bannerUrl!.isNotEmpty) ? 1 : 0;
+      if (aAlta != bAlta) return bAlta.compareTo(aAlta);
+      final cmpAno = b.ano.compareTo(a.ano);
+      if (cmpAno != 0) return cmpAno;
+      if (aTemBanner != bTemBanner) return bTemBanner.compareTo(aTemBanner);
+      return b.notaImdb.compareTo(a.notaImdb);
     });
+    return filmes.take(6).toList();
   }
 
-  Future<void> _carregarTudo() async {
-    setState(() => _carregando = true);
-    try {
-      final catalogo = await SupabaseService.carregarCatalogoAgrupado();
-      catalogo.sort((a, b) {
-        final anoA = int.tryParse(a.ano ?? '0') ?? 0;
-        final anoB = int.tryParse(b.ano ?? '0') ?? 0;
-        if (anoB != anoA) return anoB.compareTo(anoA);
-        return (b.nota ?? 0).compareTo(a.nota ?? 0);
-      });
+  List<ObraAgrupada> _obter5SeriesDestaque() {
+    final series = widget.catalogo.where((o) {
+      final t = o.tipo.toLowerCase();
+      return (t.contains('série') || t.contains('serie')) && !t.contains('anime');
+    }).toList();
 
-      List<ObraAgrupada> favs = [];
-      List<ObraAgrupada> hist = [];
-      List<dynamic> jogos = [];
-
-      try { favs = await SupabaseService.carregarFavoritos(); } catch (_) {}
-      try {
-        final progresso = await SupabaseService.carregarProgressoAssistido();
-        final chavesHist = progresso.map((e) => e['chave_grupo']?.toString()).toSet();
-        hist = catalogo.where((o) => chavesHist.contains(o.chaveGrupo)).toList();
-      } catch (_) {}
-      try { jogos = await LiveSportsService.buscarJogosAoVivo(); } catch (_) {}
-
-      if (mounted) {
-        setState(() {
-          _catalogoCompleto = catalogo;
-          _favoritos = favs;
-          _historico = hist;
-          _jogosAoVivo = jogos;
-          _carregando = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _carregando = false);
-    }
+    series.sort((a, b) {
+      final aAlta = SupabaseService.estaEmAltaTmdbImdb(a) ? 1 : 0;
+      final bAlta = SupabaseService.estaEmAltaTmdbImdb(b) ? 1 : 0;
+      if (aAlta != bAlta) return bAlta.compareTo(aAlta);
+      final cmpAno = b.ano.compareTo(a.ano);
+      if (cmpAno != 0) return cmpAno;
+      return b.notaImdb.compareTo(a.notaImdb);
+    });
+    return series.take(5).toList();
   }
 
-  List<ObraAgrupada> _filtrarPorCategoria(String cat) {
-    final c = cat.toLowerCase();
-    return _catalogoCompleto.where((o) {
-      final oCat = o.categoria.toLowerCase();
-      final gens = o.generos.join(' ').toLowerCase();
-      if (c == 'filmes') return oCat.contains('filme') && !gens.contains('animação') && !gens.contains('anime');
-      if (c == 'séries') return (oCat.contains('serie') || o.isSerie) && !gens.contains('anime');
-      if (c == 'sports') return oCat.contains('sport') || oCat.contains('esporte') || o.titulo.toLowerCase().contains('espn') || o.titulo.toLowerCase().contains('premiere') || o.titulo.toLowerCase().contains('sportv');
-      if (c == 'tv') return oCat.contains('tv') || oCat.contains('canal') || oCat.contains('ao vivo');
-      if (c == 'kids') return gens.contains('família') || gens.contains('infantil') || gens.contains('kids') || oCat.contains('kids');
-      if (c == 'animes') return gens.contains('anime') || oCat.contains('anime');
-      return true;
+  List<ObraAgrupada> _obterCanaisPorTermos(List<String> termos) {
+    return widget.catalogo.where((o) {
+      final tudo = '${o.titulo} ${o.genero} ${o.tipo}'.toLowerCase();
+      return termos.any((t) => tudo.contains(t.toLowerCase()));
     }).toList();
   }
 
-  List<dynamic> _obterBannersAtuais() {
-    final aba = _abas[_abaIndex];
-    final List<dynamic> lista = [];
-
-    if (aba == 'Início' || aba == 'Filmes') {
-      for (final f in _filtrarPorCategoria('Filmes').where((o) => (o.backdropUrl ?? o.posterUrl ?? '').isNotEmpty).take(6)) {
-        lista.add({
-          'tipo': 'obra',
-          'badge': 'FILME EM DESTAQUE • ${f.ano ?? "2026"}',
-          'titulo': f.titulo,
-          'subtitulo': f.sinopse ?? '',
-          'imagem': f.backdropUrl ?? f.posterUrl ?? '',
-          'obra': f,
-        });
-      }
+  void _abrirCanalEsportivoParaJogo(JogoAoVivo jogo) {
+    final canaisSports = _obterCanaisPorTermos([jogo.canalTransmissao, 'espn', 'premiere', 'sportv', 'caze', 'sports', 'esporte']);
+    if (canaisSports.isNotEmpty && canaisSports.first.fontes.isNotEmpty) {
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => CinemaPlayerScreen(obra: canaisSports.first, fonteInicial: canaisSports.first.fontes.first)));
+    } else {
+      _navegarParaAba('Sports');
     }
-    if (aba == 'Início' || aba == 'Séries') {
-      for (final s in _filtrarPorCategoria('Séries').where((o) => (o.backdropUrl ?? o.posterUrl ?? '').isNotEmpty).take(5)) {
-        lista.add({
-          'tipo': 'obra',
-          'badge': 'SÉRIE EM ALTA • ${s.ano ?? "2026"}',
-          'titulo': s.titulo,
-          'subtitulo': s.sinopse ?? '',
-          'imagem': s.backdropUrl ?? s.posterUrl ?? '',
-          'obra': s,
-        });
-      }
-    }
-    if (aba == 'Início' || aba == 'Sports') {
-      for (final j in _jogosAoVivo.take(3)) {
-        lista.add({
-          'tipo': 'sport',
-          'badge': 'AO VIVO • ${j['liga'] ?? 'ESPORTES'}',
-          'titulo': '${j['time_casa'] ?? 'Time A'} vs ${j['time_fora'] ?? 'Time B'}',
-          'subtitulo': '${j['placar'] ?? 'AO VIVO'} • ${j['canal'] ?? 'Transmissão Direta'}',
-          'escudoCasa': j['escudo_casa'] ?? '',
-          'escudoFora': j['escudo_fora'] ?? '',
-          'imagem': j['banner'] ?? '',
-        });
-      }
-    }
-    return lista;
   }
 
-  Future<void> _abrirOuReproduzir(ObraAgrupada obra, {bool direto = false}) async {
-    List<FonteMidia> fontes = obra.fontes;
-    if (fontes.isEmpty) {
-      try { fontes = await SupabaseService.carregarFontesDaObra(obra); } catch (_) {}
-    }
-    if (!mounted) return;
+  void _navegarParaAba(String aba) {
+    setState(() => _abaSelecionada = aba);
+    final lower = aba.toLowerCase();
+    if (lower == 'início' || lower == 'inicio') return;
 
-    final isCanal = obra.categoria.toLowerCase().contains('tv') ||
-        obra.categoria.toLowerCase().contains('sport') ||
-        obra.categoria.toLowerCase().contains('canal');
-
-    if ((direto || isCanal) && fontes.isNotEmpty) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => CinemaPlayerScreen(
-            titulo: obra.titulo,
-            url: fontes.first.url,
-            obra: obra,
-            fontes: fontes,
-          ),
-        ),
-      );
+    if (lower == 'favoritos') {
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => TvHistoricoFavoritosScreen(catalogoCompleto: widget.catalogo, onAbrirObra: widget.onAbrirObra, onAlternarModoMobile: widget.onAlternarModoMobile)));
       return;
     }
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => DetalheObraScreen(obra: obra)),
-    ).then((_) => _carregarTudo());
+
+    if (lower == 'sports' || lower == 'tv') {
+      final canais = lower == 'sports'
+          ? _obterCanaisPorTermos(['sport', 'espn', 'premiere', 'combate', 'dazn', 'caze', 'futebol'])
+          : _obterCanaisPorTermos(['tv', 'ao vivo', 'aberta', 'globo', 'sbt', 'record', 'band', 'telecine', 'hbo']);
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => TvFiltroScreen(tituloPagina: aba, catalogoCompleto: canais.isNotEmpty ? canais : widget.catalogo, onAbrirObra: widget.onAbrirObra, onNavegarAba: _navegarParaAba, onAlternarModoMobile: widget.onAlternarModoMobile)));
+      return;
+    }
+
+    if (lower == 'procurar') {
+      _abrirBuscaRapidaTv();
+      return;
+    }
+
+    String? filtroTipo;
+    bool isKids = false;
+    if (lower == 'filmes') filtroTipo = 'Filme';
+    if (lower == 'séries' || lower == 'series') filtroTipo = 'Série';
+    if (lower == 'animes') filtroTipo = 'Anime';
+    if (lower == 'kids') isKids = true;
+
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => TvFiltroScreen(tituloPagina: aba, catalogoCompleto: widget.catalogo, filtroTipo: filtroTipo, isKids: isKids, onAbrirObra: widget.onAbrirObra, onNavegarAba: _navegarParaAba, onAlternarModoMobile: widget.onAlternarModoMobile)));
+  }
+
+  void _abrirPlataforma(String nomePlataforma, {bool isCanalAoVivo = false}) {
+    if (isCanalAoVivo) {
+      final termos = nomePlataforma.toLowerCase().contains('espn') ? ['espn'] : ['premiere', 'sportv'];
+      final canais = _obterCanaisPorTermos(termos);
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => TvFiltroScreen(tituloPagina: nomePlataforma, catalogoCompleto: canais, onAbrirObra: widget.onAbrirObra, onNavegarAba: _navegarParaAba, onAlternarModoMobile: widget.onAlternarModoMobile)));
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => TvFiltroScreen(tituloPagina: nomePlataforma, catalogoCompleto: widget.catalogo, filtroPlataforma: nomePlataforma, onAbrirObra: widget.onAbrirObra, onNavegarAba: _navegarParaAba, onAlternarModoMobile: widget.onAlternarModoMobile)));
+  }
+
+  void _abrirBuscaRapidaTv() {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF141923),
+        title: const Text('Procurar no CineMAX', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(hintText: 'Digite o nome do filme, série, anime ou canal...', hintStyle: TextStyle(color: Colors.white38)),
+          onSubmitted: (termo) {
+            Navigator.pop(ctx);
+            final filtrados = widget.catalogo.where((o) => o.titulo.toLowerCase().contains(termo.trim().toLowerCase())).toList();
+            Navigator.of(context).push(MaterialPageRoute(builder: (_) => TvFiltroScreen(tituloPagina: 'Busca: $termo', catalogoCompleto: filtrados, onAbrirObra: widget.onAbrirObra, onNavegarAba: _navegarParaAba, onAlternarModoMobile: widget.onAlternarModoMobile)));
+          },
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final filmes6 = _obter6FilmesDestaque();
+    final series5 = _obter5SeriesDestaque();
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
+      backgroundColor: const Color(0xFF0A0D14),
       body: SafeArea(
         child: Column(
           children: [
-            _buildTopBar(),
+            _buildBarraSuperior(),
             Expanded(
-              child: _carregando
-                  ? const Center(child: CircularProgressIndicator(color: Color(0xFFE50914)))
-                  : _buildConteudoAba(),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(22, 12, 22, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      height: 365,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            flex: 62,
+                            child: Column(
+                              children: [
+                                Expanded(flex: 66, child: _buildCarrossel6Filmes(filmes6)),
+                                const SizedBox(height: 10),
+                                Expanded(flex: 34, child: _buildLinha5Series(series5)),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(flex: 38, child: _buildColuna3JogosAoVivo()),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildBarraPlataformasInferior(),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -215,343 +246,277 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
   }
 
-  Widget _buildTopBar() {
+  Widget _buildBarraSuperior() {
     return Container(
-      height: 64,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      decoration: const BoxDecoration(
-        color: Color(0xFF101018),
-        border: Border(bottom: BorderSide(color: Colors.white10)),
-      ),
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      decoration: const BoxDecoration(color: Color(0xFF0D111A), border: Border(bottom: BorderSide(color: Colors.white10))),
       child: Row(
         children: [
-          const Text('CineMAX', style: TextStyle(color: Color(0xFFE50914), fontSize: 22, fontWeight: FontWeight.w900)),
-          const SizedBox(width: 20),
+          const Text('CineMAX', style: TextStyle(color: Color(0xFFE50914), fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 0.6)),
+          const SizedBox(width: 16),
           Expanded(
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: _abas.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (context, idx) {
-                final sel = _abaIndex == idx;
-                return Center(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(20),
-                    onTap: () => setState(() {
-                      _abaIndex = idx;
-                      _bannerIndex = 0;
-                      _plataformaSelecionada = '';
-                    }),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: sel ? const Color(0xFFE50914) : Colors.white.withOpacity(0.06),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        _abas[idx],
-                        style: TextStyle(color: sel ? Colors.white : Colors.white70, fontWeight: sel ? FontWeight.bold : FontWeight.w500, fontSize: 14),
-                      ),
-                    ),
-                  ),
+              itemCount: _abasSuperiores.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 4),
+              itemBuilder: (context, index) {
+                final aba = _abasSuperiores[index];
+                final selecionada = aba == _abaSelecionada;
+                return TextButton(
+                  onPressed: () => _navegarParaAba(aba),
+                  style: TextButton.styleFrom(backgroundColor: selecionada ? const Color(0xFFE50914) : Colors.transparent, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+                  child: Text(aba, style: TextStyle(fontSize: 13.5, fontWeight: selecionada ? FontWeight.bold : FontWeight.w500)),
                 );
               },
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           OutlinedButton.icon(
-            onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen())),
+            onPressed: widget.onAlternarModoMobile,
             icon: const Icon(Icons.smartphone, size: 16, color: Colors.white),
             label: const Text('Modo Celular', style: TextStyle(color: Colors.white, fontSize: 12)),
-            style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white24)),
+            style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white24), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildConteudoAba() {
-    final aba = _abas[_abaIndex];
-    if (aba == 'Procurar') return _buildAbaBusca();
-    if (aba == 'Favoritos') return _buildGradeObras('Meus Favoritos', _favoritos);
-    if (aba == 'Histórico') return _buildGradeObras('Continuar Assistindo', _historico);
-    if (aba == 'Max') {
-      final maxObras = _catalogoCompleto.where((o) => o.generos.join(' ').toLowerCase().contains('hbo') || o.titulo.toLowerCase().contains('max')).toList();
-      return _buildGradeObras('Catálogo Max / HBO', maxObras.isEmpty ? _catalogoCompleto.take(40).toList() : maxObras);
+  Widget _buildCarrossel6Filmes(List<ObraAgrupada> filmes) {
+    if (filmes.isEmpty) {
+      return Container(decoration: BoxDecoration(color: const Color(0xFF141923), borderRadius: BorderRadius.circular(14)), child: const Center(child: Text('Carregando lançamentos em alta...', style: TextStyle(color: Colors.white60))));
     }
-    if (aba != 'Início') return _buildGradeObras(aba, _filtrarPorCategoria(aba));
-
-    final banners = _obterBannersAtuais();
-    final filtradosPlat = _plataformaSelecionada.isEmpty
-        ? <ObraAgrupada>[]
-        : _catalogoCompleto.where((o) => o.generos.join(' ').toLowerCase().contains(_plataformaSelecionada.toLowerCase()) || o.titulo.toLowerCase().contains(_plataformaSelecionada.toLowerCase())).toList();
-
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 32),
-      children: [
-        if (banners.isNotEmpty) _buildBannerRotativo(banners),
-        _buildBarraPlataformas(),
-        if (_plataformaSelecionada.isNotEmpty) _buildCarrosselHorizontal('Destaques $_plataformaSelecionada', filtradosPlat),
-        if (_historico.isNotEmpty) _buildCarrosselHorizontal('Continuar Assistindo', _historico),
-        _buildCarrosselHorizontal('Filmes Lançamentos (2026)', _filtrarPorCategoria('Filmes').take(25).toList()),
-        _buildCarrosselHorizontal('Séries em Alta', _filtrarPorCategoria('Séries').take(25).toList()),
-        _buildCarrosselHorizontal('Esportes ao Vivo', _filtrarPorCategoria('Sports').take(20).toList(), direto: true),
-        _buildCarrosselHorizontal('Canais de TV ao Vivo', _filtrarPorCategoria('Tv').take(25).toList(), direto: true),
-        _buildCarrosselHorizontal('Animes', _filtrarPorCategoria('Animes').take(20).toList()),
-        _buildCarrosselHorizontal('Kids & Família', _filtrarPorCategoria('Kids').take(20).toList()),
-      ],
+    return Container(
+      decoration: BoxDecoration(color: const Color(0xFF121722), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white12)),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: _bannerPageController,
+            onPageChanged: (i) => setState(() => _bannerAtual = i),
+            itemCount: filmes.length,
+            itemBuilder: (context, index) {
+              final filme = filmes[index];
+              final temBannerHorizontal = filme.bannerUrl != null && filme.bannerUrl!.trim().isNotEmpty;
+              final imgUrl = temBannerHorizontal ? filme.bannerUrl! : filme.capaUrl;
+              return InkWell(
+                onTap: () => widget.onAbrirObra(filme),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 42,
+                      child: Container(
+                        padding: const EdgeInsets.all(18),
+                        color: const Color(0xFF111621),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(color: const Color(0xFFE50914), borderRadius: BorderRadius.circular(6)),
+                              child: Text('EM ALTA • ${filme.ano > 0 ? filme.ano : "2026"}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(filme.titulo, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 6),
+                            Text('★ ${filme.notaImdb.toStringAsFixed(1)} IMDb  •  ${filme.genero}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.amber, fontSize: 12, fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 6),
+                            Text(filme.sinopse.isNotEmpty ? filme.sinopse : 'Lançamento disponível no catálogo CineMAX.', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 11.5)),
+                            const Spacer(),
+                            ElevatedButton.icon(
+                              onPressed: () => widget.onAbrirObra(filme),
+                              icon: const Icon(Icons.play_arrow, size: 18),
+                              label: const Text('Assistir Agora'),
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8), textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 58,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (imgUrl.isNotEmpty)
+                            CachedNetworkImage(imageUrl: imgUrl, fit: temBannerHorizontal ? BoxFit.cover : BoxFit.contain, alignment: const Alignment(0.0, -0.2), memCacheWidth: 900, fadeInDuration: Duration.zero),
+                          Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.centerLeft, end: Alignment.centerRight, colors: [Color(0xFF111621), Colors.transparent], stops: [0.0, 0.22]))),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          Positioned(
+            right: 14, bottom: 10,
+            child: Row(
+              children: List.generate(filmes.length, (i) {
+                final ativo = i == _bannerAtual;
+                return AnimatedContainer(duration: const Duration(milliseconds: 250), margin: const EdgeInsets.symmetric(horizontal: 3), width: ativo ? 18 : 7, height: 7, decoration: BoxDecoration(color: ativo ? const Color(0xFFE50914) : Colors.white38, borderRadius: BorderRadius.circular(4)));
+              }),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildBannerRotativo(List<dynamic> banners) {
-    final idx = _bannerIndex % banners.length;
-    final item = banners[idx];
-
-    return Focus(
-      onFocusChange: (f) => setState(() => _bannerFocado = f),
-      child: GestureDetector(
-        onTap: () {
-          if (item['tipo'] == 'obra' && item['obra'] is ObraAgrupada) {
-            _abrirOuReproduzir(item['obra'] as ObraAgrupada, direto: true);
-          }
-        },
-        child: Container(
-          height: 300,
-          margin: const EdgeInsets.fromLTRB(24, 16, 24, 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: _bannerFocado ? const Color(0xFFE50914) : Colors.white12, width: _bannerFocado ? 3 : 1),
-            color: const Color(0xFF161622),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if ((item['imagem'] ?? '').toString().isNotEmpty)
-                CachedNetworkImage(
-                  imageUrl: item['imagem'].toString(),
-                  fit: BoxFit.cover,
-                  alignment: Alignment.topCenter,
-                  fadeInDuration: Duration.zero,
-                  errorWidget: (_, __, ___) => Container(color: const Color(0xFF181826)),
-                ),
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [Color(0xF00A0A0F), Color(0x990A0A0F), Colors.transparent],
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(28),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.end,
+  Widget _buildLinha5Series(List<ObraAgrupada> series) {
+    return Row(
+      children: List.generate(5, (index) {
+        if (index >= series.length) {
+          return Expanded(child: Container(margin: EdgeInsets.only(right: index < 4 ? 8 : 0), decoration: BoxDecoration(color: const Color(0xFF141923), borderRadius: BorderRadius.circular(10))));
+        }
+        final serie = series[index];
+        final thumb = (serie.bannerUrl != null && serie.bannerUrl!.isNotEmpty) ? serie.bannerUrl! : serie.capaUrl;
+        return Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(right: index < 4 ? 8 : 0),
+            child: InkWell(
+              onTap: () => widget.onAbrirObra(serie),
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                decoration: BoxDecoration(color: const Color(0xFF141923), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.white12)),
+                clipBehavior: Clip.antiAlias,
+                child: Stack(
+                  fit: StackFit.expand,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(color: const Color(0xFFE50914), borderRadius: BorderRadius.circular(6)),
-                      child: Text(item['badge'].toString(), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(height: 10),
-                    if (item['tipo'] == 'sport')
-                      Row(
+                    if (thumb.isNotEmpty) CachedNetworkImage(imageUrl: thumb, fit: BoxFit.cover, alignment: const Alignment(0.0, -0.2), memCacheWidth: 360, fadeInDuration: Duration.zero),
+                    Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black87, Colors.transparent]))),
+                    Positioned(
+                      left: 6, right: 6, bottom: 6,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          if ((item['escudoCasa'] ?? '').toString().isNotEmpty)
-                            Image.network(item['escudoCasa'], width: 36, height: 36, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.shield, color: Colors.white)),
-                          const SizedBox(width: 10),
-                          Text(item['titulo'].toString(), style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                          const SizedBox(width: 10),
-                          if ((item['escudoFora'] ?? '').toString().isNotEmpty)
-                            Image.network(item['escudoFora'], width: 36, height: 36, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.shield, color: Colors.white)),
+                          Text(serie.titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                          Text('Série • ${serie.ano > 0 ? serie.ano : "2026"}', style: const TextStyle(color: Colors.white70, fontSize: 9.5)),
                         ],
-                      )
-                    else
-                      Text(item['titulo'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: 540,
-                      child: Text(item['subtitulo'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 14)),
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            if (item['tipo'] == 'obra' && item['obra'] is ObraAgrupada) {
-                              _abrirOuReproduzir(item['obra'] as ObraAgrupada, direto: true);
-                            }
-                          },
-                          icon: const Icon(Icons.play_arrow, color: Colors.black),
-                          label: const Text('Assistir Agora', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
-                        ),
-                        const Spacer(),
-                        Row(
-                          children: List.generate(banners.length, (i) => Container(
-                            width: i == idx ? 20 : 8,
-                            height: 8,
-                            margin: const EdgeInsets.symmetric(horizontal: 3),
-                            decoration: BoxDecoration(color: i == idx ? const Color(0xFFE50914) : Colors.white38, borderRadius: BorderRadius.circular(4)),
-                          )),
-                        ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBarraPlataformas() {
-    return SizedBox(
-      height: 54,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
-        scrollDirection: Axis.horizontal,
-        itemCount: _plataformas.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
-        itemBuilder: (context, index) {
-          final p = _plataformas[index];
-          final ativo = _plataformaSelecionada == p['query'];
-          return InkWell(
-            borderRadius: BorderRadius.circular(10),
-            onTap: () => setState(() => _plataformaSelecionada = ativo ? '' : p['query'].toString()),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-              decoration: BoxDecoration(
-                color: ativo ? (p['cor'] as Color) : const Color(0xFF181824),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: ativo ? Colors.white : Colors.white12),
-              ),
-              child: Center(child: Text(p['nome'].toString(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13))),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      }),
     );
   }
 
-  Widget _buildCarrosselHorizontal(String titulo, List<ObraAgrupada> itens, {bool direto = false}) {
-    if (itens.isEmpty) return const SizedBox.shrink();
+  Widget _buildColuna3JogosAoVivo() {
+    if (_carregandoJogos) {
+      return Container(decoration: BoxDecoration(color: const Color(0xFF141923), borderRadius: BorderRadius.circular(14)), child: const Center(child: CircularProgressIndicator(color: Color(0xFFE50914))));
+    }
+    final jogo1 = _jogosAoVivo.isNotEmpty ? _jogosAoVivo[0] : null;
+    final jogo2 = _jogosAoVivo.length > 1 ? _jogosAoVivo[1] : null;
+    final jogo3 = _jogosAoVivo.length > 2 ? _jogosAoVivo[2] : null;
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 18, 24, 10),
-          child: Text(titulo, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-        ),
-        SizedBox(
-          height: 220,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            scrollDirection: Axis.horizontal,
-            cacheExtent: 320,
-            itemCount: itens.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 14),
-            itemBuilder: (context, idx) => _buildCardObra(itens[idx], direto: direto),
+        Expanded(flex: 52, child: _buildCardJogoAoVivo(jogo1, grande: true)),
+        const SizedBox(height: 10),
+        Expanded(
+          flex: 48,
+          child: Row(
+            children: [
+              Expanded(child: _buildCardJogoAoVivo(jogo2, grande: false)),
+              const SizedBox(width: 10),
+              Expanded(child: _buildCardJogoAoVivo(jogo3, grande: false)),
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _buildGradeObras(String titulo, List<ObraAgrupada> itens) {
-    if (itens.isEmpty) {
-      return Center(child: Text('Nenhum item encontrado em $titulo.', style: const TextStyle(color: Colors.white54, fontSize: 16)));
-    }
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('$titulo (${itens.length})', style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          Expanded(
-            child: GridView.builder(
-              cacheExtent: 320,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 6,
-                childAspectRatio: 0.66,
-                crossAxisSpacing: 14,
-                mainAxisSpacing: 14,
+  Widget _buildCardJogoAoVivo(JogoAoVivo? jogo, {required bool grande}) {
+    return InkWell(
+      onTap: () => jogo != null ? _abrirCanalEsportivoParaJogo(jogo) : _navegarParaAba('Sports'),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF1B2436), Color(0xFF101520)]), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white12)),
+        child: jogo == null
+            ? const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.sports_soccer, color: Colors.white54, size: 28), SizedBox(height: 6), Text('Canais Sports Ao Vivo', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold))]))
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(color: jogo.aoVivo ? const Color(0xFFE50914) : Colors.blueGrey.shade800, borderRadius: BorderRadius.circular(5)),
+                        child: Text(jogo.aoVivo ? '● LIVE' : jogo.statusTexto, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                      Flexible(child: Text(jogo.liga, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white60, fontSize: 10))),
+                    ],
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildEscudoTime(jogo.timeCasa, jogo.escudoCasa, grande ? 38 : 26),
+                      Text(jogo.aoVivo ? '${jogo.placarCasa} x ${jogo.placarFora}' : 'VS', style: TextStyle(color: Colors.white, fontSize: grande ? 20 : 14, fontWeight: FontWeight.w900)),
+                      _buildEscudoTime(jogo.timeFora, jogo.escudoFora, grande ? 38 : 26),
+                    ],
+                  ),
+                  Text('Assistir em ${jogo.canalTransmissao}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.amberAccent, fontSize: 10.5, fontWeight: FontWeight.w600)),
+                ],
               ),
-              itemCount: itens.length,
-              itemBuilder: (context, idx) => _buildCardObra(itens[idx]),
-            ),
-          ),
+      ),
+    );
+  }
+
+  Widget _buildEscudoTime(String nome, String logoUrl, double size) {
+    return Expanded(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (logoUrl.isNotEmpty) CachedNetworkImage(imageUrl: logoUrl, width: size, height: size, fit: BoxFit.contain, errorWidget: (_, __, ___) => Icon(Icons.shield, color: Colors.white54, size: size)) else Icon(Icons.shield, color: Colors.white54, size: size),
+          const SizedBox(height: 4),
+          Text(nome, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
         ],
       ),
     );
   }
 
-  Widget _buildCardObra(ObraAgrupada obra, {bool direto = false}) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: () => _abrirOuReproduzir(obra, direto: direto),
-      child: SizedBox(
-        width: 138,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
+  Widget _buildBarraPlataformasInferior() {
+    final plataformas = [
+      {'nome': 'Netflix', 'cor': const Color(0xFFE50914), 'aoVivo': false},
+      {'nome': 'Prime Video', 'cor': const Color(0xFF00A8E1), 'aoVivo': false},
+      {'nome': 'HBO Max', 'cor': const Color(0xFF7B2CBF), 'aoVivo': false},
+      {'nome': 'Disney+', 'cor': const Color(0xFF113CCF), 'aoVivo': false},
+      {'nome': 'ESPN', 'cor': const Color(0xFFD00000), 'aoVivo': true},
+      {'nome': 'Premiere / SporTV', 'cor': const Color(0xFF1B8A3D), 'aoVivo': true},
+      {'nome': 'Telecine', 'cor': const Color(0xFFFF6D00), 'aoVivo': false},
+    ];
+    return SizedBox(
+      height: 58,
+      child: Row(
+        children: List.generate(plataformas.length, (i) {
+          final p = plataformas[i];
+          final nome = p['nome'] as String;
+          final cor = p['cor'] as Color;
+          final aoVivo = p['aoVivo'] as bool;
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: i < plataformas.length - 1 ? 10 : 0),
+              child: InkWell(
+                onTap: () => _abrirPlataforma(nome, isCanalAoVivo: aoVivo),
+                borderRadius: BorderRadius.circular(12),
                 child: Container(
-                  color: const Color(0xFF1A1A26),
-                  width: double.infinity,
-                  child: (obra.posterUrl ?? '').isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: obra.posterUrl!,
-                          fit: BoxFit.cover,
-                          memCacheWidth: 360,
-                          fadeInDuration: Duration.zero,
-                          errorWidget: (_, __, ___) => const Icon(Icons.movie, color: Colors.white24, size: 40),
-                        )
-                      : const Icon(Icons.movie, color: Colors.white24, size: 40),
+                  decoration: BoxDecoration(color: const Color(0xFF141923), borderRadius: BorderRadius.circular(12), border: Border.all(color: cor.withOpacity(0.55), width: 1.4)),
+                  child: Center(child: Text(nome, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 0.4))),
                 ),
               ),
             ),
-            const SizedBox(height: 6),
-            Text(obra.titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-            if (obra.ano != null) Text(obra.ano!, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAbaBusca() {
-    final resultados = _termoBusca.trim().isEmpty
-        ? _catalogoCompleto.take(30).toList()
-        : _catalogoCompleto.where((o) => o.titulo.toLowerCase().contains(_termoBusca.trim().toLowerCase())).toList();
-
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          TextField(
-            controller: _buscaController,
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              hintText: 'Digite o nome do filme, série, anime ou canal...',
-              hintStyle: const TextStyle(color: Colors.white38),
-              prefixIcon: const Icon(Icons.search, color: Colors.white54),
-              filled: true,
-              fillColor: const Color(0xFF181824),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-            ),
-            onChanged: (val) => setState(() => _termoBusca = val),
-          ),
-          const SizedBox(height: 16),
-          Expanded(child: _buildGradeObras('Resultados', resultados)),
-        ],
+          );
+        }),
       ),
     );
   }

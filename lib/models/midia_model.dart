@@ -3,6 +3,7 @@ class FonteMidia {
   final String titulo;
   final String categoria;
   final String urlStream;
+  String get url => urlStream;
   final String urlStreamBackup;
   final String formato;
   final String resolucao;
@@ -66,104 +67,12 @@ class FonteMidia {
 }
 
 class ObraAgrupada {
-  String? get posterUrl => null?.toString();
-  List<String> get generos => const <String>[];
-
-
-  String get tipo => categoria;
-  String get chaveAgrupamento => chaveGrupo;
-
-  factory ObraAgrupada.fromMap(Map<String, dynamic> map) {
-    final cat = (map['categoria'] ?? map['tipo'] ?? 'filme').toString();
-    final tit = (map['titulo'] ?? map['title'] ?? '').toString();
-    final anoStr = map['ano']?.toString();
-    final tmdbVal = map['tmdb_id'] is int
-        ? map['tmdb_id'] as int
-        : int.tryParse(map['tmdb_id']?.toString() ?? '');
-    return ObraAgrupada(
-      chaveGrupo: (map['chave_grupo'] ?? map['chave_agrupamento'] ?? '${cat}_$tit').toString(),
-      titulo: tit,
-      tituloOriginal: map['titulo_original']?.toString(),
-      categoria: cat,
-      ano: anoStr,
-      tmdbId: tmdbVal,
-      imdbId: map['imdb_id']?.toString(),
-      posterUrl: map['poster_url']?.toString(),
-      backdropUrl: map['backdrop_url']?.toString(),
-      sinopse: map['sinopse']?.toString(),
-      nota: double.tryParse(map['nota']?.toString() ?? ''),
-      generos: map['generos'] is List
-          ? List<String>.from(map['generos'])
-          : (map['generos']?.toString().split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList() ?? const []),
-      isSerie: cat.toLowerCase().contains('serie') || cat.toLowerCase().contains('anime'),
-      fontes: const [],
-    );
-  }
-
-  final String chaveGrupo;
-  final int? tmdbId;
-  final String titulo;
-  final String tituloOriginal;
-  final String categoria;
-  final String genero;
-  final String sinopse;
-  final String capaUrl;
-  final String bannerUrl;
-  final String ano;
-  final String pais;
-  final String diretor;
-  final String elenco;
-  final int aberturaSegundos;
-  final bool emDestaque;
-  final int ordemDestaque;
-  final List<String> tags;
-  final double notaImdb;
-  final int visualizacoes;
-  final List<FonteMidia> fontes;
-  final int totalFontes;
-  final int maxTemporada;
-  final int maxEpisodio;
-  final bool? isSerieFlag;
-
-  ObraAgrupada({
-    required this.chaveGrupo,
-    this.tmdbId,
-    required this.titulo,
-    this.tituloOriginal = '',
-    required this.categoria,
-    required this.genero,
-    required this.sinopse,
-    required this.capaUrl,
-    required this.bannerUrl,
-    required this.ano,
-    this.pais = '',
-    this.diretor = '',
-    this.elenco = '',
-    this.aberturaSegundos = 85,
-    required this.emDestaque,
-    required this.ordemDestaque,
-    this.tags = const [],
-    this.notaImdb = 0.0,
-    this.visualizacoes = 0,
-    required this.fontes,
-    this.totalFontes = 0,
-    this.maxTemporada = 1,
-    this.maxEpisodio = 0,
-    this.isSerieFlag,
-  });
-
-  bool get isTvAoVivo =>
-      categoria.toLowerCase().contains('tv') ||
-      categoria.toLowerCase().contains('ao vivo') ||
-      categoria.toLowerCase().contains('canal');
-
-  bool get disponivelParaAssistir => fontes.isNotEmpty || totalFontes > 0 || isTvAoVivo;
-
-  bool get isSerie =>
-      isSerieFlag ??
-      (categoria.toLowerCase().contains('série') ||
-          categoria.toLowerCase().contains('serie') ||
-          fontes.any((f) => f.episodio != null));
+  String get imdbId => imdbIdReal ?? '';
+  String? get posterUrl => capaUrl;
+  String? get backdropUrl => (bannerUrl != null && bannerUrl!.trim().isNotEmpty) ? bannerUrl : capaUrl;
+  double get nota => notaImdb;
+  List<String> get generos => genero.split(RegExp(r'[,/|]')).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+  bool get isSerie => tipo.toLowerCase().contains('série') || tipo.toLowerCase().contains('serie') || tipo.toLowerCase().contains('anime');
 
   double get scorePopularidade => (visualizacoes * 2.0) + (notaImdb * 10.0);
 

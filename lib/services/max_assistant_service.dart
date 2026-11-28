@@ -492,6 +492,25 @@ class MaxAssistantService extends ChangeNotifier {
   }
 
   Future<void> processarComando(String falaUsuario) async {
+    /* PATCH_MAX_CATALOGO_IMDB */
+    final qLow = falaUsuario.toLowerCase();
+    if (qLow.contains('sinopse') || qLow.contains('sobre o que') || qLow.contains('história') || qLow.contains('historia') || qLow.contains('filme') || qLow.contains('série') || qLow.contains('serie')) {
+      final limpo = falaUsuario
+          .replaceAll(RegExp(r'\b(qual|é|a|o|do|da|de|sinopse|filme|série|serie|me|fala|sobre)\b', caseSensitive: false), ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (limpo.length >= 2) {
+        final ficha = await _consultarFichaOficialImdb(limpo);
+        if (ficha != null && (ficha['sinopse'] ?? '').toString().trim().isNotEmpty) {
+          final tit = (ficha['titulo'] ?? limpo).toString();
+          final sin = ficha['sinopse'].toString().trim();
+          final ano = ficha['ano'] != null ? ' (${ficha['ano']})' : '';
+          await _falarERegistrar('"$tit"$ano: $sin');
+          return;
+        }
+      }
+    }
+
     await inicializar();
     _processando = true;
     notifyListeners();

@@ -66,10 +66,84 @@ class FonteMidia {
   }
 }
 
+typedef FonteStream = FonteMidia;
+
 class ObraAgrupada {
-  String get titulo => nome;
-  String get tituloOriginal => nome;
-  int? get tmdbId => null;
+  final String chaveGrupo;
+  final int? tmdbId;
+  final String titulo;
+  final String tituloOriginal;
+  final String categoria;
+  final String genero;
+  final String sinopse;
+  final String capaUrl;
+  final String bannerUrl;
+  final int ano;
+  final String pais;
+  final String diretor;
+  final String elenco;
+  final int aberturaSegundos;
+  final bool emDestaque;
+  final int ordemDestaque;
+  final List<String> tags;
+  final double notaImdb;
+  final int visualizacoes;
+  final List<FonteMidia> fontes;
+  final int totalFontes;
+  final int maxTemporada;
+  final int maxEpisodio;
+  final bool isSerieFlag;
+  final String? imdbIdReal;
+
+  ObraAgrupada({
+    this.chaveGrupo = '',
+    this.tmdbId,
+    required this.titulo,
+    this.tituloOriginal = '',
+    this.categoria = 'Filme',
+    this.genero = '',
+    this.sinopse = '',
+    this.capaUrl = '',
+    this.bannerUrl = '',
+    this.ano = 0,
+    this.pais = '',
+    this.diretor = '',
+    this.elenco = '',
+    this.aberturaSegundos = 0,
+    this.emDestaque = false,
+    this.ordemDestaque = 999,
+    this.tags = const [],
+    this.notaImdb = 0.0,
+    this.visualizacoes = 0,
+    this.fontes = const [],
+    this.totalFontes = 0,
+    this.maxTemporada = 1,
+    this.maxEpisodio = 0,
+    this.isSerieFlag = false,
+    this.imdbIdReal,
+  });
+
+  // Getters de compatibilidade entre Modo Celular, Modo TV e Serviços
+  String get nome => titulo;
+  String get tipo => categoria;
+  String get capa => capaUrl;
+  String get banner => bannerUrl;
+  String get nota => notaImdb.toStringAsFixed(1);
+  String get imdbId => imdbIdReal ?? '';
+  String? get posterUrl => capaUrl;
+  String? get backdropUrl => bannerUrl.trim().isNotEmpty ? bannerUrl : capaUrl;
+
+  List<String> get generos => genero
+      .split(RegExp(r'[,/|]'))
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+
+  bool get isSerie =>
+      isSerieFlag ||
+      categoria.toLowerCase().contains('série') ||
+      categoria.toLowerCase().contains('serie') ||
+      categoria.toLowerCase().contains('anime');
 
   double get scorePopularidade => (visualizacoes * 2.0) + (notaImdb * 10.0);
 
@@ -154,10 +228,68 @@ class ObraAgrupada {
       notaImdb: (notaImdb != null && notaImdb > 0) ? notaImdb : this.notaImdb,
       visualizacoes: visualizacoes,
       fontes: fontes ?? this.fontes,
-      totalFontes: (fontes != null && fontes.isNotEmpty) ? fontes.length : totalFontes,
+      totalFontes:
+          (fontes != null && fontes.isNotEmpty) ? fontes.length : totalFontes,
       maxTemporada: maxTemporada,
       maxEpisodio: maxEpisodio,
       isSerieFlag: isSerieFlag,
+      imdbIdReal: imdbIdReal,
+    );
+  }
+
+  factory ObraAgrupada.fromMap(Map<String, dynamic> map) {
+    final titulo = (map['titulo'] ?? map['nome'] ?? '').toString();
+    final categoria = (map['categoria'] ?? map['tipo'] ?? 'Filme').toString();
+    final genero = (map['genero'] ??
+            (map['generos'] is List ? (map['generos'] as List).join(', ') : ''))
+        .toString();
+    final capa =
+        (map['capa_url'] ?? map['capaUrl'] ?? map['posterUrl'] ?? '').toString();
+    final banner =
+        (map['banner_url'] ?? map['bannerUrl'] ?? map['backdropUrl'] ?? '')
+            .toString();
+    final nota =
+        double.tryParse((map['nota_imdb'] ?? map['nota'] ?? '0').toString()) ??
+            0.0;
+    final ano = int.tryParse((map['ano'] ?? '0').toString()) ?? 0;
+    final sinopse = (map['sinopse'] ?? '').toString();
+    final imdb = (map['imdb_id'] ?? map['imdbId'] ?? '').toString();
+    final tmdb =
+        int.tryParse((map['tmdb_id'] ?? map['tmdbId'] ?? '').toString());
+    final urlDireta = (map['url_stream'] ?? map['url'] ?? '').toString();
+    final fontes = <FonteMidia>[];
+    if (urlDireta.isNotEmpty) {
+      fontes.add(FonteMidia(
+        id: (map['id'] ?? '').toString(),
+        titulo: titulo,
+        categoria: categoria,
+        urlStream: urlDireta,
+        urlStreamBackup: '',
+        formato: 'mp4',
+        resolucao: '1080p',
+        tipoAudio: 'Dublado',
+        idiomasAudio: const ['Português'],
+        headers: const {},
+      ));
+    }
+    return ObraAgrupada(
+      chaveGrupo: (map['chave_grupo'] ?? titulo.toLowerCase()).toString(),
+      tmdbId: tmdb,
+      titulo: titulo,
+      tituloOriginal: (map['titulo_original'] ?? titulo).toString(),
+      categoria: categoria,
+      genero: genero,
+      sinopse: sinopse,
+      capaUrl: capa,
+      bannerUrl: banner,
+      ano: ano,
+      notaImdb: nota,
+      fontes: fontes,
+      totalFontes: fontes.length,
+      isSerieFlag: categoria.toLowerCase().contains('série') ||
+          categoria.toLowerCase().contains('serie') ||
+          categoria.toLowerCase().contains('anime'),
+      imdbIdReal: imdb.isNotEmpty ? imdb : null,
     );
   }
 }

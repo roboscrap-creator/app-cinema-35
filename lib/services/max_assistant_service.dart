@@ -132,6 +132,169 @@ class MaxAssistantService extends ChangeNotifier {
     return null;
   }
 
+  Map<String, dynamic> _serializarFichaObra(ObraAgrupada o) {
+    final ehSerie = o.isSerieFlag == true ||
+        o.categoria.toLowerCase().contains('série') ||
+        o.categoria.toLowerCase().contains('serie') ||
+        o.categoria.toLowerCase().contains('anime') ||
+        o.maxTemporada > 0;
+    return {
+      'titulo': o.titulo,
+      if (o.tituloOriginal.trim().isNotEmpty) 'titulo_original': o.tituloOriginal.trim(),
+      'categoria': o.categoria,
+      'tipo_validado': ehSerie ? 'Série' : 'Filme',
+      if (o.ano.trim().isNotEmpty) 'ano': o.ano.trim(),
+      if (o.notaImdb > 0) 'nota_imdb': o.notaImdb,
+      if (o.genero.trim().isNotEmpty) 'genero': o.genero.trim(),
+      if (o.diretor.trim().isNotEmpty) 'diretor': o.diretor.trim(),
+      if (o.elenco.trim().isNotEmpty) 'elenco': o.elenco.trim(),
+      if (ehSerie && o.maxTemporada > 0) 'temporadas': o.maxTemporada,
+      if (ehSerie && o.maxEpisodio > 0) 'episodios_max': o.maxEpisodio,
+      if (o.sinopse.trim().isNotEmpty) 'sinopse_oficial_imdb': o.sinopse.trim(),
+      if (o.tmdbId != null) 'tmdb_id': o.tmdbId,
+    };
+  }
+
+  Future?> _consultarFichaOficialImdb({
+    required String titulo,
+    String? tituloOriginal,
+    String? anoEsperado,
+    bool? esperarSerie,
+  }) async {
+    final consultas = <String>[
+      if ((tituloOriginal ?? '').trim().isNotEmpty) tituloOriginal!.trim(),
+      titulo.trim(),
+    ];
+    final anoLimpo = RegExp(r'(19|20)\d{2}').firstMatch(anoEsperado ?? '')?.group(0);
+
+    for (final qRaw in consultas) {
+      final q = qRaw.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (q.length < 2) continue;
+      try {
+        final slug = Uri.encodeComponent(q.toLowerCase());
+        final primeiraLetra = RegExp(r'[a-z0-9]').firstMatch(_norm(q))?.group(0) ?? 'a';
+        final sugUrl = Uri.parse('https://v3.sg.media-imdb.com/suggestion/$primeiraLetra/$slug.json');
+        final rSug = await http.get(sugUrl, headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': 'application/json',
+        }).timeout(const Duration(seconds: 6));
+        if (rSug.statusCode != 200) continue;
+        final bodySug = jsonDecode(utf8.decode(rSug.bodyBytes));
+        final lista = (bodySug is Map ? bodySug['d'] : null);
+        if (lista is! List || lista.isEmpty) continue;
+
+        Map<String, dynamic>? melhor;
+        int melhorScore = -999;
+
+        for (final item in lista) {
+          if (item is! Map) continue;
+          final id = (item['id'] ?? '').toString();
+          if (!id.startsWith('tt')) continue;
+          final nomeItem = (item['l'] ?? '').toString();
+          final qid = (item['qid'] ?? '').toString().toLowerCase();
+          final yItem = (item['y'] ?? '').toString();
+          final ehSerieItem = qid.contains('series') || qid.contains('tvmini');
+
+          int score = 0;
+          final nItem = _norm(nomeItem);
+          final nBusc = _norm(q);
+          if (nItem == nBusc) {
+            score += 50;
+          } else if (nItem.contains(nBusc) || nBusc.contains(nItem)) {
+            score += 25;
+          } else {
+            continue;
+          }
+          if (anoLimpo != null && yItem.isNotEmpty) {
+            if (yItem == anoLimpo) {
+              score += 40;
+            } else {
+              score -= 30;
+            }
+          }
+          if (esperarSerie != null) {
+            score += (ehSerieItem == esperarSerie) ? 25 : -25;
+          }
+          if (score > melhorScore) {
+            melhorScore = score;
+            melhor = Map<String, dynamic>.from(item);
+          }
+        }
+
+        if (melhor == null || melhorScore < 20) continue;
+        final imdbId = melhor['id'].toString();
+        final tituloImdb = (melhor['l'] ?? q).toString();
+        final anoImdb = (melhor['y'] ?? '').toString();
+        final qidImdb = (melhor['qid'] ?? '').toString().toLowerCase();
+        final ehSerieImdb = qidImdb.contains('series') || qidImdb.contains('tvmini');
+
+        String sinopseImdb = '';
+        String notaImdb = '';
+        String temporadasImdb = '';
+
+        try {
+          final pageResp = await http.get(
+            Uri.parse('https://www.imdb.com/title/$imdbId/'),
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+              'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
+            },
+          ).timeout(const Duration(seconds: 7));
+          if (pageResp.statusCode == 200) {
+            final html = utf8.decode(pageResp.bodyBytes, allowMalformed: true);
+            final mLd = RegExp(
+              r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+              dotAll: true,
+              caseSensitive: false,
+            ).firstMatch(html);
+            if (mLd != null) {
+              final ldJson = jsonDecode(mLd.group(1)!.trim());
+              if (ldJson is Map) {
+                sinopseImdb = (ldJson['description'] ?? '').toString().trim();
+                final agg = ldJson['aggregateRating'];
+                if (agg is Map && agg['ratingValue'] != null) {
+                  notaImdb = agg['ratingValue'].toString();
+                }
+              }
+            }
+            if (ehSerieImdb) {
+              final mTemp = RegExp(r'(\d+)\s+(?:temporada|season)s?', caseSensitive: false).firstMatch(html);
+              if (mTemp != null) {
+                temporadasImdb = mTemp.group(1)!;
+              }
+            }
+          }
+        } catch (_) {}
+
+        return {
+          'fonte': 'IMDb',
+          'imdb_id': imdbId,
+          'titulo_imdb': tituloImdb,
+          if (anoImdb.isNotEmpty) 'ano_imdb': anoImdb,
+          'tipo_imdb': ehSerieImdb ? 'Série' : 'Filme',
+          if (notaImdb.isNotEmpty) 'nota_imdb': notaImdb,
+          if (temporadasImdb.isNotEmpty) 'temporadas_imdb': temporadasImdb,
+          if (sinopseImdb.isNotEmpty) 'sinopse_imdb': sinopseImdb,
+          'elenco_principal': (melhor['s'] ?? '').toString(),
+        };
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  String? _extrairTituloPedidoSinopse(String texto) {
+    final m = RegExp(
+      r"(?:qual\s+(?:[eé]\s+)?a\s+sinopse|sinopse|sobre\s+o\s+que\s+[eé]|fale\s+sobre|me\s+fale\s+de|me\s+fale\s+sobre|resumo|hist[oó]ria)\s+(?:d[eoas]+\s+)?(?:filme|s[eé]rie|anime|desenho)?\s*(.+)?\$",
+      caseSensitive: false,
+    ).firstMatch(texto.trim());
+    if (m == null) return null;
+    final resto = (m.group(1) ?? '').replaceAll(RegExp(r'[?.!]+$'), '').trim();
+    if (resto.isEmpty || RegExp(r'^(esse|essa|este|esta|ele|ela|isso|aqui|atual)$', caseSensitive: false).hasMatch(resto)) {
+      return _obraEmVisualizacao?.titulo ?? '';
+    }
+    return resto;
+  }
+
   void _aoTerminarFala() {
     _falando = false;
     notifyListeners();
@@ -404,10 +567,50 @@ class MaxAssistantService extends ChangeNotifier {
         } catch (_) {}
       }
 
+      final tituloSinopse = _extrairTituloPedidoSinopse(textoLimpo);
+      ObraAgrupada? obraAlvoSinopse;
+      if (tituloSinopse != null) {
+        if (_obraEmVisualizacao != null &&
+            (tituloSinopse.isEmpty ||
+                _norm(_obraEmVisualizacao!.titulo).contains(_norm(tituloSinopse)) ||
+                _norm(tituloSinopse).contains(_norm(_obraEmVisualizacao!.titulo)))) {
+          obraAlvoSinopse = _obraEmVisualizacao;
+        } else if (tituloSinopse.isNotEmpty) {
+          obraAlvoSinopse = await _buscarObraNoCatalogoReal(tituloSinopse);
+        }
+      }
+
+      Map<String, dynamic>? fichaImdbValidada;
+      if (obraAlvoSinopse != null) {
+        final ehSerieObra = obraAlvoSinopse.isSerieFlag == true ||
+            obraAlvoSinopse.categoria.toLowerCase().contains('série') ||
+            obraAlvoSinopse.categoria.toLowerCase().contains('serie') ||
+            obraAlvoSinopse.maxTemporada > 0;
+        fichaImdbValidada = await _consultarFichaOficialImdb(
+          titulo: obraAlvoSinopse.titulo,
+          tituloOriginal: obraAlvoSinopse.tituloOriginal,
+          anoEsperado: obraAlvoSinopse.ano,
+          esperarSerie: ehSerieObra,
+        );
+      } else if (tituloSinopse != null && tituloSinopse.isNotEmpty) {
+        fichaImdbValidada = await _consultarFichaOficialImdb(titulo: tituloSinopse);
+      } else if (_obraEmVisualizacao != null) {
+        fichaImdbValidada = await _consultarFichaOficialImdb(
+          titulo: _obraEmVisualizacao!.titulo,
+          tituloOriginal: _obraEmVisualizacao!.tituloOriginal,
+          anoEsperado: _obraEmVisualizacao!.ano,
+        );
+      }
+
       final catalogoEspelho = _catalogoMemoria
           .map((o) => {
                 'titulo': o.titulo,
+                if (o.tituloOriginal.trim().isNotEmpty) 'titulo_original': o.tituloOriginal.trim(),
                 'categoria': o.categoria,
+                if (o.ano.trim().isNotEmpty) 'ano': o.ano.trim(),
+                if (o.notaImdb > 0) 'nota_imdb': o.notaImdb,
+                if (o.maxTemporada > 0) 'temporadas': o.maxTemporada,
+                if (o.sinopse.trim().isNotEmpty) 'sinopse': o.sinopse.trim(),
                 if (o.tmdbId != null) 'tmdb_id': o.tmdbId,
               })
           .toList();
@@ -430,13 +633,13 @@ class MaxAssistantService extends ChangeNotifier {
               'historico': _historicoDialogo,
               'tela_atual': _telaAtual,
               'aba_atual': _abaAtual,
+              'fonte_obrigatoria_sinopse': 'IMDb',
+              'regra_anti_alucinacao': 'NUNCA invente ou crie sinopse propria. Use EXCLUSIVAMENTE os dados reais de ficha_imdb_validada, obra_consultada ou obra_atual (conferindo titulo exato, ano exato, tipo filme/serie e temporadas do IMDb). Se nao houver sinopse real confirmada no IMDb/catalogo para aquele titulo e ano exatos, diga claramente que nao encontrou a sinopse oficial no IMDb.',
               'catalogo_disponivel': catalogoEspelho,
+              if (obraAlvoSinopse != null) 'obra_consultada': _serializarFichaObra(obraAlvoSinopse),
+              if (fichaImdbValidada != null) 'ficha_imdb_validada': fichaImdbValidada,
               if (_obraEmVisualizacao != null)
-                'obra_atual': {
-                  'titulo': _obraEmVisualizacao!.titulo,
-                  'categoria': _obraEmVisualizacao!.categoria,
-                  if (_obraEmVisualizacao!.tmdbId != null) 'tmdb_id': _obraEmVisualizacao!.tmdbId,
-                },
+                'obra_atual': _serializarFichaObra(_obraEmVisualizacao!),
             }),
           )
           .timeout(const Duration(seconds: 45));

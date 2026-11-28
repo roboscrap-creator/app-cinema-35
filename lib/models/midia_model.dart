@@ -67,6 +67,9 @@ class FonteMidia {
 }
 
 class ObraAgrupada {
+  String get titulo => nome;
+  String get tituloOriginal => nome;
+  int? get tmdbId => null;
   String get imdbId => imdbIdReal ?? '';
   String? get posterUrl => capaUrl;
   String? get backdropUrl => (bannerUrl != null && bannerUrl!.trim().isNotEmpty) ? bannerUrl : capaUrl;

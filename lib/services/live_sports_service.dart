@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../models/midia_model.dart' show JogoAoVivoInfo;
+import 'dart:core';
+import '../models/midia_model.dart' show ObraAgrupada;
 
 class JogoAoVivoInfo {
   final String id;

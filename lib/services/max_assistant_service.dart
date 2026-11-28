@@ -505,7 +505,7 @@ class MaxAssistantService extends ChangeNotifier {
           final tit = (ficha['titulo'] ?? limpo).toString();
           final sin = ficha['sinopse'].toString().trim();
           final ano = ficha['ano'] != null ? ' (${ficha['ano']})' : '';
-          return ('"$tit"$ano: $sin');
+      return;
           return;
         }
       }

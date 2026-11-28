@@ -148,14 +148,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     final f = fontes.first;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => CinemaPlayerScreen(
-          titulo: obra.titulo,
-          url: f.streamUrl,
-          subtitulo: obra.categoria,
-          obra: obra,
-          fonteAtual: f,
-          fontesDisponiveis: fontes,
-        ),
+        builder: (_) => CinemaPlayerScreen(obra: obra, fonteInicial: fontes.first),
       ),
     );
   }

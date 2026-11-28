@@ -139,7 +139,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   }
 
   Future<void> _reproduzirDireto(ObraAgrupada obra) async {
-    final fontes = await SupabaseService.instance.buscarFontesDaObra(obra);
+    final fontes = obra.fontes;
     if (!mounted) return;
     if (fontes.isEmpty) {
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetalheObraScreen(obra: obra)));

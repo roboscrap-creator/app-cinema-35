@@ -508,6 +508,107 @@ class SupabaseService {
     );
   }
 
+  static String _normChaveObra(String t) {
+    var r = t.toLowerCase().trim();
+    const ac = "áàâãäéèêëíìîïóòôõöúùûüçñ";
+    const sa = "aaaaaeeeeiiiiooooouuuucn";
+    for (int i = 0; i < ac.length; i++) {
+      r = r.replaceAll(ac[i], sa[i]);
+    }
+    return r.replaceAll(RegExp(r"[^a-z0-9]"), "");
+  }
+
+  static List<ObraAgrupada> _fundirObrasEquivalentes(List<ObraAgrupada> lista) {
+    if (lista.length < 2) return lista;
+    final mapChave = <String, int>{};
+    final resultado = <ObraAgrupada>[];
+
+    for (final item in lista) {
+      final chaves = <String>{};
+      if (item.tmdbId != null && item.tmdbId! > 0) chaves.add('tmdb_${item.tmdbId}');
+      final nTit = _normChaveObra(item.titulo);
+      final nOrig = _normChaveObra(item.tituloOriginal);
+      if (nTit.length >= 3) chaves.add('t_$nTit');
+      if (nOrig.length >= 3) chaves.add('t_$nOrig');
+
+      int? idxExistente;
+      for (final c in chaves) {
+        if (mapChave.containsKey(c)) {
+          idxExistente = mapChave[c];
+          break;
+        }
+      }
+
+      if (idxExistente == null) {
+        final novoIdx = resultado.length;
+        resultado.add(item);
+        for (final c in chaves) {
+          mapChave[c] = novoIdx;
+        }
+      } else {
+        final base = resultado[idxExistente];
+        // Mantem como principal a obra que tem metadados completos (capa/sinopse/notaImdb/tmdbId)
+        final baseScore = (base.sinopse.isNotEmpty ? 4 : 0) +
+            (base.notaImdb > 0 ? 3 : 0) +
+            (base.tmdbId != null && base.tmdbId! > 0 ? 3 : 0) +
+            (base.capaUrl.isNotEmpty ? 2 : 0);
+        final itemScore = (item.sinopse.isNotEmpty ? 4 : 0) +
+            (item.notaImdb > 0 ? 3 : 0) +
+            (item.tmdbId != null && item.tmdbId! > 0 ? 3 : 0) +
+            (item.capaUrl.isNotEmpty ? 2 : 0);
+
+        final princ = itemScore > baseScore ? item : base;
+        final sec = itemScore > baseScore ? base : item;
+
+        final fontesCombinadas = <FonteMidia>[...princ.fontes];
+        final urlsVistas = fontesCombinadas.map((f) => f.urlStream).toSet();
+        for (final f in sec.fontes) {
+          if (!urlsVistas.contains(f.urlStream)) {
+            urlsVistas.add(f.urlStream);
+            fontesCombinadas.add(f);
+          }
+        }
+
+        final tempMax = princ.maxTemporada >= sec.maxTemporada ? princ.maxTemporada : sec.maxTemporada;
+        final epMax = princ.maxEpisodio >= sec.maxEpisodio ? princ.maxEpisodio : sec.maxEpisodio;
+        final origFinal = princ.tituloOriginal.trim().isNotEmpty
+            ? princ.tituloOriginal
+            : (sec.tituloOriginal.trim().isNotEmpty ? sec.tituloOriginal : sec.titulo);
+
+        resultado[idxExistente] = ObraAgrupada(
+          chaveGrupo: princ.chaveGrupo,
+          tmdbId: princ.tmdbId ?? sec.tmdbId,
+          titulo: princ.titulo,
+          tituloOriginal: origFinal,
+          categoria: princ.categoria == 'Geral' && sec.categoria != 'Geral' ? sec.categoria : princ.categoria,
+          genero: princ.genero.isNotEmpty ? princ.genero : sec.genero,
+          sinopse: princ.sinopse.isNotEmpty ? princ.sinopse : sec.sinopse,
+          capaUrl: princ.capaUrl.isNotEmpty ? princ.capaUrl : sec.capaUrl,
+          bannerUrl: princ.bannerUrl.isNotEmpty ? princ.bannerUrl : sec.bannerUrl,
+          ano: princ.ano.isNotEmpty ? princ.ano : sec.ano,
+          pais: princ.pais.isNotEmpty ? princ.pais : sec.pais,
+          diretor: princ.diretor.isNotEmpty ? princ.diretor : sec.diretor,
+          elenco: princ.elenco.isNotEmpty ? princ.elenco : sec.elenco,
+          aberturaSegundos: princ.aberturaSegundos > 0 ? princ.aberturaSegundos : sec.aberturaSegundos,
+          emDestaque: princ.emDestaque || sec.emDestaque,
+          ordemDestaque: princ.ordemDestaque,
+          tags: {...princ.tags, ...sec.tags}.toList(),
+          notaImdb: princ.notaImdb > 0 ? princ.notaImdb : sec.notaImdb,
+          visualizacoes: princ.visualizacoes + sec.visualizacoes,
+          fontes: fontesCombinadas,
+          totalFontes: princ.totalFontes + sec.totalFontes,
+          maxTemporada: tempMax,
+          maxEpisodio: epMax,
+          isSerieFlag: princ.isSerieFlag ?? sec.isSerieFlag,
+        );
+        for (final c in chaves) {
+          mapChave[c] = idxExistente;
+        }
+      }
+    }
+    return resultado;
+  }
+
   static Future<List<ObraAgrupada>> carregarCatalogoAgrupado({bool forcarRefresh = false, int limite = 500}) async {
     if (!forcarRefresh && _memoriaRapida != null && _memoriaRapida!.isNotEmpty) {
       return _memoriaRapida!;
@@ -526,7 +627,8 @@ class SupabaseService {
       if (resp.statusCode == 200 || resp.statusCode == 206) {
         final rows = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
         if (rows.isNotEmpty) {
-          final lista = rows.whereType().map((e) => _obraFromViewRow(Map<String, dynamic>.from(e))).toList();
+          final bruta = rows.whereType().map((e) => _obraFromViewRow(Map<String, dynamic>.from(e))).toList();
+          final lista = _fundirObrasEquivalentes(bruta);
           _memoriaRapida = lista;
           return lista;
         }
@@ -546,13 +648,22 @@ class SupabaseService {
     const filtroAtivos =
         '&url_stream=not.ilike.*STANIPTV*&url_stream=not.ilike.*ntcdn.us*&url_stream=not.ilike.*vstreaming.net*&url_stream=not.ilike.*popfilmeshd.net*&url_stream=not.ilike.*themediafire.club*&url_stream=not.ilike.*cdnv12.ec.cx*&url_stream=not.ilike.*cdnv18.ec.cx*&url_stream=not.ilike.*0.0.0.0*&url_stream=not.ilike.*lh3.googleusercontent.com*&url_stream=not.ilike.*dailymotion.com/sec(';
 
-    String filtro;
+    final termosOr = <String>[];
     if (obra.tmdbId != null && obra.tmdbId! > 0) {
-      filtro = '&tmdb_id=eq.${obra.tmdbId}';
-    } else {
-      final enc = Uri.encodeComponent(obra.titulo.trim());
-      filtro = '&or=(serie_nome.ilike.*$enc*,titulo.ilike.*$enc*)';
+      termosOr.add('tmdb_id.eq.${obra.tmdbId}');
     }
+    final encTit = Uri.encodeComponent(obra.titulo.trim());
+    if (encTit.isNotEmpty) {
+      termosOr.add('serie_nome.ilike.*$encTit*');
+      termosOr.add('titulo.ilike.*$encTit*');
+    }
+    final orig = obra.tituloOriginal.trim();
+    if (orig.isNotEmpty && orig.toLowerCase() != obra.titulo.trim().toLowerCase()) {
+      final encOrig = Uri.encodeComponent(orig);
+      termosOr.add('serie_nome.ilike.*$encOrig*');
+      termosOr.add('titulo.ilike.*$encOrig*');
+    }
+    final filtro = '&or=(${termosOr.join(",")})';
 
     try {
       final uri = Uri.parse('$baseUrl/rest/v1/catalogo_midia?select=$cols$filtroAtivos$filtro&order=temporada.asc.nullslast,episodio.asc.nullslast&limit=250');

@@ -243,7 +243,7 @@ class MaxAssistantService extends ChangeNotifier {
           if (pageResp.statusCode == 200) {
             final html = utf8.decode(pageResp.bodyBytes, allowMalformed: true);
             final mLd = RegExp(
-              r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+              r'<script[^>]*type=["\x27]application/ld\+json["\x27][^>]*>(.*?)</script>',
               dotAll: true,
               caseSensitive: false,
             ).firstMatch(html);

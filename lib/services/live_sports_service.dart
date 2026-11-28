@@ -39,7 +39,7 @@ class LiveSportsService {
   LiveSportsService._();
   static final LiveSportsService instance = LiveSportsService._();
 
-  static const List> _ligas = [
+  static const List<dynamic> _ligas = [
     {'slug': 'bra.1', 'nome': 'Brasileirão Série A', 'prio': 100},
     {'slug': 'conmebol.libertadores', 'nome': 'Libertadores', 'prio': 98},
     {'slug': 'bra.copa_do_brasil', 'nome': 'Copa do Brasil', 'prio': 96},
@@ -129,7 +129,7 @@ class LiveSportsService {
           String emissora = '';
           final broadcasts = (comp['broadcasts'] is List<dynamic> ? comp['broadcasts'] : <dynamic>[]);
           if (broadcasts.isNotEmpty && broadcasts.first is Map) {
-            final names = ((broadcasts.first as Map)['names'] is List<dynamic> ? (broadcasts.first as Map)['names'] : <dynamic>[]);
+            final names = ((broadcasts.first as Map<String, dynamic>)['names'] is List<dynamic> ? (broadcasts.first as Map<String, dynamic>)['names'] : <dynamic>[]);
             if (names.isNotEmpty) emissora = names.first.toString();
           }
 

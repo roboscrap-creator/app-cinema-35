@@ -21,7 +21,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     'Kids', 'Animes', 'Max', 'Procurar', 'Favoritos', 'Histórico',
   ];
 
-  final List> _plataformas = const [
+  final List<dynamic> _plataformas = const [
     {'nome': 'Netflix', 'cor': Color(0xFFE50914), 'query': 'Netflix'},
     {'nome': 'Prime Video', 'cor': Color(0xFF00A8E1), 'query': 'Prime'},
     {'nome': 'ESPN', 'cor': Color(0xFFD00000), 'query': 'ESPN'},
@@ -41,7 +41,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   List<ObraAgrupada> _catalogoCompleto = [];
   List<ObraAgrupada> _favoritos = [];
   List<ObraAgrupada> _historico = [];
-  List> _jogosAoVivo = [];
+  List<dynamic> _jogosAoVivo = [];
   Timer? _bannerTimer;
 
   @override
@@ -82,7 +82,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
       List<ObraAgrupada> favs = [];
       List<ObraAgrupada> hist = [];
-      List> jogos = [];
+      List<dynamic> jogos = [];
 
       try { favs = await SupabaseService.carregarFavoritos(); } catch (_) {}
       try {
@@ -121,9 +121,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     }).toList();
   }
 
-  List> _obterBannersAtuais() {
+  List<dynamic> _obterBannersAtuais() {
     final aba = _abas[_abaIndex];
-    final List> lista = [];
+    final List<dynamic> lista = [];
 
     if (aba == 'Início' || aba == 'Filmes') {
       for (final f in _filtrarPorCategoria('Filmes').where((o) => (o.backdropUrl ?? o.posterUrl ?? '').isNotEmpty).take(6)) {
@@ -303,7 +303,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
   }
 
-  Widget _buildBannerRotativo(List> banners) {
+  Widget _buildBannerRotativo(List<dynamic> banners) {
     final idx = _bannerIndex % banners.length;
     final item = banners[idx];
 

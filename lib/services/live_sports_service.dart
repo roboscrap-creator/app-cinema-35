@@ -74,14 +74,14 @@ class LiveSportsService {
         final res = await http.get(uri).timeout(const Duration(seconds: 7));
         if (res.statusCode != 200) return;
         final data = jsonDecode(res.body);
-        final events = (data['events'] is List ? data['events'] : []);
+        final events = (data['events'] is List<dynamic> ? data['events'] : <dynamic>[]);
 
         for (final ev in events) {
           if (ev is! Map) continue;
-          final competitions = (ev['competitions'] is List ? ev['competitions'] : []);
+          final competitions = (ev['competitions'] is List<dynamic> ? ev['competitions'] : <dynamic>[]);
           if (competitions.isEmpty) continue;
           final comp = competitions.first as Map;
-          final competitors = (comp['competitors'] is List ? comp['competitors'] : []);
+          final competitors = (comp['competitors'] is List<dynamic> ? comp['competitors'] : <dynamic>[]);
           if (competitors.length < 2) continue;
 
           Map? home;
@@ -126,9 +126,9 @@ class LiveSportsService {
           }
 
           String emissora = '';
-          final broadcasts = (comp['broadcasts'] is List ? comp['broadcasts'] : []);
+          final broadcasts = (comp['broadcasts'] is List<dynamic> ? comp['broadcasts'] : <dynamic>[]);
           if (broadcasts.isNotEmpty && broadcasts.first is Map) {
-            final names = ((broadcasts.first as Map)['names'] is List ? (broadcasts.first as Map)['names'] : []);
+            final names = ((broadcasts.first as Map)['names'] is List<dynamic> ? (broadcasts.first as Map)['names'] : <dynamic>[]);
             if (names.isNotEmpty) emissora = names.first.toString();
           }
 

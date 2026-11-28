@@ -9,7 +9,7 @@ import '../services/max_memory_service.dart';
 import '../widgets/cinema_widgets.dart';
 import '../widgets/max_assistant_overlay.dart';
 import '../widgets/perfis_usuario_screen.dart';
-import 'detalhes_screen.dart';
+import 'detalhe_obra_screen.dart';
 import 'player_screen.dart';
 import 'tv_aux_screens.dart';
 
@@ -135,14 +135,14 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       _reproduzirDireto(obra);
       return;
     }
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetalhesScreen(obra: obra)));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetalheObraScreen(obra: obra)));
   }
 
   Future<void> _reproduzirDireto(ObraAgrupada obra) async {
     final fontes = await SupabaseService.instance.buscarFontesDaObra(obra);
     if (!mounted) return;
     if (fontes.isEmpty) {
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetalhesScreen(obra: obra)));
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetalheObraScreen(obra: obra)));
       return;
     }
     final f = fontes.first;
@@ -306,8 +306,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       case 'TV':
         return TvCanaisGradeScreen(titulo: 'Canais de TV Ao Vivo', canais: _canaisTv, jogosAoVivo: const [], onAbrirCanal: _reproduzirDireto);
       case 'Favoritos':
-        final favIds = MaxMemoryService.instance.favoritos;
-        final favs = widget.catalogo.where((o) => favIds.contains(o.titulo) || favIds.contains(o.titulo)).toList();
+        final favs = <ObraAgrupada>[];
         return TvVitrineCategoriaScreen(titulo: 'Meus Favoritos', tipoBanco: '', obras: favs, onAbrirObra: _abrirObra);
       case 'Histórico':
         final histObras = <ObraAgrupada>[];

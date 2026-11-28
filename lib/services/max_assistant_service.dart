@@ -500,12 +500,12 @@ class MaxAssistantService extends ChangeNotifier {
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
       if (limpo.length >= 2) {
-        final ficha = await _consultarFichaOficialImdb(limpo);
+        final ficha = await _consultarFichaOficialImdb();
         if (ficha != null && (ficha['sinopse'] ?? '').toString().trim().isNotEmpty) {
           final tit = (ficha['titulo'] ?? limpo).toString();
           final sin = ficha['sinopse'].toString().trim();
           final ano = ficha['ano'] != null ? ' (${ficha['ano']})' : '';
-          await _falarERegistrar('"$tit"$ano: $sin');
+          return ('"$tit"$ano: $sin');
           return;
         }
       }

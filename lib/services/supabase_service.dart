@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/midia_model.dart';
 
 class SupabaseService {
+  static final SupabaseService instance = SupabaseService();
   static const String baseUrl = 'https://kuziampmbltqdqkqyrlb.supabase.co';
   static const String defaultAnonKey =
       'sb_publishable_ts3-fnYSelSkjp6GIY8jVw_-ZZTkD_5';

@@ -307,7 +307,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         return TvCanaisGradeScreen(titulo: 'Canais de TV Ao Vivo', canais: _canaisTv, jogosAoVivo: const [], onAbrirCanal: _reproduzirDireto);
       case 'Favoritos':
         final favIds = MaxMemoryService.instance.favoritos;
-        final favs = widget.catalogo.where((o) => favIds.contains(o.chaveAgrupamento) || favIds.contains(o.titulo)).toList();
+        final favs = widget.catalogo.where((o) => favIds.contains(o.titulo) || favIds.contains(o.titulo)).toList();
         return TvVitrineCategoriaScreen(titulo: 'Meus Favoritos', tipoBanco: '', obras: favs, onAbrirObra: _abrirObra);
       case 'Histórico':
         final hist = MaxMemoryService.instance.historico;

@@ -387,11 +387,11 @@ class _TvExploradorCompletoScreenState extends State<TvExploradorCompletoScreen>
     if (!mounted) return;
     setState(() {
       if (resetar) _lista = [];
-      final chaves = _lista.map((e) => e.chaveAgrupamento).toSet();
+      final chaves = _lista.map((e) => e.titulo).toSet();
       for (final n in novos) {
-        if (chaves.add(n.chaveAgrupamento)) _lista.add(n);
+        if (chaves.add(n.titulo)) _lista.add(n);
       }
-      _offsetBanco += novos.length;
+      _offsetBanco += (novos.length as int);
       if (novos.length < 60) _temMais = false;
       _carregandoMais = false;
     });
